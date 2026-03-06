@@ -19,7 +19,7 @@ yaml = [
 ]
 
 [project.scripts]
-seckit = "secrets_kit.cli:main"
+secrets-kit = "secrets_kit.cli:main"
 seckit = "secrets_kit.cli:main"
 
 [tool.setuptools]
