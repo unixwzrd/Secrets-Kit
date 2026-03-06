@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "secrets-kit"
+version = "0.1.0"
+description = "Secure secrets and PII CLI for local operations"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "OpenClaw Ops Contributors" }]
+dependencies = [
+]
+
+[project.optional-dependencies]
+yaml = [
+  "PyYAML>=6.0",
+]
+
+[project.scripts]
+secrets-kit = "secrets_kit.cli:main"
+seckit = "secrets_kit.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
