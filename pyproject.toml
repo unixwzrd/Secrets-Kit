@@ -3,7 +3,7 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "secrets-kit"
+name = "seckit"
 version = "0.1.0"
 description = "Secure secrets and PII CLI for local operations"
 readme = "README.md"
@@ -19,7 +19,7 @@ yaml = [
 ]
 
 [project.scripts]
-secrets-kit = "secrets_kit.cli:main"
+seckit = "secrets_kit.cli:main"
 seckit = "secrets_kit.cli:main"
 
 [tool.setuptools]

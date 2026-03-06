@@ -151,7 +151,7 @@ def candidates_from_file(
         else:
             entry_kind = validate_entry_kind(entry_kind=row_kind)
         account = str(row.get("account", "default"))
-        service = str(row.get("service", "secrets-kit"))
+        service = str(row.get("service", "seckit"))
         tags = normalize_tags(tags=row.get("tags", []))
         source = f"file:{file_path}"
         meta = EntryMetadata(

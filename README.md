@@ -4,8 +4,8 @@
 
 [![Python](https://img.shields.io/badge/Python-3.9%2B-blue)](#requirements) [![Platform](https://img.shields.io/badge/Platform-macOS-informational)](#requirements) [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-- [Secrets Kit](#secrets-kit)
-  - [Why Secrets Kit](#why-secrets-kit)
+- [Secrets Kit](#seckit)
+  - [Why Secrets Kit](#why-seckit)
   - [Features](#features)
   - [Requirements](#requirements)
   - [Recommended Environment Setup](#recommended-environment-setup)
@@ -56,7 +56,7 @@ Secrets Kit gives you one clean operator workflow:
 ## Recommended Environment Setup
 
 ```bash
-cd ~/projects/secrets-kit
+cd ~/projects/seckit
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -U pip setuptools wheel
@@ -67,20 +67,20 @@ python -m pip install -U pip setuptools wheel
 ### From local source
 
 ```bash
-cd ~/projects/secrets-kit
+cd ~/projects/seckit
 pip install -e .
 ```
 
 ### Direct from GitHub
 
 ```bash
-pip install "git+https://github.com/unixwzrd/secrets-kit.git"
+pip install "git+https://github.com/unixwzrd/seckit.git"
 ```
 
 ### Direct from GitHub (editable/dev)
 
 ```bash
-pip install -e "git+https://github.com/unixwzrd/secrets-kit.git#egg=secrets-kit"
+pip install -e "git+https://github.com/unixwzrd/seckit.git#egg=seckit"
 ```
 
 ### Optional YAML import support
@@ -100,34 +100,34 @@ deactivate
 Store two entries:
 
 ```bash
-echo 'sk-live' | secrets-kit set --name OPENAI_API_KEY --stdin --type secret --kind api_key --service openclaw --account miafour
-echo 'hunter2' | secrets-kit set --name ADMIN_PASSWORD --stdin --type secret --kind password --service openclaw --account miafour
+echo 'sk-live' | seckit set --name OPENAI_API_KEY --stdin --type secret --kind api_key --service openclaw --account miafour
+echo 'hunter2' | seckit set --name ADMIN_PASSWORD --stdin --type secret --kind password --service openclaw --account miafour
 ```
 
 List (redacted):
 
 ```bash
-secrets-kit list --service openclaw --account miafour
+seckit list --service openclaw --account miafour
 ```
 
 Export into current shell for runtime:
 
 ```bash
-eval "$(secrets-kit export --format shell --service openclaw --account miafour --all)"
+eval "$(seckit export --format shell --service openclaw --account miafour --all)"
 ```
 
 ## Command Surface
 
 ```bash
-secrets-kit set
-secrets-kit get
-secrets-kit list
-secrets-kit delete
-secrets-kit import env
-secrets-kit import file
-secrets-kit export
-secrets-kit doctor
-secrets-kit migrate dotenv
+seckit set
+seckit get
+seckit list
+seckit delete
+seckit import env
+seckit import file
+seckit export
+seckit doctor
+seckit migrate dotenv
 ```
 
 Short alias (same command set):
@@ -141,7 +141,7 @@ seckit export --format shell --all
 ## Security Notes
 
 - Secret values are stored in Keychain only.
-- Registry metadata lives at `~/.config/secrets-kit/registry.json`.
+- Registry metadata lives at `~/.config/seckit/registry.json`.
 - Registry contains no secret values.
 - Default output is redacted.
 - File permissions are enforced (`0700` dir, `0600` file).
@@ -168,7 +168,7 @@ Useful contributions:
 Run tests locally:
 
 ```bash
-cd ~/projects/secrets-kit
+cd ~/projects/seckit
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
 

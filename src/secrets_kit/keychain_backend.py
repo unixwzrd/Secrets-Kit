@@ -1,4 +1,4 @@
-"""macOS Keychain backend for secrets-kit."""
+"""macOS Keychain backend for seckit."""
 
 from __future__ import annotations
 
@@ -54,7 +54,7 @@ def check_security_cli() -> bool:
     return proc.returncode == 0
 
 
-def doctor_roundtrip(*, service: str = "secrets-kit-doctor", account: str = "doctor") -> None:
+def doctor_roundtrip(*, service: str = "seckit-doctor", account: str = "doctor") -> None:
     """Run a backend write/read/delete smoke test."""
     test_name = "DOCTOR_TEST_KEY"
     value = "doctor_ok"

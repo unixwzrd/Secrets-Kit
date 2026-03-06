@@ -1,4 +1,4 @@
-"""CLI entrypoint for secrets-kit."""
+"""CLI entrypoint for seckit."""
 
 from __future__ import annotations
 
@@ -373,12 +373,12 @@ def cmd_migrate_dotenv(*, args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     """Construct CLI parser."""
-    parser = argparse.ArgumentParser(prog="secrets-kit", description="Secure secrets and PII CLI for local ops")
+    parser = argparse.ArgumentParser(prog="seckit", description="Secure secrets and PII CLI for local ops")
     sub = parser.add_subparsers(dest="command", required=True)
 
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--account", default="default")
-    common.add_argument("--service", default="secrets-kit")
+    common.add_argument("--service", default="seckit")
 
     p_set = sub.add_parser("set", parents=[common])
     p_set.add_argument("--name", required=True)

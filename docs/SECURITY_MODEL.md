@@ -6,7 +6,7 @@
 ## Storage
 
 - Secret values: macOS Keychain
-- Metadata: `~/.config/secrets-kit/registry.json`
+- Metadata: `~/.config/seckit/registry.json`
 
 ## Redaction
 

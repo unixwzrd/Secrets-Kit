@@ -19,7 +19,7 @@ class RegistryError(RuntimeError):
 def registry_dir(*, home: Optional[Path] = None) -> Path:
     """Return metadata directory path."""
     base = home or Path.home()
-    return base / ".config" / "secrets-kit"
+    return base / ".config" / "seckit"
 
 
 def registry_path(*, home: Optional[Path] = None) -> Path:

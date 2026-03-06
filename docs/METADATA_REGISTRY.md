@@ -11,7 +11,7 @@ The registry stores non-secret metadata for each entry. Secret values are not st
 
 Registry path:
 
-- `~/.config/secrets-kit/registry.json`
+- `~/.config/seckit/registry.json`
 
 ## Security posture
 

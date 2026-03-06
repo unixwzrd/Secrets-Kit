@@ -6,7 +6,7 @@
 ## 1) Install
 
 ```bash
-cd ~/projects/secrets-kit
+cd ~/projects/seckit
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -U pip setuptools wheel
@@ -28,20 +28,20 @@ deactivate
 ## 2) Store a secret
 
 ```bash
-echo 'sk-example' | secrets-kit set --name OPENAI_API_KEY --stdin --kind api_key --service openclaw --account miafour
-echo 'hunter2' | secrets-kit set --name ADMIN_PASSWORD --stdin --kind password --service openclaw --account miafour
+echo 'sk-example' | seckit set --name OPENAI_API_KEY --stdin --kind api_key --service openclaw --account miafour
+echo 'hunter2' | seckit set --name ADMIN_PASSWORD --stdin --kind password --service openclaw --account miafour
 ```
 
 ## 3) Verify registry (redacted)
 
 ```bash
-secrets-kit list --service openclaw --account miafour
+seckit list --service openclaw --account miafour
 ```
 
 ## 4) Export for current shell
 
 ```bash
-eval "$(secrets-kit export --format shell --service openclaw --account miafour --all)"
+eval "$(seckit export --format shell --service openclaw --account miafour --all)"
 ```
 
 [Back to README](../README.md)

@@ -3,7 +3,7 @@
 **Created**: 2026-03-05  
 **Updated**: 2026-03-05
 
-- [Secrets Kit TODO](#secrets-kit-todo)
+- [Secrets Kit TODO](#seckit-todo)
   - [README and Positioning](#readme-and-positioning)
   - [Security/Model Clarity](#securitymodel-clarity)
   - [CLI UX Enhancements](#cli-ux-enhancements)

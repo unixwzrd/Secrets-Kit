@@ -1,4 +1,4 @@
-"""Data models and validation for secrets-kit."""
+"""Data models and validation for seckit."""
 
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ class EntryMetadata:
     entry_type: EntryType = "secret"
     entry_kind: EntryKind = "generic"
     tags: List[str] = field(default_factory=list)
-    service: str = "secrets-kit"
+    service: str = "seckit"
     account: str = "default"
     created_at: str = field(default_factory=lambda: now_utc_iso())
     updated_at: str = field(default_factory=lambda: now_utc_iso())
@@ -71,7 +71,7 @@ class EntryMetadata:
             entry_type=str(payload.get("entry_type", payload.get("type", "secret"))),
             entry_kind=str(payload.get("entry_kind", payload.get("kind", "generic"))),
             tags=list(payload.get("tags", [])),
-            service=str(payload.get("service", "secrets-kit")),
+            service=str(payload.get("service", "seckit")),
             account=str(payload.get("account", "default")),
             created_at=str(payload.get("created_at", now_utc_iso())),
             updated_at=str(payload.get("updated_at", now_utc_iso())),
