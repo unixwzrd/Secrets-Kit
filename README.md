@@ -57,7 +57,7 @@ Secrets Kit gives you one clean operator workflow:
 
 ```bash
 cd ~/projects/seckit
-python3 -m venv .venv
+python -m venv .venv
 source .venv/bin/activate
 python -m pip install -U pip setuptools wheel
 ```
@@ -169,7 +169,7 @@ Run tests locally:
 
 ```bash
 cd ~/projects/seckit
-PYTHONPATH=src python3 -m unittest discover -s tests -v
+PYTHONPATH=src python -m unittest discover -s tests -v
 ```
 
 ## Support This and Other Projects
