@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import argparse
+import io
+import json
+import tempfile
 import unittest
+from unittest import mock
+from contextlib import redirect_stdout, redirect_stderr
 
-from secrets_kit.cli import build_parser
+from secrets_kit.cli import build_parser, cmd_doctor
 
 
 class CliCommandsTest(unittest.TestCase):
@@ -19,6 +25,49 @@ class CliCommandsTest(unittest.TestCase):
 
         args = parser.parse_args(["import", "file", "--file", "secrets.json", "--kind", "auto"])
         self.assertEqual(args.kind, "auto")
+
+    def test_doctor_reports_metadata_keychain_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_registry = {
+                "openclaw::miafour::OPENAI_API_KEY": {
+                    "name": "OPENAI_API_KEY",
+                    "entry_type": "secret",
+                    "entry_kind": "api_key",
+                    "tags": [],
+                    "service": "openclaw",
+                    "account": "miafour",
+                    "created_at": "2026-03-10T00:00:00Z",
+                    "updated_at": "2026-03-10T00:00:00Z",
+                    "source": "manual",
+                }
+            }
+
+            out = io.StringIO()
+            err = io.StringIO()
+            with mock.patch("secrets_kit.cli.check_security_cli", return_value=True), \
+                mock.patch("secrets_kit.cli.ensure_registry_storage", return_value=f"{tmp}/registry.json"), \
+                mock.patch("secrets_kit.cli.doctor_roundtrip", return_value=None), \
+                mock.patch("secrets_kit.cli.load_registry") as load_registry_mock, \
+                mock.patch("secrets_kit.cli.secret_exists", return_value=False), \
+                redirect_stdout(out), \
+                redirect_stderr(err):
+                from secrets_kit.models import EntryMetadata
+
+                load_registry_mock.return_value = {
+                    key: EntryMetadata.from_dict(value) for key, value in fake_registry.items()
+                }
+                code = cmd_doctor(args=argparse.Namespace())
+
+            self.assertEqual(code, 1)
+            payload = json.loads(out.getvalue())
+            self.assertTrue(payload["security_cli"])
+            self.assertTrue(payload["registry"])
+            self.assertTrue(payload["keychain_roundtrip"])
+            self.assertEqual(
+                payload["metadata_keychain_drift"],
+                [{"name": "OPENAI_API_KEY", "service": "openclaw", "account": "miafour"}],
+            )
+            self.assertIn("metadata/keychain drift detected", err.getvalue())
 
 
 if __name__ == "__main__":

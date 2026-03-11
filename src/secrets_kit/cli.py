@@ -12,7 +12,7 @@ from typing import Dict, Iterable, List, Optional
 
 from secrets_kit.exporters import export_shell_lines
 from secrets_kit.importers import ImportCandidate, candidates_from_dotenv, candidates_from_env, candidates_from_file, read_dotenv
-from secrets_kit.keychain_backend import BackendError, check_security_cli, delete_secret, doctor_roundtrip, get_secret, set_secret
+from secrets_kit.keychain_backend import BackendError, check_security_cli, delete_secret, doctor_roundtrip, get_secret, secret_exists, set_secret
 from secrets_kit.models import ENTRY_KIND_VALUES, EntryMetadata, ValidationError, normalize_tags, validate_entry_kind, validate_entry_type, validate_key_name
 from secrets_kit.registry import RegistryError, delete_metadata, ensure_registry_storage, load_registry, upsert_metadata
 
@@ -295,7 +295,13 @@ def cmd_export(*, args: argparse.Namespace) -> int:
 
 def cmd_doctor(*, args: argparse.Namespace) -> int:
     del args
-    status = {"security_cli": False, "registry": False, "keychain_roundtrip": False}
+    status = {
+        "security_cli": False,
+        "registry": False,
+        "keychain_roundtrip": False,
+        "registry_path": None,
+        "metadata_keychain_drift": [],
+    }
     if check_security_cli():
         status["security_cli"] = True
     else:
@@ -305,7 +311,7 @@ def cmd_doctor(*, args: argparse.Namespace) -> int:
     try:
         path = ensure_registry_storage()
         status["registry"] = True
-        print(f"registry_path={path}")
+        status["registry_path"] = str(path)
     except RegistryError as exc:
         print(json.dumps(status, indent=2, sort_keys=True))
         return _fatal(message=str(exc), code=1)
@@ -317,7 +323,26 @@ def cmd_doctor(*, args: argparse.Namespace) -> int:
         print(json.dumps(status, indent=2, sort_keys=True))
         return _fatal(message=str(exc), code=1)
 
+    try:
+        entries = load_registry()
+        drift = []
+        for meta in sorted(entries.values(), key=lambda item: (item.service, item.account, item.name)):
+            if not secret_exists(service=meta.service, account=meta.account, name=meta.name):
+                drift.append(
+                    {
+                        "name": meta.name,
+                        "service": meta.service,
+                        "account": meta.account,
+                    }
+                )
+        status["metadata_keychain_drift"] = drift
+    except (RegistryError, BackendError) as exc:
+        print(json.dumps(status, indent=2, sort_keys=True))
+        return _fatal(message=str(exc), code=1)
+
     print(json.dumps(status, indent=2, sort_keys=True))
+    if status["metadata_keychain_drift"]:
+        return _fatal(message="metadata/keychain drift detected", code=1)
     return 0
 
 

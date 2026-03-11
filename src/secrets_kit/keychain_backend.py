@@ -30,6 +30,17 @@ def _run_security(*, args: list[str], stdin: Optional[str] = None) -> str:
     return (proc.stdout or "").strip()
 
 
+def _security_exists(*, args: list[str]) -> bool:
+    cmd = ["security", *args]
+    proc = subprocess.run(
+        cmd,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    return proc.returncode == 0
+
+
 def set_secret(*, service: str, account: str, name: str, value: str) -> None:
     """Create or update a keychain secret entry."""
     svc = backend_service_name(service=service, name=name)
@@ -40,6 +51,12 @@ def get_secret(*, service: str, account: str, name: str) -> str:
     """Read secret value from keychain."""
     svc = backend_service_name(service=service, name=name)
     return _run_security(args=["find-generic-password", "-a", account, "-s", svc, "-w"])
+
+
+def secret_exists(*, service: str, account: str, name: str) -> bool:
+    """Return whether a keychain item exists for one logical secret."""
+    svc = backend_service_name(service=service, name=name)
+    return _security_exists(args=["find-generic-password", "-a", account, "-s", svc])
 
 
 def delete_secret(*, service: str, account: str, name: str) -> None:

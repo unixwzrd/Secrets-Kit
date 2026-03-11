@@ -2,11 +2,15 @@
 
 *Last updated: 2026-03-02*
 
+![Secrets Kit](./docs/images/Secrets-Kit-Banner.png)
+
 [![Python](https://img.shields.io/badge/Python-3.9%2B-blue)](#requirements) [![Platform](https://img.shields.io/badge/Platform-macOS-informational)](#requirements) [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-- [Secrets Kit](#seckit)
-  - [Why Secrets Kit](#why-seckit)
+- [Secrets Kit](#secrets-kit)
+  - [**Read This First**](#read-this-first)
+  - [Why Secrets Kit](#why-secrets-kit)
   - [Features](#features)
+  - [Philosophy](#philosophy)
   - [Requirements](#requirements)
   - [Recommended Environment Setup](#recommended-environment-setup)
   - [Installation](#installation)
@@ -23,6 +27,32 @@
   - [License](#license)
 
 Simple, secure CLI for secrets and PII. Store values in Keychain, keep metadata in a local registry, and export runtime env values without putting secrets in git.
+
+Repository name: `Secrets-Kit`  
+CLI command: `seckit`
+
+## **Read This First**
+
+This v1 release is intentionally narrow:
+
+- macOS only
+- uses the user's login Keychain at `~/Library/Keychains/login.keychain-db`
+- requires that keychain to be unlocked and accessible
+- exports secrets into the current process environment for runtime use
+
+If you do not understand that trust model, do not use this yet.
+
+This is not:
+
+- a zero-knowledge vault
+- a headless multi-host secret manager
+- a guarantee against secret exposure inside a compromised user session
+
+If the login keychain is locked or macOS blocks interaction, `seckit` operations that touch secret values will fail until you unlock the keychain:
+
+```bash
+security unlock-keychain "$HOME/Library/Keychains/login.keychain-db"
+```
 
 ## Why Secrets Kit
 
@@ -47,6 +77,13 @@ Secrets Kit gives you one clean operator workflow:
 - `doctor` backend and storage checks
 - `migrate dotenv` flow with archive + placeholder rewrite
 
+## Philosophy
+
+- local-first secret storage
+- explicit configuration over hidden magic
+- no secret values in git
+- shell export for runtime only, not cross-host replication
+
 ## Requirements
 
 - Python 3.9+
@@ -56,7 +93,7 @@ Secrets Kit gives you one clean operator workflow:
 ## Recommended Environment Setup
 
 ```bash
-cd ~/projects/seckit
+cd ~/projects/Secrets-Kit
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install -U pip setuptools wheel
@@ -67,20 +104,20 @@ python -m pip install -U pip setuptools wheel
 ### From local source
 
 ```bash
-cd ~/projects/seckit
-pip install -e .
+cd ~/projects/Secrets-Kit
+pip install .
 ```
 
 ### Direct from GitHub
 
 ```bash
-pip install "git+https://github.com/unixwzrd/seckit.git"
+pip install "git+https://github.com/unixwzrd/Secrets-Kit.git"
 ```
 
 ### Direct from GitHub (editable/dev)
 
 ```bash
-pip install -e "git+https://github.com/unixwzrd/seckit.git#egg=seckit"
+pip install -e "git+https://github.com/unixwzrd/Secrets-Kit.git#egg=seckit"
 ```
 
 ### Optional YAML import support
@@ -96,6 +133,16 @@ deactivate
 ```
 
 ## Quick Start
+
+For typical users, install with `pip install .` or directly from GitHub.
+Use `pip install -e .` only if you are actively developing on Secrets-Kit.
+
+Preflight on macOS:
+
+```bash
+security show-keychain-info "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1 || \
+  security unlock-keychain "$HOME/Library/Keychains/login.keychain-db"
+```
 
 Store two entries:
 
@@ -115,6 +162,11 @@ Export into current shell for runtime:
 ```bash
 eval "$(seckit export --format shell --service openclaw --account miafour --all)"
 ```
+
+Important:
+
+- `export --format shell` is meant for local runtime handoff.
+- Encrypted cross-host export/import is a later roadmap item, not part of v1.
 
 ## Command Surface
 
@@ -141,9 +193,12 @@ seckit export --format shell --all
 ## Security Notes
 
 - Secret values are stored in Keychain only.
+- v1 uses the login Keychain at `~/Library/Keychains/login.keychain-db`.
 - Registry metadata lives at `~/.config/seckit/registry.json`.
 - Registry contains no secret values.
 - Default output is redacted.
+- Composite identity is `service + account + name`.
+- `doctor` checks backend availability, registry health, keychain roundtrip, and metadata/keychain drift.
 - File permissions are enforced (`0700` dir, `0600` file).
 
 ## Docs
@@ -152,7 +207,6 @@ seckit export --format shell --all
 - [Security Model](docs/SECURITY_MODEL.md)
 - [OpenClaw Integration](docs/INTEGRATION_OPENCLAW.md)
 - [Metadata Registry](docs/METADATA_REGISTRY.md)
-- [TODO](docs/TODO.md)
 
 ## Contributing
 
@@ -168,7 +222,7 @@ Useful contributions:
 Run tests locally:
 
 ```bash
-cd ~/projects/seckit
+cd ~/projects/Secrets-Kit
 PYTHONPATH=src python -m unittest discover -s tests -v
 ```
 

@@ -6,12 +6,14 @@
 ## 1) Install
 
 ```bash
-cd ~/projects/seckit
+cd ~/projects/Secrets-Kit
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install -U pip setuptools wheel
-python -m pip install -e .
+python -m pip install .
 ```
+
+Use `python -m pip install -e .` only if you are actively developing on Secrets-Kit.
 
 Optional YAML file-import support:
 
@@ -26,6 +28,13 @@ deactivate
 ```
 
 ## 2) Store a secret
+
+If the login Keychain is locked or inaccessible from your shell, unlock it first:
+
+```bash
+security show-keychain-info "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1 || \
+  security unlock-keychain "$HOME/Library/Keychains/login.keychain-db"
+```
 
 ```bash
 echo 'sk-example' | seckit set --name OPENAI_API_KEY --stdin --kind api_key --service openclaw --account miafour
