@@ -31,4 +31,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Why:**
   - Make the v1 Keychain-backed workflow understandable and safer to operate.
   - Support optional runtime secret loading from `LLM-Ops-Kit` without pretending this is a generic cross-host secret manager yet.
-
