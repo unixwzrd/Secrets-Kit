@@ -51,7 +51,14 @@ This is not:
 If the login keychain is locked or macOS blocks interaction, `seckit` operations that touch secret values will fail until you unlock the keychain:
 
 ```bash
-security unlock-keychain "$HOME/Library/Keychains/login.keychain-db"
+seckit keychain-status
+seckit unlock
+```
+
+If `seckit keychain-status` reports a lax policy, you can apply a safer one:
+
+```bash
+seckit unlock --harden
 ```
 
 ## Why Secrets Kit
@@ -140,8 +147,8 @@ Use `pip install -e .` only if you are actively developing on Secrets-Kit.
 Preflight on macOS:
 
 ```bash
-security show-keychain-info "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1 || \
-  security unlock-keychain "$HOME/Library/Keychains/login.keychain-db"
+seckit keychain-status
+seckit unlock
 ```
 
 Store two entries:
@@ -179,6 +186,8 @@ seckit import env
 seckit import file
 seckit export
 seckit doctor
+seckit unlock
+seckit keychain-status
 seckit migrate dotenv
 ```
 
@@ -199,6 +208,8 @@ seckit export --format shell --all
 - Default output is redacted.
 - Composite identity is `service + account + name`.
 - `doctor` checks backend availability, registry health, keychain roundtrip, and metadata/keychain drift.
+- `unlock` shows the exact backend command it will run and never captures the keychain password in `seckit`.
+- `keychain-status` reports keychain accessibility and current lock policy.
 - File permissions are enforced (`0700` dir, `0600` file).
 
 ## Docs

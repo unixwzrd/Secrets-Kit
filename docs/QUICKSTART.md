@@ -29,11 +29,17 @@ deactivate
 
 ## 2) Store a secret
 
-If the login Keychain is locked or inaccessible from your shell, unlock it first:
+If the login Keychain is locked or inaccessible from your shell, check it first, then unlock it:
 
 ```bash
-security show-keychain-info "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1 || \
-  security unlock-keychain "$HOME/Library/Keychains/login.keychain-db"
+seckit keychain-status
+seckit unlock
+```
+
+If `seckit keychain-status` warns that the login keychain never times out, you can tighten the policy:
+
+```bash
+seckit unlock --harden
 ```
 
 ```bash

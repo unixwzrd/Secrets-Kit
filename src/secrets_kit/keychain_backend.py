@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
-from typing import Optional
+from typing import Any, Optional
 
 
 class BackendError(RuntimeError):
     """Keychain backend error."""
+
+
+DEFAULT_KEYCHAIN_PATH = os.path.expanduser("~/Library/Keychains/login.keychain-db")
 
 
 def backend_service_name(*, service: str, name: str) -> str:
@@ -39,6 +43,54 @@ def _security_exists(*, args: list[str]) -> bool:
         check=False,
     )
     return proc.returncode == 0
+
+
+def keychain_path(*, path: Optional[str] = None) -> str:
+    return os.path.expanduser(path or DEFAULT_KEYCHAIN_PATH)
+
+
+def keychain_accessible(*, path: Optional[str] = None) -> bool:
+    target = keychain_path(path=path)
+    return _security_exists(args=["show-keychain-info", target])
+
+
+def keychain_info(*, path: Optional[str] = None) -> str:
+    target = keychain_path(path=path)
+    return _run_security(args=["show-keychain-info", target])
+
+
+def keychain_policy(*, path: Optional[str] = None) -> dict[str, Any]:
+    target = keychain_path(path=path)
+    info = keychain_info(path=target)
+    normalized = info.lower()
+    timeout_seconds: Optional[int] = None
+    if "timeout=" in normalized:
+        try:
+            timeout_seconds = int(normalized.split("timeout=", 1)[1].split()[0].rstrip("s"))
+        except Exception:  # noqa: BLE001
+            timeout_seconds = None
+    return {
+        "path": target,
+        "raw": info,
+        "no_timeout": "no-timeout" in normalized,
+        "lock_on_sleep": "lock-on-sleep" in normalized,
+        "timeout_seconds": timeout_seconds,
+    }
+
+
+def unlock_keychain(*, path: Optional[str] = None) -> str:
+    target = keychain_path(path=path)
+    cmd = ["security", "unlock-keychain", target]
+    proc = subprocess.run(cmd, check=False)
+    if proc.returncode != 0:
+        raise BackendError(f"failed to unlock keychain: {target}")
+    return target
+
+
+def harden_keychain(*, path: Optional[str] = None, timeout_seconds: int = 3600) -> str:
+    target = keychain_path(path=path)
+    _run_security(args=["set-keychain-settings", "-l", "-u", "-t", str(timeout_seconds), target])
+    return target
 
 
 def set_secret(*, service: str, account: str, name: str, value: str) -> None:
