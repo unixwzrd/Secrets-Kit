@@ -36,6 +36,12 @@ seckit keychain-status
 seckit unlock
 ```
 
+When you are done with the session:
+
+```bash
+seckit lock
+```
+
 If `seckit keychain-status` warns that the login keychain never times out, you can tighten the policy:
 
 ```bash

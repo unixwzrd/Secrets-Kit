@@ -55,6 +55,12 @@ seckit keychain-status
 seckit unlock
 ```
 
+When you are done with a session, you can relock it explicitly:
+
+```bash
+seckit lock
+```
+
 If `seckit keychain-status` reports a lax policy, you can apply a safer one:
 
 ```bash
@@ -209,6 +215,7 @@ seckit export --format shell --all
 - Composite identity is `service + account + name`.
 - `doctor` checks backend availability, registry health, keychain roundtrip, and metadata/keychain drift.
 - `unlock` shows the exact backend command it will run and never captures the keychain password in `seckit`.
+- `lock` gives operators a symmetric way to relock the selected keychain when a session is finished.
 - `keychain-status` reports keychain accessibility and current lock policy.
 - File permissions are enforced (`0700` dir, `0600` file).
 

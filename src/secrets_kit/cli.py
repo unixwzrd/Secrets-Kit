@@ -30,6 +30,7 @@ from secrets_kit.keychain_backend import (
     keychain_accessible,
     keychain_policy,
     keychain_path,
+    lock_keychain,
     secret_exists,
     set_secret,
     unlock_keychain,
@@ -453,6 +454,25 @@ def cmd_unlock(*, args: argparse.Namespace) -> int:
         return _fatal(message=str(exc), code=1)
 
 
+def cmd_lock(*, args: argparse.Namespace) -> int:
+    if not check_security_cli():
+        return _fatal(message="security CLI not found", code=1)
+
+    target = keychain_path(path=args.keychain)
+
+    if args.dry_run:
+        print(f"security lock-keychain {target}")
+        return 0
+
+    try:
+        print(f"locking keychain: {target}")
+        lock_keychain(path=target)
+        print(f"locked: {target}")
+        return 0
+    except BackendError as exc:
+        return _fatal(message=str(exc), code=1)
+
+
 def cmd_keychain_status(*, args: argparse.Namespace) -> int:
     if not check_security_cli():
         return _fatal(message="security CLI not found", code=1)
@@ -627,6 +647,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_unlock.add_argument("--harden", action="store_true", help="Also apply a safer keychain timeout policy after unlock")
     p_unlock.add_argument("--timeout", type=int, default=3600, help="Timeout in seconds used with --harden (default: 3600)")
     p_unlock.set_defaults(func=cmd_unlock)
+
+    p_lock = sub.add_parser("lock", help="Lock the configured macOS keychain backend")
+    p_lock.add_argument("--keychain", help="Override keychain path (default: login.keychain-db)")
+    p_lock.add_argument("--dry-run", action="store_true", help="Show the backend command without running it")
+    p_lock.add_argument("--yes", action="store_true", help="Run without confirmation prompt")
+    p_lock.set_defaults(func=cmd_lock)
 
     p_keychain = sub.add_parser("keychain-status", help="Report macOS keychain accessibility and lock policy")
     p_keychain.add_argument("--keychain", help="Override keychain path (default: login.keychain-db)")

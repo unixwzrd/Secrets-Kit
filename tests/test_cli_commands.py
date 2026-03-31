@@ -8,14 +8,14 @@ import unittest
 from unittest import mock
 from contextlib import redirect_stdout, redirect_stderr
 
-from secrets_kit.cli import build_parser, cmd_doctor
+from secrets_kit.cli import build_parser, cmd_doctor, cmd_lock
 
 
 class CliCommandsTest(unittest.TestCase):
     def test_parser_has_expected_commands(self) -> None:
         parser = build_parser()
         commands = parser._subparsers._group_actions[0].choices.keys()  # type: ignore[attr-defined]
-        for expected in {"set", "get", "list", "delete", "import", "export", "doctor", "migrate"}:
+        for expected in {"set", "get", "list", "delete", "import", "export", "doctor", "migrate", "lock", "unlock", "keychain-status"}:
             self.assertIn(expected, commands)
 
     def test_kind_flags_parse(self) -> None:
@@ -68,6 +68,30 @@ class CliCommandsTest(unittest.TestCase):
                 [{"name": "OPENAI_API_KEY", "service": "openclaw", "account": "miafour"}],
             )
             self.assertIn("metadata/keychain drift detected", err.getvalue())
+
+    def test_lock_dry_run_shows_backend_command(self) -> None:
+        out = io.StringIO()
+        err = io.StringIO()
+        with mock.patch("secrets_kit.cli.check_security_cli", return_value=True), \
+            redirect_stdout(out), \
+            redirect_stderr(err):
+            code = cmd_lock(args=argparse.Namespace(keychain=None, dry_run=True, yes=False))
+
+        self.assertEqual(code, 0)
+        self.assertIn("security lock-keychain", out.getvalue())
+
+    def test_lock_runs_backend(self) -> None:
+        out = io.StringIO()
+        err = io.StringIO()
+        with mock.patch("secrets_kit.cli.check_security_cli", return_value=True), \
+            mock.patch("secrets_kit.cli.lock_keychain", return_value="/tmp/login.keychain-db"), \
+            redirect_stdout(out), \
+            redirect_stderr(err):
+            code = cmd_lock(args=argparse.Namespace(keychain="/tmp/login.keychain-db", dry_run=False, yes=True))
+
+        self.assertEqual(code, 0)
+        self.assertIn("locking keychain: /tmp/login.keychain-db", out.getvalue())
+        self.assertIn("locked: /tmp/login.keychain-db", out.getvalue())
 
 
 if __name__ == "__main__":

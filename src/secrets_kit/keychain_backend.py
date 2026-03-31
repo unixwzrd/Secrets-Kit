@@ -87,6 +87,15 @@ def unlock_keychain(*, path: Optional[str] = None) -> str:
     return target
 
 
+def lock_keychain(*, path: Optional[str] = None) -> str:
+    target = keychain_path(path=path)
+    cmd = ["security", "lock-keychain", target]
+    proc = subprocess.run(cmd, check=False)
+    if proc.returncode != 0:
+        raise BackendError(f"failed to lock keychain: {target}")
+    return target
+
+
 def harden_keychain(*, path: Optional[str] = None, timeout_seconds: int = 3600) -> str:
     target = keychain_path(path=path)
     _run_security(args=["set-keychain-settings", "-l", "-u", "-t", str(timeout_seconds), target])
