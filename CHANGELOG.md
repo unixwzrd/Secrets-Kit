@@ -20,6 +20,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Why:**
   - Give operators an explicit, symmetric way to relock the login keychain after a session instead of relying only on timeout policy or external tooling.
 
+### 2026-04-11 — Defaults, examples, and CLI UX polish
+
+- **Scope:** `Secrets-Kit/src/secrets_kit/`, `Secrets-Kit/docs/`, `Secrets-Kit/README.md`
+- **Category:** `cli`, `documentation`
+- **What changed:**
+  - Added CLI defaults via env vars and `~/.config/seckit/config.json` to shorten common commands.
+  - Added `seckit explain` for metadata-only inspection.
+  - Added `seckit list --stale` for age-based filtering.
+  - Expanded docs with integrations, usage, defaults, and runnable examples.
+  - Generalized integration guidance beyond OpenClaw.
+  - Added macOS GitHub Actions CI matrix and optional pre-commit hooks.
+- **Why:**
+  - Make Secrets-Kit release-ready for general operators, not just one stack.
+  - Reduce friction for day-to-day use without changing the security model.
+
 ### 2026-03-12 — Keychain UX and policy visibility
 
 - **Scope:** `Secrets-Kit/src/secrets_kit/`, `Secrets-Kit/tests/`, `Secrets-Kit/README.md`, `Secrets-Kit/docs/`

@@ -19,9 +19,11 @@
     - [Direct from GitHub (editable/dev)](#direct-from-github-editabledev)
     - [Optional YAML import support](#optional-yaml-import-support)
   - [Quick Start](#quick-start)
-  - [Command Surface](#command-surface)
-  - [Security Notes](#security-notes)
-  - [Docs](#docs)
+- [Command Surface](#command-surface)
+- [Defaults (Shorter Commands)](#defaults-shorter-commands)
+- [Examples](#examples)
+- [Security Notes](#security-notes)
+- [Docs](#docs)
   - [Contributing](#contributing)
   - [Support This and Other Projects](#support-this-and-other-projects)
   - [License](#license)
@@ -181,12 +183,43 @@ Important:
 - `export --format shell` is meant for local runtime handoff.
 - Encrypted cross-host export/import is a later roadmap item, not part of v1.
 
+## Defaults (Shorter Commands)
+
+You can shorten most commands by setting defaults. These can live in:
+
+- environment variables (`SECKIT_DEFAULT_*`)
+- or `~/.config/seckit/config.json`
+
+Example:
+
+```bash
+export SECKIT_DEFAULT_SERVICE=openclaw
+export SECKIT_DEFAULT_ACCOUNT=miafour
+```
+
+Then:
+
+```bash
+seckit list
+seckit export --format shell --all
+```
+
+## Examples
+
+Short, copy-paste examples are in:
+
+- [Usage & Workflows](docs/USAGE.md)
+- [Integrations](docs/INTEGRATIONS.md)
+- [Defaults](docs/DEFAULTS.md)
+- [Examples](docs/EXAMPLES.md)
+
 ## Command Surface
 
 ```bash
 seckit set
 seckit get
 seckit list
+seckit explain
 seckit delete
 seckit import env
 seckit import file
@@ -223,8 +256,11 @@ seckit export --format shell --all
 
 - [Quickstart](docs/QUICKSTART.md)
 - [Security Model](docs/SECURITY_MODEL.md)
-- [OpenClaw Integration](docs/INTEGRATION_OPENCLAW.md)
+- [Integrations](docs/INTEGRATIONS.md)
 - [Metadata Registry](docs/METADATA_REGISTRY.md)
+- [Usage & Workflows](docs/USAGE.md)
+- [Defaults](docs/DEFAULTS.md)
+- [Examples](docs/EXAMPLES.md)
 
 ## Contributing
 
@@ -236,6 +272,21 @@ Useful contributions:
 - CLI UX improvements
 - import/export edge-case handling
 - docs and operator workflows
+
+Local checks:
+
+```bash
+cd ~/projects/Secrets-Kit
+python -m unittest discover -s tests -v
+```
+
+Pre-commit (optional):
+
+```bash
+python -m pip install pre-commit
+pre-commit install
+pre-commit run --all-files
+```
 
 Run tests locally:
 

@@ -1,7 +1,13 @@
-# OpenClaw Integration
+# OpenClaw Integration (Legacy)
 
 **Created**: 2026-03-01  
 **Updated**: 2026-03-01
+
+This doc is preserved for backwards compatibility. The current guidance lives in:
+
+- [Integrations](INTEGRATIONS.md)
+- [Usage & Workflows](USAGE.md)
+- [Defaults](DEFAULTS.md)
 
 ## Recommended flow
 

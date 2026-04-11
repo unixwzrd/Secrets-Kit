@@ -1,0 +1,13 @@
+repos:
+  - repo: local
+    hooks:
+      - id: seckit-tests
+        name: seckit unit tests
+        entry: python -m unittest discover -s tests -v
+        language: system
+        pass_filenames: false
+      - id: seckit-py-compile
+        name: seckit py_compile
+        entry: python -m py_compile src/secrets_kit/*.py
+        language: system
+        pass_filenames: false

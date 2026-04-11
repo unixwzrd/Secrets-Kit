@@ -15,7 +15,7 @@ class CliCommandsTest(unittest.TestCase):
     def test_parser_has_expected_commands(self) -> None:
         parser = build_parser()
         commands = parser._subparsers._group_actions[0].choices.keys()  # type: ignore[attr-defined]
-        for expected in {"set", "get", "list", "delete", "import", "export", "doctor", "migrate", "lock", "unlock", "keychain-status"}:
+        for expected in {"set", "get", "list", "explain", "delete", "import", "export", "doctor", "migrate", "lock", "unlock", "keychain-status"}:
             self.assertIn(expected, commands)
 
     def test_kind_flags_parse(self) -> None:

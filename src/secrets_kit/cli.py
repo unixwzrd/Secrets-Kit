@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import sys
+from datetime import datetime, timezone
 from dataclasses import asdict
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as package_version
@@ -85,6 +87,83 @@ def _read_value(*, value: Optional[str], use_stdin: bool, allow_empty: bool) -> 
 
 def _format_tags(*, tags: List[str]) -> str:
     return ",".join(tags) if tags else "-"
+
+
+def _parse_timestamp(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        cleaned = value.replace("Z", "+00:00")
+        return datetime.fromisoformat(cleaned)
+    except ValueError:
+        return None
+
+
+def _load_default_config() -> Dict[str, str]:
+    path = Path("~/.config/seckit/config.json").expanduser()
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValidationError(f"invalid config json: {path} ({exc})") from exc
+    if not isinstance(payload, dict):
+        raise ValidationError(f"invalid config json: {path} (top-level must be object)")
+    return {str(key): str(value) for key, value in payload.items() if value is not None}
+
+
+def _load_defaults() -> Dict[str, str]:
+    defaults: Dict[str, str] = {}
+    defaults.update(_load_default_config())
+    env_map = {
+        "service": "SECKIT_DEFAULT_SERVICE",
+        "account": "SECKIT_DEFAULT_ACCOUNT",
+        "type": "SECKIT_DEFAULT_TYPE",
+        "kind": "SECKIT_DEFAULT_KIND",
+        "tags": "SECKIT_DEFAULT_TAGS",
+    }
+    for key, env_var in env_map.items():
+        value = os.getenv(env_var)
+        if value:
+            defaults[key] = value
+    return defaults
+
+
+def _apply_defaults(*, args: argparse.Namespace) -> None:
+    defaults = _load_defaults()
+    if hasattr(args, "service") and not args.service:
+        args.service = defaults.get("service")
+    if hasattr(args, "account") and not args.account:
+        args.account = defaults.get("account")
+    if hasattr(args, "type") and not args.type:
+        args.type = defaults.get("type")
+    if hasattr(args, "kind") and not args.kind:
+        args.kind = defaults.get("kind")
+    if hasattr(args, "tags") and not args.tags:
+        args.tags = defaults.get("tags")
+    if hasattr(args, "tag") and not args.tag:
+        args.tag = defaults.get("tags")
+
+    if hasattr(args, "type") and not args.type:
+        if args.command in {"set", "import", "migrate"}:
+            args.type = "secret"
+
+    if hasattr(args, "kind") and args.kind is None:
+        if args.command in {"import", "migrate"}:
+            args.kind = defaults.get("kind") or "auto"
+        elif args.command == "set":
+            args.kind = defaults.get("kind") or "api_key"
+
+    if hasattr(args, "service") and not args.service:
+        if args.command in {"set", "get", "delete", "export", "import", "migrate"}:
+            raise ValidationError(
+                "service is required. Set --service or define SECKIT_DEFAULT_SERVICE / config.json"
+            )
+    if hasattr(args, "account") and not args.account:
+        if args.command in {"set", "get", "delete", "export", "import", "migrate"}:
+            raise ValidationError(
+                "account is required. Set --account or define SECKIT_DEFAULT_ACCOUNT / config.json"
+            )
 
 
 def _merge_candidates(*, groups: Iterable[List[ImportCandidate]]) -> Dict[str, ImportCandidate]:
@@ -168,6 +247,9 @@ def cmd_list(*, args: argparse.Namespace) -> int:
         return _fatal(message=str(exc), code=1)
 
     rows = []
+    cutoff = None
+    if args.stale is not None:
+        cutoff = datetime.now(timezone.utc).timestamp() - (args.stale * 86400)
     for meta in entries.values():
         if args.service and meta.service != args.service:
             continue
@@ -179,6 +261,12 @@ def cmd_list(*, args: argparse.Namespace) -> int:
             continue
         if args.tag and args.tag not in meta.tags:
             continue
+        if cutoff is not None:
+            updated = _parse_timestamp(meta.updated_at)
+            if not updated:
+                continue
+            if updated.timestamp() > cutoff:
+                continue
         rows.append(meta)
 
     rows.sort(key=lambda item: (item.service, item.account, item.name))
@@ -210,6 +298,19 @@ def cmd_delete(*, args: argparse.Namespace) -> int:
         print(f"deleted: name={name} service={args.service} account={args.account}")
         return 0
     except (ValidationError, BackendError, RegistryError) as exc:
+        return _fatal(message=str(exc), code=1)
+
+
+def cmd_explain(*, args: argparse.Namespace) -> int:
+    try:
+        name = validate_key_name(name=args.name)
+        key = f"{args.service}::{args.account}::{name}"
+        entry = load_registry().get(key)
+        if not entry:
+            return _fatal(message=f"entry not found: {key}", code=1)
+        print(json.dumps(asdict(entry), indent=2, sort_keys=True))
+        return 0
+    except (ValidationError, RegistryError) as exc:
         return _fatal(message=str(exc), code=1)
 
 
@@ -570,15 +671,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--account", default="default")
-    common.add_argument("--service", default="seckit")
+    common.add_argument("--account")
+    common.add_argument("--service")
 
     p_set = sub.add_parser("set", parents=[common], help="Store or update one secret value")
     p_set.add_argument("--name", required=True)
     p_set.add_argument("--value")
     p_set.add_argument("--stdin", action="store_true")
-    p_set.add_argument("--type", default="secret", choices=["secret", "pii"])
-    p_set.add_argument("--kind", default="generic", choices=ENTRY_KIND_VALUES)
+    p_set.add_argument("--type", choices=["secret", "pii"])
+    p_set.add_argument("--kind", choices=ENTRY_KIND_VALUES)
     p_set.add_argument("--tags")
     p_set.add_argument("--allow-empty", action="store_true")
     p_set.set_defaults(func=cmd_set)
@@ -594,8 +695,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_list.add_argument("--type", choices=["secret", "pii"])
     p_list.add_argument("--kind", choices=ENTRY_KIND_VALUES)
     p_list.add_argument("--tag")
+    p_list.add_argument("--stale", type=int, help="Filter entries older than N days")
     p_list.add_argument("--format", choices=["table", "json"], default="table")
     p_list.set_defaults(func=cmd_list)
+
+    p_explain = sub.add_parser("explain", parents=[common], help="Show registry metadata for a stored entry")
+    p_explain.add_argument("--name", required=True)
+    p_explain.set_defaults(func=cmd_explain)
 
     p_delete = sub.add_parser("delete", parents=[common], help="Delete one stored secret and its metadata")
     p_delete.add_argument("--name", required=True)
@@ -608,8 +714,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_import_env = import_sub.add_parser("env", parents=[common], help="Import secrets from dotenv and/or live environment")
     p_import_env.add_argument("--dotenv")
     p_import_env.add_argument("--from-env")
-    p_import_env.add_argument("--type", default="secret", choices=["secret", "pii"])
-    p_import_env.add_argument("--kind", default="auto", choices=[*ENTRY_KIND_VALUES, "auto"])
+    p_import_env.add_argument("--type", choices=["secret", "pii"])
+    p_import_env.add_argument("--kind", choices=[*ENTRY_KIND_VALUES, "auto"])
     p_import_env.add_argument("--tags")
     p_import_env.add_argument("--dry-run", action="store_true")
     p_import_env.add_argument("--allow-overwrite", action="store_true")
@@ -620,8 +726,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_import_file = import_sub.add_parser("file", help="Import secrets from JSON or YAML files")
     p_import_file.add_argument("--file", required=True)
     p_import_file.add_argument("--format", choices=["json", "yaml", "yml"])
-    p_import_file.add_argument("--type", default="secret", choices=["secret", "pii"])
-    p_import_file.add_argument("--kind", default="auto", choices=[*ENTRY_KIND_VALUES, "auto"])
+    p_import_file.add_argument("--type", choices=["secret", "pii"])
+    p_import_file.add_argument("--kind", choices=[*ENTRY_KIND_VALUES, "auto"])
     p_import_file.add_argument("--dry-run", action="store_true")
     p_import_file.add_argument("--allow-overwrite", action="store_true")
     p_import_file.add_argument("--allow-empty", action="store_true")
@@ -666,8 +772,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_migrate_dotenv = migrate_sub.add_parser("dotenv", parents=[common], help="Import a dotenv file and optionally rewrite it to placeholders")
     p_migrate_dotenv.add_argument("--dotenv", required=True)
     p_migrate_dotenv.add_argument("--archive")
-    p_migrate_dotenv.add_argument("--type", default="secret", choices=["secret", "pii"])
-    p_migrate_dotenv.add_argument("--kind", default="auto", choices=[*ENTRY_KIND_VALUES, "auto"])
+    p_migrate_dotenv.add_argument("--type", choices=["secret", "pii"])
+    p_migrate_dotenv.add_argument("--kind", choices=[*ENTRY_KIND_VALUES, "auto"])
     p_migrate_dotenv.add_argument("--tags")
     p_migrate_dotenv.add_argument("--dry-run", action="store_true")
     p_migrate_dotenv.add_argument("--allow-overwrite", action="store_true")
@@ -684,6 +790,10 @@ def main() -> int:
     """CLI main entry."""
     parser = build_parser()
     args = parser.parse_args()
+    try:
+        _apply_defaults(args=args)
+    except ValidationError as exc:
+        return _fatal(message=str(exc), code=1)
     return args.func(args=args)
 
 

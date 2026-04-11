@@ -65,4 +65,10 @@ seckit list --service openclaw --account miafour
 eval "$(seckit export --format shell --service openclaw --account miafour --all)"
 ```
 
+See also:
+
+- [Usage & Workflows](USAGE.md)
+- [Defaults](DEFAULTS.md)
+- [Integrations](INTEGRATIONS.md)
+
 [Back to README](../README.md)

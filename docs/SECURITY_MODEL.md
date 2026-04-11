@@ -58,4 +58,6 @@ This usually means one of:
 - Use `kind` to classify semantics (`email`, `phone`, `address`, `credit_card`, `wallet`, etc.).
 - Recommended for financial data: keep `type=pii` plus an explicit `kind` (`credit_card` or `wallet`).
 
+[See usage & defaults](USAGE.md)
+
 [Back to README](../README.md)
