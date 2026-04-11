@@ -88,6 +88,19 @@ def _read_value(*, value: Optional[str], use_stdin: bool, allow_empty: bool) -> 
 def _format_tags(*, tags: List[str]) -> str:
     return ",".join(tags) if tags else "-"
 
+def _print_table(*, headers: List[str], rows: List[List[str]]) -> None:
+    widths = [len(header) for header in headers]
+    for row in rows:
+        for idx, cell in enumerate(row):
+            widths[idx] = max(widths[idx], len(cell))
+
+    def fmt(values: List[str]) -> str:
+        return "  ".join(value.ljust(widths[idx]) for idx, value in enumerate(values))
+
+    print(fmt(headers))
+    for row in rows:
+        print(fmt(row))
+
 
 def _parse_timestamp(value: Optional[str]) -> Optional[datetime]:
     if not value:
@@ -279,11 +292,21 @@ def cmd_list(*, args: argparse.Namespace) -> int:
         print("no entries")
         return 0
 
-    print("NAME\tTYPE\tKIND\tSERVICE\tACCOUNT\tTAGS\tUPDATED_AT")
+    headers = ["NAME", "TYPE", "KIND", "SERVICE", "ACCOUNT", "TAGS", "UPDATED_AT"]
+    table_rows: List[List[str]] = []
     for item in rows:
-        print(
-            f"{item.name}\t{item.entry_type}\t{item.entry_kind}\t{item.service}\t{item.account}\t{_format_tags(tags=item.tags)}\t{item.updated_at}"
+        table_rows.append(
+            [
+                item.name,
+                item.entry_type,
+                item.entry_kind,
+                item.service,
+                item.account,
+                _format_tags(tags=item.tags),
+                item.updated_at,
+            ]
         )
+    _print_table(headers=headers, rows=table_rows)
     return 0
 
 
