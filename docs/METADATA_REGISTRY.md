@@ -1,9 +1,13 @@
 # Metadata Registry
 
-**Created**: 2026-03-02  
-**Updated**: 2026-03-02
-
-[Back to README](../README.md)
+- [Metadata Registry](#metadata-registry)
+  - [Purpose](#purpose)
+  - [Security posture](#security-posture)
+  - [Schema (v1)](#schema-v1)
+  - [Lifecycle rules](#lifecycle-rules)
+  - [Composite key identity](#composite-key-identity)
+  - [Notes](#notes)
+  - [Back to README](#back-to-readme)
 
 ## Purpose
 
@@ -88,4 +92,7 @@ So the same `name` can exist in multiple services/accounts without collision.
 - If registry permissions drift to unsafe values, write operations fail.
 - If metadata is missing but a Keychain value exists, `get --raw` can still retrieve the value by explicit tuple.
 
-[Back to README](../README.md)
+## [Back to README](../README.md)
+
+**Created**: 2026-03-02  
+**Updated**: 2026-04-12

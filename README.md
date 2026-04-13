@@ -1,217 +1,214 @@
 # Secrets Kit
 
-*Last updated: 2026-03-02*
-
 ![Secrets Kit](./docs/images/Secrets-Kit-Banner.png)
 
 [![Python](https://img.shields.io/badge/Python-3.9%2B-blue)](#requirements) [![Platform](https://img.shields.io/badge/Platform-macOS-informational)](#requirements) [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 - [Secrets Kit](#secrets-kit)
-  - [**Read This First**](#read-this-first)
-  - [Why Secrets Kit](#why-secrets-kit)
-  - [Features](#features)
-  - [Philosophy](#philosophy)
+  - [**IMPORTANT: Read This First**](#important-read-this-first)
+  - [Why It Exists](#why-it-exists)
+  - [What It Does](#what-it-does)
   - [Requirements](#requirements)
-  - [Recommended Environment Setup](#recommended-environment-setup)
   - [Installation](#installation)
-    - [From local source](#from-local-source)
-    - [Direct from GitHub](#direct-from-github)
-    - [Direct from GitHub (editable/dev)](#direct-from-github-editabledev)
-    - [Optional YAML import support](#optional-yaml-import-support)
   - [Quick Start](#quick-start)
-- [Command Surface](#command-surface)
-- [Defaults (Shorter Commands)](#defaults-shorter-commands)
-- [Examples](#examples)
-- [Security Notes](#security-notes)
-- [Docs](#docs)
+  - [Defaults](#defaults)
+  - [Command Surface](#command-surface)
+  - [Security Notes](#security-notes)
+  - [Documentation](#documentation)
   - [Contributing](#contributing)
   - [Support This and Other Projects](#support-this-and-other-projects)
   - [License](#license)
 
-Simple, secure CLI for secrets and PII. Store values in Keychain, keep metadata in a local registry, and export runtime env values without putting secrets in git.
+Secrets Kit is a local macOS command-line tool for handling API keys, access tokens, passwords, and other sensitive values without leaving them scattered across `.env` files, shell startup files, random notes, or project directories.
+
+It stores secret values in the macOS login Keychain, keeps non-secret metadata in a local registry, and can export environment variables into the current shell when a runtime actually needs them. The goal is not to promise perfect security. The goal is to give operators and developers a cleaner, safer workflow than plain-text secrets spread around the filesystem.
 
 Repository name: `Secrets-Kit`  
-CLI command: `seckit`
+CLI command: `seckit`  
+Current release target: `v0.9.0`
 
-## **Read This First**
+## **IMPORTANT: Read This First**
 
-This v1 release is intentionally narrow:
+Secrets Kit is intentionally narrow in scope:
 
-- macOS only
-- uses the user's login Keychain at `~/Library/Keychains/login.keychain-db`
-- requires that keychain to be unlocked and accessible
-- exports secrets into the current process environment for runtime use
+- macOS only in `v0.9.0`
+- stores secret values in the user's login Keychain
+- keeps metadata in `~/.config/seckit/registry.json`
+- supports command defaults in `~/.config/seckit/config.json`
+- exports values into the current shell for local runtime use
 
-If you do not understand that trust model, do not use this yet.
+That makes it useful, but it also means it has limits.
 
-This is not:
+Secrets Kit is **not**:
 
+- a hosted secret manager
 - a zero-knowledge vault
-- a headless multi-host secret manager
-- a guarantee against secret exposure inside a compromised user session
+- an HSM
+- a guarantee against compromise on an already compromised machine or user session
 
-If the login keychain is locked or macOS blocks interaction, `seckit` operations that touch secret values will fail until you unlock the keychain:
+It also does **not**:
 
-```bash
-seckit keychain-status
-seckit unlock
-```
+- collect secrets for its own service
+- transmit secrets to a backend
+- store your Keychain password
 
-When you are done with a session, you can relock it explicitly:
+Under the hood, it is a thin wrapper around the macOS `security` command plus local metadata and workflow helpers.
 
-```bash
-seckit lock
-```
+If you do not understand or accept that trust model, do not use it yet.
 
-If `seckit keychain-status` reports a lax policy, you can apply a safer one:
+## Why It Exists
 
-```bash
-seckit unlock --harden
-```
+For many local development and AI workflows, secrets end up everywhere. They show up in `.env` files, `~/.bashrc`, `~/.bash_profile`, copied shell commands, README snippets, archived config folders, and test scripts that were only meant to be temporary. That is how access tokens end up committed to GitHub, left behind in backups, or exposed to whatever script happens to read the wrong directory.
 
-## Why Secrets Kit
+It also reduces the chance of accidentally exposing secrets to GitHub, GitLab, or any other code hosting system by leaving them in plain-text project files.
 
-If you manage local AI stacks, scripts, and service credentials, secrets spread quickly across `.env` files, shell history, and random docs.
-Secrets Kit gives you one clean operator workflow:
+Secrets Kit gives you a more disciplined local pattern:
 
-- store secrets in Keychain
-- classify entries (`type` + `kind`)
-- import from env/files
-- export only what runtime needs
-- migrate dotenv files to `${VAR}` placeholders
+- keep secret values in Keychain
+- keep descriptive metadata in a local registry
+- export values only when the current shell or runtime needs them
+- migrate `.env` files into placeholders instead of leaving raw values behind
 
-## Features
+It is not magic. It just gives you a much better default workflow than loose plain-text files.
 
-- `set/get/list/delete` lifecycle commands
-- strict redaction by default (`get --raw` is explicit)
-- semantic `kind` classification:
-  - `token`, `password`, `user_id`, `api_key`, `email`, `phone`, `address`, `credit_card`, `wallet`, `pii_other`, `generic`
-- `import env` from dotenv and/or live process env
-- `import file` from JSON (YAML with optional dependency)
-- `export --format shell` for runtime `eval`
-- `doctor` backend and storage checks
-- `migrate dotenv` flow with archive + placeholder rewrite
+## What It Does
 
-## Philosophy
+Secrets Kit focuses on a few practical jobs:
 
-- local-first secret storage
-- explicit configuration over hidden magic
-- no secret values in git
-- shell export for runtime only, not cross-host replication
+- store, retrieve, list, explain, and delete secrets
+- classify entries with `type` and `kind`
+- import from existing environment files
+- export environment variables for local runtimes
+- help migrate `.env` files away from embedded secret values
+- check for drift between local metadata and Keychain entries
 
 ## Requirements
 
 - Python 3.9+
-- macOS (v1 backend)
-- `security` CLI (Keychain access)
+- macOS
+- access to the `security` CLI and the login Keychain
 
-## Recommended Environment Setup
+## Installation
+
+For a local checkout, the shortest path is:
 
 ```bash
 cd ~/projects/Secrets-Kit
 python -m venv .venv
 source .venv/bin/activate
-python -m pip install -U pip setuptools wheel
+python -m pip install .
 ```
 
-## Installation
+In most cases, `python -m pip install .` is enough. The extra `pip/setuptools/wheel` upgrade step is optional and only useful if you are working in an older or inconsistent Python environment and want to normalize the packaging toolchain first.
 
-### From local source
+Install directly from GitHub:
 
 ```bash
-cd ~/projects/Secrets-Kit
-pip install .
+python -m pip install "git+https://github.com/unixwzrd/Secrets-Kit.git"
 ```
 
-### Direct from GitHub
+Editable install for active development:
 
 ```bash
-pip install "git+https://github.com/unixwzrd/Secrets-Kit.git"
+python -m pip install -e "git+https://github.com/unixwzrd/Secrets-Kit.git#egg=seckit"
 ```
 
-### Direct from GitHub (editable/dev)
+Optional YAML file-import support for `seckit import file`:
 
 ```bash
-pip install -e "git+https://github.com/unixwzrd/Secrets-Kit.git#egg=seckit"
+python -m pip install '.[yaml]'
 ```
 
-### Optional YAML import support
-
-```bash
-pip install -e '.[yaml]'
-```
-
-Deactivate when done:
-
-```bash
-deactivate
-```
+If you are not importing secrets from YAML files, you do not need that extra.
 
 ## Quick Start
 
-For typical users, install with `pip install .` or directly from GitHub.
-Use `pip install -e .` only if you are actively developing on Secrets-Kit.
-
-Preflight on macOS:
+Start by checking whether the login Keychain is available from your current shell:
 
 ```bash
 seckit keychain-status
 seckit unlock
 ```
 
-Store two entries:
+The unlock flow is intentionally explicit. A sanitized example looks like this:
 
 ```bash
-echo 'sk-live' | seckit set --name OPENAI_API_KEY --stdin --type secret --kind api_key --service openclaw --account miafour
-echo 'hunter2' | seckit set --name ADMIN_PASSWORD --stdin --type secret --kind password --service openclaw --account miafour
+$ seckit unlock
+
+********************************************************************************
+
+About to run:
+
+  security unlock-keychain /Users/example/Library/Keychains/login.keychain-db
+
+This will prompt macOS for the keychain password if needed.
+Secrets Kit does not read, capture, or store that password.
+********************************************************************************
+
+Proceed with unlocking /Users/example/Library/Keychains/login.keychain-db? [y/N]: y
+password to unlock /Users/example/Library/Keychains/login.keychain-db:
+unlocked: /Users/example/Library/Keychains/login.keychain-db
 ```
 
-List (redacted):
+Store a couple of values into a neutral local scope:
 
 ```bash
-seckit list --service openclaw --account miafour
+echo 'sk-example' | seckit set --name OPENAI_API_KEY --stdin --kind api_key --service my-stack --account local-dev
+echo 'hunter2' | seckit set --name ADMIN_PASSWORD --stdin --kind password --service my-stack --account local-dev
 ```
 
-Export into current shell for runtime:
+List the entries without exposing the values:
 
 ```bash
-eval "$(seckit export --format shell --service openclaw --account miafour --all)"
+seckit list --service my-stack --account local-dev
 ```
 
-Important:
+Real output looks more like an inventory report than a value dump:
 
-- `export --format shell` is meant for local runtime handoff.
-- Encrypted cross-host export/import is a later roadmap item, not part of v1.
+```text
+NAME                     TYPE    KIND      SERVICE   ACCOUNT    TAGS  UPDATED_AT
+OPENAI_API_KEY           secret  api_key   my-stack  local-dev  -     2026-04-12T01:04:34Z
+ADMIN_PASSWORD           secret  password  my-stack  local-dev  -     2026-04-12T01:04:34Z
+GATEWAY_TOKEN            secret  token     my-stack  local-dev  -     2026-04-12T01:04:34Z
+```
 
-## Defaults (Shorter Commands)
+Export them into the current shell only when your runtime needs them:
 
-You can shorten most commands by setting defaults. These can live in:
+```bash
+eval "$(seckit export --format shell --service my-stack --account local-dev --all)"
+```
 
-- environment variables (`SECKIT_DEFAULT_*`)
-- or `~/.config/seckit/config.json`
+When the session is finished, you can relock the Keychain explicitly:
+
+```bash
+seckit lock
+```
+
+If `seckit keychain-status` warns that the login Keychain never times out, you can apply a safer policy:
+
+```bash
+seckit unlock --harden
+```
+
+## Defaults
+
+If you work with the same service and account often, defaults make the tool much easier to live with. Instead of repeating `--service` and `--account` on every command, you can set them once in environment variables or `~/.config/seckit/config.json`.
 
 Example:
 
 ```bash
-export SECKIT_DEFAULT_SERVICE=openclaw
-export SECKIT_DEFAULT_ACCOUNT=miafour
+export SECKIT_DEFAULT_SERVICE=my-stack
+export SECKIT_DEFAULT_ACCOUNT=local-dev
 ```
 
-Then:
+Then shorter commands become practical:
 
 ```bash
 seckit list
 seckit export --format shell --all
 ```
 
-## Examples
-
-Short, copy-paste examples are in:
-
-- [Usage & Workflows](docs/USAGE.md)
-- [Integrations](docs/INTEGRATIONS.md)
-- [Defaults](docs/DEFAULTS.md)
-- [Examples](docs/EXAMPLES.md)
+That is especially useful when you are launching the same local stack repeatedly from one shell session.
 
 ## Command Surface
 
@@ -226,41 +223,33 @@ seckit import file
 seckit export
 seckit doctor
 seckit unlock
+seckit lock
 seckit keychain-status
 seckit migrate dotenv
 ```
 
-Short alias (same command set):
-
-```bash
-seckit set
-seckit list
-seckit export --format shell --all
-```
-
 ## Security Notes
 
-- Secret values are stored in Keychain only.
-- v1 uses the login Keychain at `~/Library/Keychains/login.keychain-db`.
-- Registry metadata lives at `~/.config/seckit/registry.json`.
-- Registry contains no secret values.
-- Default output is redacted.
-- Composite identity is `service + account + name`.
-- `doctor` checks backend availability, registry health, keychain roundtrip, and metadata/keychain drift.
-- `unlock` shows the exact backend command it will run and never captures the keychain password in `seckit`.
-- `lock` gives operators a symmetric way to relock the selected keychain when a session is finished.
-- `keychain-status` reports keychain accessibility and current lock policy.
-- File permissions are enforced (`0700` dir, `0600` file).
+Secrets Kit improves local secret hygiene, but it does not make sensitive material risk-free.
 
-## Docs
+- secret values live in the login Keychain, not in the registry
+- the registry contains metadata only
+- normal output stays redacted unless you explicitly ask for raw values
+- exported variables still exist in the current process environment once you export them
+- a compromised local session can still expose what that session can already access
+
+If you need a remote secret service, cross-host policy enforcement, or stronger isolation guarantees, use a tool designed for that problem.
+
+## Documentation
 
 - [Quickstart](docs/QUICKSTART.md)
-- [Security Model](docs/SECURITY_MODEL.md)
-- [Integrations](docs/INTEGRATIONS.md)
-- [Metadata Registry](docs/METADATA_REGISTRY.md)
 - [Usage & Workflows](docs/USAGE.md)
-- [Defaults](docs/DEFAULTS.md)
+- [Integrations](docs/INTEGRATIONS.md)
 - [Examples](docs/EXAMPLES.md)
+- [Security Model](docs/SECURITY_MODEL.md)
+- [Defaults](docs/DEFAULTS.md)
+- [Metadata Registry](docs/METADATA_REGISTRY.md)
+- [OpenClaw Integration (Legacy Example)](docs/INTEGRATION_OPENCLAW.md)
 
 ## Contributing
 
@@ -311,3 +300,5 @@ Copyright 2026
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+*Last updated: 2026-04-12*

@@ -1,62 +1,96 @@
 # Usage & Workflows
 
-**Created**: 2026-04-11  
-**Updated**: 2026-04-11
+- [Usage \& Workflows](#usage--workflows)
+  - [Store a secret](#store-a-secret)
+  - [Read a secret safely](#read-a-secret-safely)
+  - [Read the raw value](#read-the-raw-value)
+  - [List inventory](#list-inventory)
+  - [Export for a local runtime](#export-for-a-local-runtime)
+  - [Import an existing dotenv file](#import-an-existing-dotenv-file)
+  - [Migrate a dotenv file and replace inline values](#migrate-a-dotenv-file-and-replace-inline-values)
+  - [Explain an entry without revealing the secret](#explain-an-entry-without-revealing-the-secret)
+  - [A simple everyday pattern](#a-simple-everyday-pattern)
+  - [Back to README](#back-to-readme)
 
-This guide shows the most common workflows without OpenClaw-specific assumptions.
+
+This guide shows the everyday commands people actually need once Secrets Kit is installed.
+
+The examples use a neutral scope of `my-stack` and `local-dev` first. Replace those with whatever makes sense for your own runtime, environment, or account naming.
 
 ## Store a secret
 
 ```bash
-echo 'sk-live' | seckit set --name OPENAI_API_KEY --stdin --kind api_key --service openclaw --account miafour
+echo 'sk-live' | seckit set --name OPENAI_API_KEY --stdin --kind api_key --service my-stack --account local-dev
 ```
 
-## Read a secret (redacted)
+## Read a secret safely
 
 ```bash
-seckit get --name OPENAI_API_KEY --service openclaw --account miafour
+seckit get --name OPENAI_API_KEY --service my-stack --account local-dev
 ```
 
-## Read a secret (raw)
+Normal output is redacted. That is the safer default when you only need to confirm the entry exists.
+
+## Read the raw value
 
 ```bash
-seckit get --name OPENAI_API_KEY --raw --service openclaw --account miafour
+seckit get --name OPENAI_API_KEY --raw --service my-stack --account local-dev
 ```
+
+Use that only when you genuinely need the value printed.
 
 ## List inventory
 
 ```bash
-seckit list --service openclaw --account miafour
+seckit list --service my-stack --account local-dev
 ```
 
-Filter stale entries (older than 90 days):
+Filter for stale entries:
 
 ```bash
-seckit list --service openclaw --account miafour --stale 90
+seckit list --service my-stack --account local-dev --stale 90
 ```
 
-## Export for runtime
+## Export for a local runtime
 
 ```bash
-eval "$(seckit export --format shell --service openclaw --account miafour --all)"
+eval "$(seckit export --format shell --service my-stack --account local-dev --all)"
 ```
 
-## Import from dotenv
+That pattern works for CLIs, local web apps, agent runtimes, and scripts that expect environment variables in the current shell.
+
+## Import an existing dotenv file
 
 ```bash
-seckit import env --dotenv ~/.openclaw/.env --service openclaw --account miafour --allow-overwrite
+seckit import env --dotenv ~/.config/my-stack/.env --service my-stack --account local-dev --allow-overwrite
 ```
 
-## Migrate dotenv and rewrite placeholders
+## Migrate a dotenv file and replace inline values
 
 ```bash
-seckit migrate dotenv --dotenv ~/.openclaw/.env --service openclaw --account miafour --yes --archive ~/.openclaw/.env.bak
+seckit migrate dotenv --dotenv ~/.config/my-stack/.env --service my-stack --account local-dev --yes --archive ~/.config/my-stack/.env.bak
 ```
 
-## Explain an entry (metadata only)
+This is the practical “stop leaving raw secrets in `.env`” workflow. It imports the values, then rewrites the file to use placeholders.
+
+## Explain an entry without revealing the secret
 
 ```bash
-seckit explain --name OPENAI_API_KEY --service openclaw --account miafour
+seckit explain --name OPENAI_API_KEY --service my-stack --account local-dev
 ```
 
-[Back to README](../README.md)
+## A simple everyday pattern
+
+One reasonable local workflow looks like this:
+
+1. keep values in Keychain
+2. use `list` or `explain` to inspect inventory safely
+3. use `export` only in the shell that is about to launch the runtime
+4. lock the Keychain again when the session is over
+
+That does not eliminate risk, but it is materially better than sprinkling secrets across plain-text files and shell startup scripts.
+
+## [Back to README](../README.md)
+
+**Created**: 2026-04-11  
+**Updated**: 2026-04-12
