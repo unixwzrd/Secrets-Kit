@@ -74,6 +74,7 @@ def candidates_from_env(
             entry_type=validated_type,
             entry_kind=kind,
             tags=tags,
+            comment="",
             service=service,
             account=account,
             source="env",
@@ -105,6 +106,7 @@ def candidates_from_dotenv(
             entry_type=validated_type,
             entry_kind=kind,
             tags=tags,
+            comment="",
             service=service,
             account=account,
             source=f"dotenv:{dotenv_path}",
@@ -153,12 +155,14 @@ def candidates_from_file(
         account = str(row.get("account", "default"))
         service = str(row.get("service", "seckit"))
         tags = normalize_tags(tags=row.get("tags", []))
+        comment = str(row.get("comment", row.get("notes", "")))
         source = f"file:{file_path}"
         meta = EntryMetadata(
             name=name,
             entry_type=entry_type,
             entry_kind=entry_kind,
             tags=tags,
+            comment=comment,
             service=service,
             account=account,
             source=source,

@@ -96,6 +96,12 @@ eval "$(seckit export --format shell --service my-stack --account local-dev --al
 
 At that point, the current shell can launch whatever local tool needs those variables.
 
+If you need a dotenv file for a runtime but want no plaintext secrets, export placeholders:
+
+```bash
+seckit export --format dotenv --service my-stack --account local-dev --all > ~/.config/my-stack/.env
+```
+
 If you do this repeatedly, set defaults so the service and account do not have to be repeated on every command:
 
 ```bash
@@ -133,4 +139,4 @@ For fuller workflows, see:
 ## [Back to README](../README.md)
 
 **Created**: 2026-03-01  
-**Updated**: 2026-04-12
+**Updated**: 2026-04-13

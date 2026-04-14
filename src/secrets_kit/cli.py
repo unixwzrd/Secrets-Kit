@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
 import os
 import shutil
@@ -14,7 +15,8 @@ from importlib.metadata import version as package_version
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
-from secrets_kit.exporters import export_shell_lines
+from secrets_kit.crypto import CryptoUnavailable, build_plain_export, decrypt_payload, encrypt_payload
+from secrets_kit.exporters import export_dotenv_placeholders, export_shell_lines
 from secrets_kit.importers import (
     ImportCandidate,
     candidates_from_dotenv,
@@ -83,6 +85,15 @@ def _read_value(*, value: Optional[str], use_stdin: bool, allow_empty: bool) -> 
     if not allow_empty and not data.strip():
         raise ValidationError("value cannot be empty unless --allow-empty is set")
     return data.strip()
+
+
+def _read_password(*, value: Optional[str], use_stdin: bool) -> str:
+    if use_stdin:
+        data = sys.stdin.read()
+        return data.strip()
+    if value:
+        return value
+    return getpass.getpass("password: ")
 
 
 def _format_tags(*, tags: List[str]) -> str:
@@ -225,6 +236,7 @@ def cmd_set(*, args: argparse.Namespace) -> int:
             entry_type=entry_type,
             entry_kind=entry_kind,
             tags=tags,
+            comment=args.comment or "",
             service=args.service,
             account=args.account,
             source="manual",
@@ -423,10 +435,41 @@ def cmd_import_file(*, args: argparse.Namespace) -> int:
         return _fatal(message=str(exc), code=1)
 
 
-def cmd_export(*, args: argparse.Namespace) -> int:
-    if args.format != "shell":
-        return _fatal(message="only --format shell is supported in v1")
+def cmd_import_encrypted(*, args: argparse.Namespace) -> int:
+    try:
+        password = _read_password(value=args.password, use_stdin=args.password_stdin)
+        payload = json.loads(Path(args.file).read_text(encoding="utf-8"))
+        decrypted = decrypt_payload(payload=payload, password=password)
+        if decrypted.get("format") != "seckit.export":
+            return _fatal(message="unsupported decrypted payload format", code=1)
+        entries = decrypted.get("entries", [])
+        rows: List[ImportCandidate] = []
+        for row in entries:
+            if not isinstance(row, dict):
+                continue
+            meta = EntryMetadata.from_dict(row.get("metadata", {}))
+            rows.append(ImportCandidate(metadata=meta, value=str(row.get("value", "")).strip()))
+        merged = {row.metadata.key(): row for row in rows}
+        _preview_candidates(merged=merged)
+        if not merged:
+            print("nothing to import")
+            return 0
+        if not args.dry_run and not args.yes and not _confirm(prompt=f"Import {len(merged)} entries?"):
+            print("aborted")
+            return 1
+        stats = _apply_candidates(
+            candidates=merged,
+            allow_overwrite=args.allow_overwrite,
+            dry_run=args.dry_run,
+            allow_empty=args.allow_empty,
+        )
+        print(json.dumps(stats, indent=2, sort_keys=True))
+        return 0
+    except (ValidationError, ValueError, RegistryError, BackendError, FileNotFoundError, CryptoUnavailable) as exc:
+        return _fatal(message=str(exc), code=1)
 
+
+def cmd_export(*, args: argparse.Namespace) -> int:
     try:
         entries = load_registry()
         selected: List[EntryMetadata] = []
@@ -451,12 +494,39 @@ def cmd_export(*, args: argparse.Namespace) -> int:
         if not selected:
             return _fatal(message="no matching entries selected for export", code=1)
 
-        env_map: Dict[str, str] = {}
-        for meta in sorted(selected, key=lambda item: item.name):
-            env_map[meta.name] = get_secret(service=meta.service, account=meta.account, name=meta.name)
-        print(export_shell_lines(env_map=env_map))
-        return 0
-    except (ValidationError, RegistryError, BackendError) as exc:
+        if args.format == "shell":
+            env_map: Dict[str, str] = {}
+            for meta in sorted(selected, key=lambda item: item.name):
+                env_map[meta.name] = get_secret(service=meta.service, account=meta.account, name=meta.name)
+            print(export_shell_lines(env_map=env_map))
+            return 0
+
+        if args.format == "dotenv":
+            keys = [meta.name for meta in selected]
+            print(export_dotenv_placeholders(keys=keys))
+            return 0
+
+        if args.format == "encrypted-json":
+            password = _read_password(value=args.password, use_stdin=args.password_stdin)
+            items: List[Dict[str, str]] = []
+            for meta in sorted(selected, key=lambda item: item.name):
+                items.append(
+                    {
+                        "metadata": meta.to_dict(),
+                        "value": get_secret(service=meta.service, account=meta.account, name=meta.name),
+                    }
+                )
+            plain = build_plain_export(entries=items)
+            encrypted = encrypt_payload(payload=plain, password=password)
+            output = json.dumps(encrypted.__dict__, indent=2, sort_keys=True)
+            if args.out:
+                Path(args.out).write_text(output + "\n", encoding="utf-8")
+            else:
+                print(output)
+            return 0
+
+        return _fatal(message=f"unsupported format: {args.format}", code=1)
+    except (ValidationError, RegistryError, BackendError, CryptoUnavailable) as exc:
         return _fatal(message=str(exc), code=1)
 
 
@@ -704,6 +774,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_set.add_argument("--type", choices=["secret", "pii"])
     p_set.add_argument("--kind", choices=ENTRY_KIND_VALUES)
     p_set.add_argument("--tags")
+    p_set.add_argument("--comment")
     p_set.add_argument("--allow-empty", action="store_true")
     p_set.set_defaults(func=cmd_set)
 
@@ -757,8 +828,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_import_file.add_argument("--yes", action="store_true")
     p_import_file.set_defaults(func=cmd_import_file)
 
+    p_import_encrypted = import_sub.add_parser("encrypted-json", help="Import secrets from encrypted JSON export")
+    p_import_encrypted.add_argument("--file", required=True)
+    p_import_encrypted.add_argument("--password")
+    p_import_encrypted.add_argument("--password-stdin", action="store_true")
+    p_import_encrypted.add_argument("--dry-run", action="store_true")
+    p_import_encrypted.add_argument("--allow-overwrite", action="store_true")
+    p_import_encrypted.add_argument("--allow-empty", action="store_true")
+    p_import_encrypted.add_argument("--yes", action="store_true")
+    p_import_encrypted.set_defaults(func=cmd_import_encrypted)
+
     p_export = sub.add_parser("export", parents=[common], help="Export selected secrets for runtime use")
-    p_export.add_argument("--format", default="shell")
+    p_export.add_argument("--format", default="shell", choices=["shell", "dotenv", "encrypted-json"])
+    p_export.add_argument("--out")
+    p_export.add_argument("--password")
+    p_export.add_argument("--password-stdin", action="store_true")
     p_export.add_argument("--names")
     p_export.add_argument("--tag")
     p_export.add_argument("--type", choices=["secret", "pii"])

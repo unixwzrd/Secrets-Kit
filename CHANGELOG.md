@@ -8,6 +8,20 @@ All notable changes to Secrets-Kit will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+### 2026-04-13 — Encrypted export, placeholder dotenv, comments
+
+- **Scope:** `Secrets-Kit/src/secrets_kit/`, `Secrets-Kit/docs/`, `Secrets-Kit/README.md`, `.pre-commit-config.yaml`
+- **Category:** `cli`, `security`, `documentation`
+- **What changed:**
+  - Added encrypted export/import (`--format encrypted-json`) with optional `cryptography` extra.
+  - Added placeholder dotenv export (`--format dotenv`).
+  - Added optional metadata `comment` field.
+  - Added warn-only pre-commit secret scan hook.
+- **Why:**
+  - Enable cross-host recovery without plaintext secrets.
+  - Provide safe placeholder `.env` generation.
+  - Improve metadata clarity and prevent accidental leaks.
+
 ### 2026-03-31 — Keychain relock command
 
 - **Scope:** `Secrets-Kit/src/secrets_kit/`, `Secrets-Kit/tests/`, `Secrets-Kit/README.md`, `Secrets-Kit/docs/`

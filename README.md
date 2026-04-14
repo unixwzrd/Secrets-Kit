@@ -62,6 +62,8 @@ For many local development and AI workflows, secrets end up everywhere. They sho
 
 It also reduces the chance of accidentally exposing secrets to GitHub, GitLab, or any other code hosting system by leaving them in plain-text project files.
 
+Secrets Kit keeps the values in the macOS Keychain (which can sync via iCloud Keychain). For non-iCloud hosts, use encrypted export/import as a recovery path.
+
 Secrets Kit gives you a more disciplined local pattern:
 
 - keep secret values in Keychain
@@ -80,6 +82,7 @@ Secrets Kit focuses on a few practical jobs:
 - import from existing environment files
 - export environment variables for local runtimes
 - help migrate `.env` files away from embedded secret values
+- export encrypted backups for cross-host recovery
 - check for drift between local metadata and Keychain entries
 
 ## Requirements
@@ -117,6 +120,12 @@ Optional YAML file-import support for `seckit import file`:
 
 ```bash
 python -m pip install '.[yaml]'
+```
+
+Optional encrypted export/import support:
+
+```bash
+python -m pip install '.[crypto]'
 ```
 
 If you are not importing secrets from YAML files, you do not need that extra.
@@ -176,6 +185,18 @@ Export them into the current shell only when your runtime needs them:
 
 ```bash
 eval "$(seckit export --format shell --service my-stack --account local-dev --all)"
+```
+
+Generate a placeholder-only dotenv file (no secrets in plaintext):
+
+```bash
+seckit export --format dotenv --service my-stack --account local-dev --all > ~/.my-stack/.env
+```
+
+Create an encrypted backup for cross-host recovery (requires `seckit[crypto]`):
+
+```bash
+seckit export --format encrypted-json --service my-stack --account local-dev --all --out backup.json
 ```
 
 When the session is finished, you can relock the Keychain explicitly:
@@ -276,6 +297,8 @@ python -m pip install pre-commit
 pre-commit install
 pre-commit run --all-files
 ```
+
+The pre-commit hook includes a warn-only secret scan to catch accidental key commits.
 
 Run tests locally:
 

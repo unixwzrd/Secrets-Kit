@@ -11,3 +11,8 @@ repos:
         entry: python -m py_compile src/secrets_kit/*.py
         language: system
         pass_filenames: false
+      - id: seckit-secret-warn
+        name: seckit secret warning (non-blocking)
+        entry: python scripts/precommit_secret_gate.py
+        language: system
+        pass_filenames: true

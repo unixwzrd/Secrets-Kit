@@ -37,6 +37,7 @@ Top-level object:
       "entry_type": "secret",
       "entry_kind": "api_key",
       "tags": ["openclaw", "prod"],
+      "comment": "primary provider",
       "service": "openclaw",
       "account": "miafour",
       "created_at": "2026-03-02T18:20:00Z",
@@ -53,6 +54,7 @@ Entry fields:
 - `entry_type`: `secret` or `pii`
 - `entry_kind`: semantic class (`token`, `password`, `user_id`, `api_key`, `email`, `phone`, `address`, `credit_card`, `wallet`, `pii_other`, `generic`)
 - `tags`: optional labels
+- `comment`: optional operator note
 - `service`: logical namespace
 - `account`: logical operator/environment identity
 - `created_at`: first insert timestamp (UTC ISO-8601)

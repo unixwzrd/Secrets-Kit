@@ -34,6 +34,7 @@ class CliCommandsTest(unittest.TestCase):
                     "entry_type": "secret",
                     "entry_kind": "api_key",
                     "tags": [],
+                    "comment": "",
                     "service": "openclaw",
                     "account": "miafour",
                     "created_at": "2026-03-10T00:00:00Z",

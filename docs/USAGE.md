@@ -5,8 +5,11 @@
   - [Read a secret safely](#read-a-secret-safely)
   - [Read the raw value](#read-the-raw-value)
   - [List inventory](#list-inventory)
-  - [Export for a local runtime](#export-for-a-local-runtime)
+- [Export for a local runtime](#export-for-a-local-runtime)
+  - [Export placeholder dotenv](#export-placeholder-dotenv)
+  - [Export encrypted backup](#export-encrypted-backup)
   - [Import an existing dotenv file](#import-an-existing-dotenv-file)
+  - [Import encrypted backup](#import-encrypted-backup)
   - [Migrate a dotenv file and replace inline values](#migrate-a-dotenv-file-and-replace-inline-values)
   - [Explain an entry without revealing the secret](#explain-an-entry-without-revealing-the-secret)
   - [A simple everyday pattern](#a-simple-everyday-pattern)
@@ -21,6 +24,12 @@ The examples use a neutral scope of `my-stack` and `local-dev` first. Replace th
 
 ```bash
 echo 'sk-live' | seckit set --name OPENAI_API_KEY --stdin --kind api_key --service my-stack --account local-dev
+```
+
+Add a comment to record why a key exists:
+
+```bash
+echo 'sk-live' | seckit set --name OPENAI_API_KEY --stdin --kind api_key --comment "primary llm provider" --service my-stack --account local-dev
 ```
 
 ## Read a secret safely
@@ -59,6 +68,24 @@ eval "$(seckit export --format shell --service my-stack --account local-dev --al
 
 That pattern works for CLIs, local web apps, agent runtimes, and scripts that expect environment variables in the current shell.
 
+## Export placeholder dotenv
+
+```bash
+seckit export --format dotenv --service my-stack --account local-dev --all > ~/.config/my-stack/.env
+```
+
+## Export encrypted backup
+
+```bash
+seckit export --format encrypted-json --service my-stack --account local-dev --all --out backup.json
+```
+
+## Import encrypted backup
+
+```bash
+seckit import encrypted-json --file backup.json
+```
+
 ## Import an existing dotenv file
 
 ```bash
@@ -93,4 +120,4 @@ That does not eliminate risk, but it is materially better than sprinkling secret
 ## [Back to README](../README.md)
 
 **Created**: 2026-04-11  
-**Updated**: 2026-04-12
+**Updated**: 2026-04-13

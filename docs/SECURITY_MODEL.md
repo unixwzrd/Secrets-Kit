@@ -20,6 +20,8 @@ If you understand that up front, the tool makes more sense and is easier to use 
 - secret values are stored in the macOS login Keychain
 - metadata is stored in `~/.config/seckit/registry.json`
 
+If iCloud Keychain sync is enabled, values can sync across your Apple devices. For non-iCloud hosts, use encrypted export/import as the fallback.
+
 The registry exists so the tool can track classification, identity, and inventory without printing or storing secret values in plain text.
 
 ## How entries are identified
@@ -70,4 +72,4 @@ Use Secrets Kit when you want a more disciplined local workflow for tokens, pass
 ## [Back to README](../README.md)
 
 **Created**: 2026-03-01  
-**Updated**: 2026-04-12
+**Updated**: 2026-04-13

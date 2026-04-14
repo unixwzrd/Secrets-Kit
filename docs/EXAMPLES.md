@@ -2,6 +2,7 @@
 
 - [Examples](#examples)
   - [A generic export example](#a-generic-export-example)
+  - [An encrypted backup example](#an-encrypted-backup-example)
   - [A generic dotenv migration example](#a-generic-dotenv-migration-example)
   - [Back to README](#back-to-readme)
 
@@ -12,6 +13,7 @@ Current examples:
 - `seckit_export_openclaw.sh`
 - `seckit_export_hermes.sh`
 - `seckit_migrate_dotenv.sh`
+- `seckit_export_encrypted.sh`
 
 Those are meant to be starting points, not rigid templates. In most cases you only need to change the service name, account name, dotenv path, or startup command.
 
@@ -37,7 +39,13 @@ seckit migrate dotenv \
 
 That is often the fastest path away from plain-text secrets living in a project directory.
 
+## An encrypted backup example
+
+```bash
+seckit export --format encrypted-json --service my-stack --account local-dev --all --out backup.json
+```
+
 ## [Back to README](../README.md)
 
 **Created**: 2026-04-11  
-**Updated**: 2026-04-12
+**Updated**: 2026-04-13

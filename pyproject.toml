@@ -17,6 +17,9 @@ dependencies = [
 yaml = [
   "PyYAML>=6.0",
 ]
+crypto = [
+  "cryptography>=42.0.0",
+]
 
 [project.scripts]
 secrets-kit = "secrets_kit.cli:main"
