@@ -11,6 +11,8 @@ from typing import Dict, List, Optional
 from secrets_kit.models import (
     EntryMetadata,
     infer_entry_kind_from_name,
+    normalize_custom,
+    normalize_domains,
     normalize_tags,
     validate_entry_kind,
     validate_entry_type,
@@ -166,6 +168,14 @@ def candidates_from_file(
             service=service,
             account=account,
             source=source,
+            source_url=str(row.get("source_url", "")),
+            source_label=str(row.get("source_label", "")),
+            rotation_days=int(row["rotation_days"]) if row.get("rotation_days") not in {None, ""} else None,
+            rotation_warn_days=int(row["rotation_warn_days"]) if row.get("rotation_warn_days") not in {None, ""} else None,
+            last_rotated_at=str(row.get("last_rotated_at", "")),
+            expires_at=str(row.get("expires_at", "")),
+            domains=normalize_domains(row.get("domains", [])),
+            custom=normalize_custom(row.get("custom", {})),
         )
         items.append(ImportCandidate(metadata=meta, value=value.strip()))
     return items

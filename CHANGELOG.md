@@ -1,12 +1,29 @@
 # Secrets-Kit Changelog
 
 **Created**: 2026-03-10  
-**Updated**: 2026-03-31
+**Updated**: 2026-04-14
 
 All notable changes to Secrets-Kit will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+### 2026-04-14 — Keychain-first metadata, defaults.json, and regression hardening
+
+- **Scope:** `Secrets-Kit/src/secrets_kit/`, `Secrets-Kit/tests/`, `Secrets-Kit/docs/`, `Secrets-Kit/README.md`, `Secrets-Kit/pyproject.toml`
+- **Category:** `cli`, `security`, `testing`, `documentation`
+- **What changed:**
+  - Moved authoritative metadata reads to the keychain item comment, stored as structured JSON.
+  - Expanded entry metadata to include schema version, renewal source fields, rotation policy, expiry, domains, and custom metadata.
+  - Added `~/.config/seckit/defaults.json` as the persistent defaults file, while keeping legacy config compatibility.
+  - Added `seckit migrate metadata` for backfilling older registry-first entries into keychain comment metadata.
+  - Added status warnings for rotation and expiry in `list`, `explain`, and `doctor`.
+  - Added isolated temporary keychain regression coverage for CRUD plus metadata handling.
+  - Aligned package version target to `v1.0.0`.
+- **Why:**
+  - Reduce host-to-host metadata drift by making the keychain item the primary metadata carrier.
+  - Keep inventory and recovery support without relying on the local registry as the source of truth.
+  - Prepare the project for manual iCloud sync validation and a tighter `v1.0.0` release.
 
 ### 2026-04-13 — Encrypted export, placeholder dotenv, comments
 

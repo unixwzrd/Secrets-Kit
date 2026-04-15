@@ -3,12 +3,13 @@ from __future__ import annotations
 import argparse
 import io
 import json
+from pathlib import Path
 import tempfile
 import unittest
 from unittest import mock
 from contextlib import redirect_stdout, redirect_stderr
 
-from secrets_kit.cli import build_parser, cmd_doctor, cmd_lock
+from secrets_kit.cli import _apply_defaults, build_parser, cmd_doctor, cmd_lock
 
 
 class CliCommandsTest(unittest.TestCase):
@@ -69,6 +70,8 @@ class CliCommandsTest(unittest.TestCase):
                 [{"name": "OPENAI_API_KEY", "service": "openclaw", "account": "miafour"}],
             )
             self.assertIn("metadata/keychain drift detected", err.getvalue())
+            self.assertTrue(payload["defaults"])
+            self.assertEqual(payload["entries_using_registry_fallback"], [])
 
     def test_lock_dry_run_shows_backend_command(self) -> None:
         out = io.StringIO()
@@ -93,6 +96,43 @@ class CliCommandsTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("locking keychain: /tmp/login.keychain-db", out.getvalue())
         self.assertIn("locked: /tmp/login.keychain-db", out.getvalue())
+
+    def test_defaults_json_applies_rotation_and_scope_defaults(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            config_dir = home / ".config" / "seckit"
+            config_dir.mkdir(parents=True, exist_ok=True)
+            (config_dir / "defaults.json").write_text(
+                json.dumps(
+                    {
+                        "service": "hermes",
+                        "account": "default",
+                        "type": "secret",
+                        "kind": "api_key",
+                        "default_rotation_days": 90,
+                        "rotation_warn_days": 14,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            args = argparse.Namespace(
+                command="set",
+                service=None,
+                account=None,
+                type=None,
+                kind=None,
+                tags=None,
+                tag=None,
+                rotation_days=None,
+                rotation_warn_days=None,
+            )
+            with mock.patch("pathlib.Path.home", return_value=home):
+                _apply_defaults(args=args)
+            self.assertEqual(args.service, "hermes")
+            self.assertEqual(args.account, "default")
+            self.assertEqual(args.kind, "api_key")
+            self.assertEqual(args.rotation_days, 90)
+            self.assertEqual(args.rotation_warn_days, 14)
 
 
 if __name__ == "__main__":

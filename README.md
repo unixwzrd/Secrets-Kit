@@ -21,20 +21,21 @@
 
 Secrets Kit is a local macOS command-line tool for handling API keys, access tokens, passwords, and other sensitive values without leaving them scattered across `.env` files, shell startup files, random notes, or project directories.
 
-It stores secret values in the macOS login Keychain, keeps non-secret metadata in a local registry, and can export environment variables into the current shell when a runtime actually needs them. The goal is not to promise perfect security. The goal is to give operators and developers a cleaner, safer workflow than plain-text secrets spread around the filesystem.
+It stores secret values in the macOS login Keychain, keeps the authoritative metadata with the keychain item itself, and can export environment variables into the current shell when a runtime actually needs them. A local registry remains as an index and recovery aid, not the source of truth. The goal is not to promise perfect security. The goal is to give operators and developers a cleaner, safer workflow than plain-text secrets spread around the filesystem.
 
 Repository name: `Secrets-Kit`  
 CLI command: `seckit`  
-Current release target: `v0.9.0`
+Current release target: `v1.0.0`
 
 ## **IMPORTANT: Read This First**
 
 Secrets Kit is intentionally narrow in scope:
 
-- macOS only in `v0.9.0`
+- macOS only in `v1.0.0`
 - stores secret values in the user's login Keychain
-- keeps metadata in `~/.config/seckit/registry.json`
-- supports command defaults in `~/.config/seckit/config.json`
+- keeps managed metadata in the keychain item comment as structured JSON
+- keeps a local inventory/index in `~/.config/seckit/registry.json`
+- supports command defaults in `~/.config/seckit/defaults.json`
 - exports values into the current shell for local runtime use
 
 That makes it useful, but it also means it has limits.
@@ -62,7 +63,7 @@ For many local development and AI workflows, secrets end up everywhere. They sho
 
 It also reduces the chance of accidentally exposing secrets to GitHub, GitLab, or any other code hosting system by leaving them in plain-text project files.
 
-Secrets Kit keeps the values in the macOS Keychain (which can sync via iCloud Keychain). For non-iCloud hosts, use encrypted export/import as a recovery path.
+Secrets Kit keeps the values in the macOS Keychain, which may sync through iCloud Keychain when Apple allows those items to sync. That sync path is Apple-managed and should be validated empirically in your environment. For non-iCloud hosts, use encrypted export/import as a recovery path.
 
 Secrets Kit gives you a more disciplined local pattern:
 
@@ -83,7 +84,8 @@ Secrets Kit focuses on a few practical jobs:
 - export environment variables for local runtimes
 - help migrate `.env` files away from embedded secret values
 - export encrypted backups for cross-host recovery
-- check for drift between local metadata and Keychain entries
+- check for drift between local index data and Keychain entries
+- carry rotation, renewal, and source metadata with the Keychain item itself
 
 ## Requirements
 
@@ -93,42 +95,58 @@ Secrets Kit focuses on a few practical jobs:
 
 ## Installation
 
-For a local checkout, the shortest path is:
+The preferred install path is directly from GitHub.
+
+Install the current tagged release:
+
+```bash
+pip install "git+https://github.com/unixwzrd/Secrets-Kit.git@v1.0.0"
+```
+
+Install from the moving default branch if you explicitly want the latest unreleased changes:
+
+```bash
+pip install "git+https://github.com/unixwzrd/Secrets-Kit.git"
+```
+
+Install an editable development checkout if you are actively working on the code:
 
 ```bash
 cd ~/projects/Secrets-Kit
 python -m venv .venv
 source .venv/bin/activate
-python -m pip install .
+pip install -e .
 ```
 
-In most cases, `python -m pip install .` is enough. The extra `pip/setuptools/wheel` upgrade step is optional and only useful if you are working in an older or inconsistent Python environment and want to normalize the packaging toolchain first.
+In most cases, the tagged GitHub URL is the right answer because it gives you an explicit released version instead of whatever happens to be checked out locally.
 
-Install directly from GitHub:
+If `pip` is not installed or is not on your `PATH`, use `python3 -m pip` instead.
+
+Optional YAML file-import support for the tagged release:
 
 ```bash
-python -m pip install "git+https://github.com/unixwzrd/Secrets-Kit.git"
+pip install "git+https://github.com/unixwzrd/Secrets-Kit.git@v1.0.0#egg=seckit[yaml]"
 ```
 
-Editable install for active development:
+Optional encrypted export/import support for the tagged release:
 
 ```bash
-python -m pip install -e "git+https://github.com/unixwzrd/Secrets-Kit.git#egg=seckit"
+pip install "git+https://github.com/unixwzrd/Secrets-Kit.git@v1.0.0#egg=seckit[crypto]"
 ```
 
-Optional YAML file-import support for `seckit import file`:
+If you already have a local checkout and intentionally want to install from it:
 
 ```bash
-python -m pip install '.[yaml]'
+pip install .
 ```
 
-Optional encrypted export/import support:
+If you are not importing secrets from YAML files, you do not need that extra. If you are not using encrypted export/import, you do not need the `crypto` extra.
+
+To verify what is installed:
 
 ```bash
-python -m pip install '.[crypto]'
+seckit version
 ```
-
-If you are not importing secrets from YAML files, you do not need that extra.
 
 ## Quick Start
 
@@ -213,7 +231,7 @@ seckit unlock --harden
 
 ## Defaults
 
-If you work with the same service and account often, defaults make the tool much easier to live with. Instead of repeating `--service` and `--account` on every command, you can set them once in environment variables or `~/.config/seckit/config.json`.
+If you work with the same service and account often, defaults make the tool much easier to live with. Instead of repeating `--service` and `--account` on every command, you can set them once in environment variables or `~/.config/seckit/defaults.json`.
 
 Example:
 
@@ -268,6 +286,7 @@ If you need a remote secret service, cross-host policy enforcement, or stronger 
 - [Integrations](docs/INTEGRATIONS.md)
 - [Examples](docs/EXAMPLES.md)
 - [Security Model](docs/SECURITY_MODEL.md)
+- [iCloud Sync Validation](docs/ICLOUD_SYNC_VALIDATION.md)
 - [Defaults](docs/DEFAULTS.md)
 - [Metadata Registry](docs/METADATA_REGISTRY.md)
 - [OpenClaw Integration (Legacy Example)](docs/INTEGRATION_OPENCLAW.md)

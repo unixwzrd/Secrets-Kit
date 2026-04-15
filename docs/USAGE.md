@@ -32,6 +32,25 @@ Add a comment to record why a key exists:
 echo 'sk-live' | seckit set --name OPENAI_API_KEY --stdin --kind api_key --comment "primary llm provider" --service my-stack --account local-dev
 ```
 
+Add renewal and rotation metadata at the same time:
+
+```bash
+echo 'sk-live' | seckit set \
+  --name OPENAI_API_KEY \
+  --stdin \
+  --kind api_key \
+  --service my-stack \
+  --account local-dev \
+  --comment "primary llm provider" \
+  --source-label "OpenAI dashboard" \
+  --source-url "https://platform.openai.com/api-keys" \
+  --rotation-days 90 \
+  --rotation-warn-days 14 \
+  --domain openai \
+  --domain production \
+  --meta owner=ops
+```
+
 ## Read a secret safely
 
 ```bash
@@ -59,6 +78,8 @@ Filter for stale entries:
 ```bash
 seckit list --service my-stack --account local-dev --stale 90
 ```
+
+`list` now includes a `STATUS` column so upcoming rotation or expiry issues are visible without exposing the value.
 
 ## Export for a local runtime
 
@@ -106,6 +127,21 @@ This is the practical “stop leaving raw secrets in `.env`” workflow. It impo
 seckit explain --name OPENAI_API_KEY --service my-stack --account local-dev
 ```
 
+`explain` resolves metadata from the keychain comment first and shows:
+
+- effective metadata
+- status warnings
+- whether registry fallback was needed
+- raw keychain fields that were readable through the CLI
+
+## Migrate older registry-only metadata into the keychain
+
+```bash
+seckit migrate metadata --service my-stack --account local-dev
+```
+
+Use `--dry-run` first if you want to see how many items would be updated without writing anything.
+
 ## A simple everyday pattern
 
 One reasonable local workflow looks like this:
@@ -120,4 +156,4 @@ That does not eliminate risk, but it is materially better than sprinkling secret
 ## [Back to README](../README.md)
 
 **Created**: 2026-04-11  
-**Updated**: 2026-04-13
+**Updated**: 2026-04-14

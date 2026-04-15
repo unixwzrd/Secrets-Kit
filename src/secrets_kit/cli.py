@@ -8,7 +8,7 @@ import json
 import os
 import shutil
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from dataclasses import asdict
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as package_version
@@ -27,22 +27,29 @@ from secrets_kit.importers import (
 from secrets_kit.keychain_backend import (
     BackendError,
     check_security_cli,
+    create_keychain,
+    delete_keychain,
     delete_secret,
     doctor_roundtrip,
     get_secret,
+    get_secret_metadata,
     harden_keychain,
     keychain_accessible,
     keychain_policy,
     keychain_path,
     lock_keychain,
+    make_temp_keychain,
     secret_exists,
     set_secret,
     unlock_keychain,
 )
 from secrets_kit.models import (
     ENTRY_KIND_VALUES,
+    METADATA_SCHEMA_VERSION,
     EntryMetadata,
     ValidationError,
+    normalize_custom,
+    normalize_domains,
     normalize_tags,
     validate_entry_kind,
     validate_entry_type,
@@ -51,8 +58,12 @@ from secrets_kit.models import (
 from secrets_kit.registry import (
     RegistryError,
     delete_metadata,
+    defaults_path,
     ensure_registry_storage,
+    ensure_defaults_storage,
     load_registry,
+    load_defaults,
+    save_defaults,
     upsert_metadata,
 )
 
@@ -123,21 +134,29 @@ def _parse_timestamp(value: Optional[str]) -> Optional[datetime]:
         return None
 
 
-def _load_default_config() -> Dict[str, str]:
-    path = Path("~/.config/seckit/config.json").expanduser()
-    if not path.exists():
-        return {}
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise ValidationError(f"invalid config json: {path} ({exc})") from exc
-    if not isinstance(payload, dict):
-        raise ValidationError(f"invalid config json: {path} (top-level must be object)")
-    return {str(key): str(value) for key, value in payload.items() if value is not None}
+def _load_default_config() -> Dict[str, object]:
+    defaults: Dict[str, object] = {}
+    dpath = defaults_path()
+    if dpath.exists():
+        try:
+            defaults.update(load_defaults())
+        except RegistryError as exc:
+            raise ValidationError(str(exc)) from exc
+    legacy_path = Path("~/.config/seckit/config.json").expanduser()
+    if legacy_path.exists():
+        try:
+            payload = json.loads(legacy_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise ValidationError(f"invalid config json: {legacy_path} ({exc})") from exc
+        if not isinstance(payload, dict):
+            raise ValidationError(f"invalid config json: {legacy_path} (top-level must be object)")
+        for key, value in payload.items():
+            defaults.setdefault(str(key), value)
+    return defaults
 
 
-def _load_defaults() -> Dict[str, str]:
-    defaults: Dict[str, str] = {}
+def _load_defaults() -> Dict[str, object]:
+    defaults: Dict[str, object] = {}
     defaults.update(_load_default_config())
     env_map = {
         "service": "SECKIT_DEFAULT_SERVICE",
@@ -145,6 +164,9 @@ def _load_defaults() -> Dict[str, str]:
         "type": "SECKIT_DEFAULT_TYPE",
         "kind": "SECKIT_DEFAULT_KIND",
         "tags": "SECKIT_DEFAULT_TAGS",
+        "backend": "SECKIT_DEFAULT_BACKEND",
+        "default_rotation_days": "SECKIT_DEFAULT_ROTATION_DAYS",
+        "rotation_warn_days": "SECKIT_DEFAULT_ROTATION_WARN_DAYS",
     }
     for key, env_var in env_map.items():
         value = os.getenv(env_var)
@@ -167,6 +189,10 @@ def _apply_defaults(*, args: argparse.Namespace) -> None:
         args.tags = defaults.get("tags")
     if hasattr(args, "tag") and not args.tag:
         args.tag = defaults.get("tags")
+    if hasattr(args, "rotation_days") and getattr(args, "rotation_days", None) is None and defaults.get("default_rotation_days"):
+        args.rotation_days = int(str(defaults["default_rotation_days"]))
+    if hasattr(args, "rotation_warn_days") and getattr(args, "rotation_warn_days", None) is None and defaults.get("rotation_warn_days"):
+        args.rotation_warn_days = int(str(defaults["rotation_warn_days"]))
 
     if hasattr(args, "type") and not args.type:
         if args.command in {"set", "import", "migrate"}:
@@ -190,6 +216,134 @@ def _apply_defaults(*, args: argparse.Namespace) -> None:
             )
 
 
+def _parse_meta_pairs(items: Optional[List[str]]) -> Dict[str, str]:
+    out: Dict[str, str] = {}
+    for item in items or []:
+        if "=" not in item:
+            raise ValidationError(f"invalid --meta value '{item}'; expected key=value")
+        key, value = item.split("=", 1)
+        key = key.strip()
+        if not key:
+            raise ValidationError("custom metadata key cannot be empty")
+        out[key] = value.strip()
+    return out
+
+
+def _resolve_domains(*, domain: Optional[List[str]], domains_csv: Optional[str]) -> List[str]:
+    items: List[str] = []
+    if domains_csv:
+        items.extend(domains_csv.split(","))
+    if domain:
+        items.extend(domain)
+    return normalize_domains(items)
+
+
+def _build_metadata(*, args: argparse.Namespace, name: str, source: str) -> EntryMetadata:
+    registry = load_registry()
+    existing = _read_metadata(
+        service=args.service,
+        account=args.account,
+        name=name,
+        registry=registry,
+    )
+    created_at = existing["metadata"].created_at if existing else now_utc_iso()
+    last_rotated_at = now_utc_iso()
+    if existing and existing["metadata"].last_rotated_at:
+        last_rotated_at = existing["metadata"].last_rotated_at
+    if existing and existing["metadata"].source == source:
+        last_rotated_at = existing["metadata"].last_rotated_at or last_rotated_at
+    return EntryMetadata(
+        name=name,
+        entry_type=validate_entry_type(entry_type=args.type),
+        entry_kind=validate_entry_kind(entry_kind=args.kind),
+        tags=normalize_tags(tags_csv=args.tags),
+        comment=args.comment or "",
+        service=args.service,
+        account=args.account,
+        created_at=created_at,
+        updated_at=now_utc_iso(),
+        source=source,
+        schema_version=METADATA_SCHEMA_VERSION,
+        source_url=getattr(args, "source_url", "") or "",
+        source_label=getattr(args, "source_label", "") or "",
+        rotation_days=getattr(args, "rotation_days", None),
+        rotation_warn_days=getattr(args, "rotation_warn_days", None),
+        last_rotated_at=last_rotated_at,
+        expires_at=getattr(args, "expires_at", "") or "",
+        domains=_resolve_domains(domain=getattr(args, "domain", None), domains_csv=getattr(args, "domains", None)),
+        custom=normalize_custom(_parse_meta_pairs(getattr(args, "meta", None))),
+    )
+
+
+def _resolve_status(*, metadata: EntryMetadata) -> List[str]:
+    now = datetime.now(timezone.utc)
+    statuses: List[str] = []
+
+    rotation_days = metadata.rotation_days
+    if rotation_days:
+        rotated_at = _parse_timestamp(metadata.last_rotated_at or metadata.updated_at or metadata.created_at)
+        if rotated_at:
+            due_at = rotated_at + timedelta(days=rotation_days)
+            warn_days = metadata.rotation_warn_days or 7
+            if due_at <= now:
+                statuses.append("rotation-overdue")
+            elif due_at <= now + timedelta(days=warn_days):
+                statuses.append("rotation-soon")
+
+    expires_at = _parse_timestamp(metadata.expires_at)
+    if expires_at:
+        if expires_at <= now:
+            statuses.append("expired")
+        elif expires_at <= now + timedelta(days=7):
+            statuses.append("expires-soon")
+
+    return statuses
+
+
+def _read_metadata(*, service: str, account: str, name: str, registry: Optional[Dict[str, EntryMetadata]] = None) -> Optional[Dict[str, object]]:
+    key = f"{service}::{account}::{name}"
+    registry = registry if registry is not None else load_registry()
+    registry_meta = registry.get(key)
+    if secret_exists(service=service, account=account, name=name):
+        keychain_fields = get_secret_metadata(service=service, account=account, name=name)
+        keychain_meta = EntryMetadata.from_keychain_comment(str(keychain_fields.get("comment", "")))
+        if keychain_meta:
+            return {
+                "metadata": keychain_meta,
+                "metadata_source": "keychain",
+                "keychain_fields": keychain_fields,
+                "registry_fallback_used": False,
+            }
+        if registry_meta:
+            return {
+                "metadata": registry_meta,
+                "metadata_source": "registry-fallback",
+                "keychain_fields": keychain_fields,
+                "registry_fallback_used": True,
+            }
+        minimal = EntryMetadata(
+            name=name,
+            service=service,
+            account=account,
+            comment="",
+            source="keychain-unmanaged",
+        )
+        return {
+            "metadata": minimal,
+            "metadata_source": "keychain-minimal",
+            "keychain_fields": keychain_fields,
+            "registry_fallback_used": False,
+        }
+    if registry_meta:
+        return {
+            "metadata": registry_meta,
+            "metadata_source": "registry-only",
+            "keychain_fields": {},
+            "registry_fallback_used": True,
+        }
+    return None
+
+
 def _merge_candidates(*, groups: Iterable[List[ImportCandidate]]) -> Dict[str, ImportCandidate]:
     merged: Dict[str, ImportCandidate] = {}
     for group in groups:
@@ -203,13 +357,28 @@ def _apply_candidates(*, candidates: Dict[str, ImportCandidate], allow_overwrite
     stats = {"created": 0, "updated": 0, "skipped": 0}
     for key in sorted(candidates):
         candidate = candidates[key]
-        exists = key in registry
+        resolved = _read_metadata(
+            service=candidate.metadata.service,
+            account=candidate.metadata.account,
+            name=candidate.metadata.name,
+            registry=registry,
+        )
+        exists = resolved is not None and secret_exists(
+            service=candidate.metadata.service,
+            account=candidate.metadata.account,
+            name=candidate.metadata.name,
+        )
         if exists and not allow_overwrite:
             stats["skipped"] += 1
             continue
         if not allow_empty and not candidate.value:
             stats["skipped"] += 1
             continue
+        if resolved:
+            existing_meta = resolved["metadata"]
+            if isinstance(existing_meta, EntryMetadata):
+                candidate.metadata.created_at = existing_meta.created_at
+        candidate.metadata.updated_at = now_utc_iso()
         if dry_run:
             stats["updated" if exists else "created"] += 1
             continue
@@ -218,6 +387,8 @@ def _apply_candidates(*, candidates: Dict[str, ImportCandidate], allow_overwrite
             account=candidate.metadata.account,
             name=candidate.metadata.name,
             value=candidate.value,
+            label=candidate.metadata.name,
+            comment=candidate.metadata.to_keychain_comment(),
         )
         upsert_metadata(metadata=candidate.metadata)
         stats["updated" if exists else "created"] += 1
@@ -227,23 +398,18 @@ def _apply_candidates(*, candidates: Dict[str, ImportCandidate], allow_overwrite
 def cmd_set(*, args: argparse.Namespace) -> int:
     try:
         name = validate_key_name(name=args.name)
-        entry_type = validate_entry_type(entry_type=args.type)
-        entry_kind = validate_entry_kind(entry_kind=args.kind)
         value = _read_value(value=args.value, use_stdin=args.stdin, allow_empty=args.allow_empty)
-        tags = normalize_tags(tags_csv=args.tags)
-        meta = EntryMetadata(
-            name=name,
-            entry_type=entry_type,
-            entry_kind=entry_kind,
-            tags=tags,
-            comment=args.comment or "",
+        meta = _build_metadata(args=args, name=name, source="manual")
+        set_secret(
             service=args.service,
             account=args.account,
-            source="manual",
+            name=name,
+            value=value,
+            label=name,
+            comment=meta.to_keychain_comment(),
         )
-        set_secret(service=args.service, account=args.account, name=name, value=value)
         upsert_metadata(metadata=meta)
-        print(f"stored: name={name} type={entry_type} kind={entry_kind} service={args.service} account={args.account}")
+        print(f"stored: name={name} type={meta.entry_type} kind={meta.entry_kind} service={args.service} account={args.account}")
         return 0
     except (ValidationError, RegistryError, BackendError) as exc:
         return _fatal(message=str(exc))
@@ -253,9 +419,10 @@ def cmd_get(*, args: argparse.Namespace) -> int:
     try:
         name = validate_key_name(name=args.name)
         value = get_secret(service=args.service, account=args.account, name=name)
-        metadata = load_registry().get(f"{args.service}::{args.account}::{name}")
-        kind = metadata.entry_kind if metadata else "unknown"
-        entry_type = metadata.entry_type if metadata else "unknown"
+        resolved = _read_metadata(service=args.service, account=args.account, name=name)
+        metadata = resolved["metadata"] if resolved else None
+        kind = metadata.entry_kind if isinstance(metadata, EntryMetadata) else "unknown"
+        entry_type = metadata.entry_type if isinstance(metadata, EntryMetadata) else "unknown"
         if args.raw:
             print(value)
         else:
@@ -275,7 +442,14 @@ def cmd_list(*, args: argparse.Namespace) -> int:
     cutoff = None
     if args.stale is not None:
         cutoff = datetime.now(timezone.utc).timestamp() - (args.stale * 86400)
-    for meta in entries.values():
+    rows = []
+    for indexed in entries.values():
+        resolved = _read_metadata(service=indexed.service, account=indexed.account, name=indexed.name, registry=entries)
+        if not resolved:
+            continue
+        meta = resolved["metadata"]
+        if not isinstance(meta, EntryMetadata):
+            continue
         if args.service and meta.service != args.service:
             continue
         if args.account and meta.account != args.account:
@@ -292,21 +466,28 @@ def cmd_list(*, args: argparse.Namespace) -> int:
                 continue
             if updated.timestamp() > cutoff:
                 continue
-        rows.append(meta)
+        rows.append((meta, resolved))
 
-    rows.sort(key=lambda item: (item.service, item.account, item.name))
+    rows.sort(key=lambda item: (item[0].service, item[0].account, item[0].name))
 
     if args.format == "json":
-        print(json.dumps([asdict(item) for item in rows], indent=2))
+        output = []
+        for item, resolved in rows:
+            payload = item.to_dict()
+            payload["status"] = _resolve_status(metadata=item)
+            payload["metadata_source"] = resolved["metadata_source"]
+            payload["registry_fallback_used"] = resolved["registry_fallback_used"]
+            output.append(payload)
+        print(json.dumps(output, indent=2))
         return 0
 
     if not rows:
         print("no entries")
         return 0
 
-    headers = ["NAME", "TYPE", "KIND", "SERVICE", "ACCOUNT", "TAGS", "UPDATED_AT"]
+    headers = ["NAME", "TYPE", "KIND", "SERVICE", "ACCOUNT", "TAGS", "STATUS", "UPDATED_AT"]
     table_rows: List[List[str]] = []
-    for item in rows:
+    for item, resolved in rows:
         table_rows.append(
             [
                 item.name,
@@ -315,6 +496,7 @@ def cmd_list(*, args: argparse.Namespace) -> int:
                 item.service,
                 item.account,
                 _format_tags(tags=item.tags),
+                ",".join(_resolve_status(metadata=item) or ["ok"]),
                 item.updated_at,
             ]
         )
@@ -339,11 +521,18 @@ def cmd_delete(*, args: argparse.Namespace) -> int:
 def cmd_explain(*, args: argparse.Namespace) -> int:
     try:
         name = validate_key_name(name=args.name)
-        key = f"{args.service}::{args.account}::{name}"
-        entry = load_registry().get(key)
-        if not entry:
-            return _fatal(message=f"entry not found: {key}", code=1)
-        print(json.dumps(asdict(entry), indent=2, sort_keys=True))
+        resolved = _read_metadata(service=args.service, account=args.account, name=name)
+        if not resolved:
+            return _fatal(message=f"entry not found: {args.service}::{args.account}::{name}", code=1)
+        entry = resolved["metadata"]
+        if not isinstance(entry, EntryMetadata):
+            return _fatal(message="metadata decode failed", code=1)
+        payload = entry.to_dict()
+        payload["status"] = _resolve_status(metadata=entry)
+        payload["metadata_source"] = resolved["metadata_source"]
+        payload["registry_fallback_used"] = resolved["registry_fallback_used"]
+        payload["keychain_fields"] = resolved["keychain_fields"]
+        print(json.dumps(payload, indent=2, sort_keys=True))
         return 0
     except (ValidationError, RegistryError) as exc:
         return _fatal(message=str(exc), code=1)
@@ -474,22 +663,35 @@ def cmd_export(*, args: argparse.Namespace) -> int:
         entries = load_registry()
         selected: List[EntryMetadata] = []
         names = {validate_key_name(name=item) for item in args.names.split(",")} if args.names else set()
-        for meta in entries.values():
-            if args.service and meta.service != args.service:
-                continue
-            if args.account and meta.account != args.account:
-                continue
-            if args.type and meta.entry_type != args.type:
-                continue
-            if args.kind and meta.entry_kind != args.kind:
-                continue
-            if args.tag and args.tag not in meta.tags:
-                continue
-            if names and meta.name not in names:
-                continue
-            if not (args.names or args.tag or args.type or args.all):
-                continue
-            selected.append(meta)
+        if names:
+            for name in sorted(names):
+                resolved = _read_metadata(service=args.service, account=args.account, name=name, registry=entries)
+                if not resolved:
+                    continue
+                meta = resolved["metadata"]
+                if isinstance(meta, EntryMetadata):
+                    selected.append(meta)
+        else:
+            for indexed in entries.values():
+                resolved = _read_metadata(service=indexed.service, account=indexed.account, name=indexed.name, registry=entries)
+                if not resolved:
+                    continue
+                meta = resolved["metadata"]
+                if not isinstance(meta, EntryMetadata):
+                    continue
+                if args.service and meta.service != args.service:
+                    continue
+                if args.account and meta.account != args.account:
+                    continue
+                if args.type and meta.entry_type != args.type:
+                    continue
+                if args.kind and meta.entry_kind != args.kind:
+                    continue
+                if args.tag and args.tag not in meta.tags:
+                    continue
+                if not (args.tag or args.type or args.all):
+                    continue
+                selected.append(meta)
 
         if not selected:
             return _fatal(message="no matching entries selected for export", code=1)
@@ -535,9 +737,13 @@ def cmd_doctor(*, args: argparse.Namespace) -> int:
     status = {
         "security_cli": False,
         "registry": False,
+        "defaults": False,
         "keychain_roundtrip": False,
         "registry_path": None,
+        "defaults_path": None,
         "metadata_keychain_drift": [],
+        "entries_using_registry_fallback": [],
+        "rotation_warnings": [],
     }
     if check_security_cli():
         status["security_cli"] = True
@@ -554,6 +760,14 @@ def cmd_doctor(*, args: argparse.Namespace) -> int:
         return _fatal(message=str(exc), code=1)
 
     try:
+        dpath = ensure_defaults_storage()
+        status["defaults"] = True
+        status["defaults_path"] = str(dpath)
+    except RegistryError as exc:
+        print(json.dumps(status, indent=2, sort_keys=True))
+        return _fatal(message=str(exc), code=1)
+
+    try:
         doctor_roundtrip()
         status["keychain_roundtrip"] = True
     except BackendError as exc:
@@ -563,6 +777,8 @@ def cmd_doctor(*, args: argparse.Namespace) -> int:
     try:
         entries = load_registry()
         drift = []
+        fallback = []
+        warnings = []
         for meta in sorted(entries.values(), key=lambda item: (item.service, item.account, item.name)):
             if not secret_exists(service=meta.service, account=meta.account, name=meta.name):
                 drift.append(
@@ -572,13 +788,36 @@ def cmd_doctor(*, args: argparse.Namespace) -> int:
                         "account": meta.account,
                     }
                 )
+                continue
+            resolved = _read_metadata(service=meta.service, account=meta.account, name=meta.name, registry=entries)
+            if resolved and resolved["metadata_source"] == "registry-fallback":
+                fallback.append(
+                    {
+                        "name": meta.name,
+                        "service": meta.service,
+                        "account": meta.account,
+                    }
+                )
+            if resolved and isinstance(resolved["metadata"], EntryMetadata):
+                entry_status = _resolve_status(metadata=resolved["metadata"])
+                if entry_status:
+                    warnings.append(
+                        {
+                            "name": meta.name,
+                            "service": meta.service,
+                            "account": meta.account,
+                            "status": entry_status,
+                        }
+                    )
         status["metadata_keychain_drift"] = drift
+        status["entries_using_registry_fallback"] = fallback
+        status["rotation_warnings"] = warnings
     except (RegistryError, BackendError) as exc:
         print(json.dumps(status, indent=2, sort_keys=True))
         return _fatal(message=str(exc), code=1)
 
     print(json.dumps(status, indent=2, sort_keys=True))
-    if status["metadata_keychain_drift"]:
+    if status["metadata_keychain_drift"] or status["entries_using_registry_fallback"]:
         return _fatal(message="metadata/keychain drift detected", code=1)
     return 0
 
@@ -751,6 +990,52 @@ def cmd_migrate_dotenv(*, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_migrate_metadata(*, args: argparse.Namespace) -> int:
+    try:
+        registry = load_registry()
+    except RegistryError as exc:
+        return _fatal(message=str(exc), code=1)
+
+    selected: List[EntryMetadata] = []
+    for meta in registry.values():
+        if args.service and meta.service != args.service:
+            continue
+        if args.account and meta.account != args.account:
+            continue
+        selected.append(meta)
+
+    stats = {"migrated": 0, "skipped": 0, "missing_keychain": 0}
+    for meta in sorted(selected, key=lambda item: (item.service, item.account, item.name)):
+        if not secret_exists(service=meta.service, account=meta.account, name=meta.name):
+            stats["missing_keychain"] += 1
+            continue
+        resolved = _read_metadata(service=meta.service, account=meta.account, name=meta.name, registry=registry)
+        if resolved and resolved["metadata_source"] == "keychain" and not args.force:
+            stats["skipped"] += 1
+            continue
+        if args.dry_run:
+            stats["migrated"] += 1
+            continue
+        value = get_secret(service=meta.service, account=meta.account, name=meta.name)
+        meta.updated_at = now_utc_iso()
+        set_secret(
+            service=meta.service,
+            account=meta.account,
+            name=meta.name,
+            value=value,
+            label=meta.name,
+            comment=meta.to_keychain_comment(),
+        )
+        verify = _read_metadata(service=meta.service, account=meta.account, name=meta.name, registry=registry)
+        if not verify or verify["metadata_source"] != "keychain":
+            return _fatal(message=f"failed to verify migrated metadata for {meta.key()}", code=1)
+        upsert_metadata(metadata=meta)
+        stats["migrated"] += 1
+
+    print(json.dumps(stats, indent=2, sort_keys=True))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Construct CLI parser."""
     parser = argparse.ArgumentParser(prog="seckit", description="Secure secrets and PII CLI for local ops")
@@ -775,6 +1060,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_set.add_argument("--kind", choices=ENTRY_KIND_VALUES)
     p_set.add_argument("--tags")
     p_set.add_argument("--comment")
+    p_set.add_argument("--source-url")
+    p_set.add_argument("--source-label")
+    p_set.add_argument("--rotation-days", type=int)
+    p_set.add_argument("--rotation-warn-days", type=int)
+    p_set.add_argument("--expires-at")
+    p_set.add_argument("--domain", action="append")
+    p_set.add_argument("--domains")
+    p_set.add_argument("--meta", action="append")
     p_set.add_argument("--allow-empty", action="store_true")
     p_set.set_defaults(func=cmd_set)
 
@@ -793,7 +1086,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_list.add_argument("--format", choices=["table", "json"], default="table")
     p_list.set_defaults(func=cmd_list)
 
-    p_explain = sub.add_parser("explain", parents=[common], help="Show registry metadata for a stored entry")
+    p_explain = sub.add_parser("explain", parents=[common], help="Show resolved metadata for a stored entry")
     p_explain.add_argument("--name", required=True)
     p_explain.set_defaults(func=cmd_explain)
 
@@ -850,7 +1143,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_export.add_argument("--all", action="store_true")
     p_export.set_defaults(func=cmd_export)
 
-    p_doctor = sub.add_parser("doctor", help="Run backend, registry, and drift diagnostics")
+    p_doctor = sub.add_parser("doctor", help="Run backend, defaults, and metadata drift diagnostics")
     p_doctor.set_defaults(func=cmd_doctor)
 
     p_unlock = sub.add_parser("unlock", help="Unlock the configured macOS keychain backend")
@@ -889,6 +1182,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_migrate_dotenv.add_argument("--replace-with-placeholders", dest="replace_with_placeholders", action="store_true", default=True)
     p_migrate_dotenv.add_argument("--no-replace-with-placeholders", dest="replace_with_placeholders", action="store_false")
     p_migrate_dotenv.set_defaults(func=cmd_migrate_dotenv)
+
+    p_migrate_metadata = migrate_sub.add_parser("metadata", parents=[common], help="Write registry metadata into keychain comment JSON")
+    p_migrate_metadata.add_argument("--dry-run", action="store_true")
+    p_migrate_metadata.add_argument("--force", action="store_true")
+    p_migrate_metadata.set_defaults(func=cmd_migrate_metadata)
 
     return parser
 

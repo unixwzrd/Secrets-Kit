@@ -15,22 +15,41 @@ This is the shortest practical path to using Secrets Kit on a local macOS machin
 
 ## 1. Install it
 
-If you already have a working Python environment:
+Preferred path, install the tagged release directly from GitHub:
 
 ```bash
-python -m pip install .
+pip install "git+https://github.com/unixwzrd/Secrets-Kit.git@v1.0.0"
 ```
 
-If you want an isolated local environment first:
+If you explicitly want the current branch tip instead of the tagged release:
+
+```bash
+pip install "git+https://github.com/unixwzrd/Secrets-Kit.git"
+```
+
+If you want an isolated editable local checkout for development:
 
 ```bash
 cd ~/projects/Secrets-Kit
 python -m venv .venv
 source .venv/bin/activate
-python -m pip install .
+pip install -e .
 ```
 
-Use `python -m pip install -e .` only if you are actively developing on Secrets Kit.
+If `pip` is not installed or is not on your `PATH`, use `python3 -m pip` instead.
+
+Optional extras from the tagged release:
+
+```bash
+pip install "git+https://github.com/unixwzrd/Secrets-Kit.git@v1.0.0#egg=seckit[yaml]"
+pip install "git+https://github.com/unixwzrd/Secrets-Kit.git@v1.0.0#egg=seckit[crypto]"
+```
+
+Check the installed version:
+
+```bash
+seckit version
+```
 
 ## 2. Make sure Keychain access works
 
@@ -83,9 +102,9 @@ That output stays redacted by default. It is meant to confirm that the entries e
 Example:
 
 ```text
-NAME                     TYPE    KIND      SERVICE   ACCOUNT    TAGS  UPDATED_AT
-OPENAI_API_KEY           secret  api_key   my-stack  local-dev  -     2026-04-12T01:04:34Z
-ADMIN_PASSWORD           secret  password  my-stack  local-dev  -     2026-04-12T01:04:34Z
+NAME               TYPE    KIND      SERVICE   ACCOUNT    TAGS  STATUS  UPDATED_AT
+OPENAI_API_KEY     secret  api_key   my-stack  local-dev  -     ok      2026-04-12T01:04:34Z
+ADMIN_PASSWORD     secret  password  my-stack  local-dev  -     ok      2026-04-12T01:04:34Z
 ```
 
 ## 5. Export values into the current shell
@@ -126,7 +145,8 @@ seckit lock
 The point is not to create a perfect secret-management system in one command. The point is to move from loose plain-text files to a cleaner local workflow:
 
 - secret values in Keychain
-- metadata in a local registry
+- authoritative metadata in the keychain comment JSON
+- registry as a local inventory and recovery index
 - runtime export only when needed
 - defaults for the scopes you use all the time
 
@@ -139,4 +159,4 @@ For fuller workflows, see:
 ## [Back to README](../README.md)
 
 **Created**: 2026-03-01  
-**Updated**: 2026-04-13
+**Updated**: 2026-04-14

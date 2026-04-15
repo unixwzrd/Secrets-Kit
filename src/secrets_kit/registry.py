@@ -27,6 +27,11 @@ def registry_path(*, home: Optional[Path] = None) -> Path:
     return registry_dir(home=home) / "registry.json"
 
 
+def defaults_path(*, home: Optional[Path] = None) -> Path:
+    """Return operator defaults file path."""
+    return registry_dir(home=home) / "defaults.json"
+
+
 def _mode(path: Path) -> int:
     return path.stat().st_mode & 0o777
 
@@ -53,6 +58,21 @@ def ensure_registry_storage(*, home: Optional[Path] = None) -> Path:
     os.chmod(rpath, 0o600)
     _check_secure_perms(path=rpath, max_mode=0o600)
     return rpath
+
+
+def ensure_defaults_storage(*, home: Optional[Path] = None) -> Path:
+    """Create defaults file with secure permissions."""
+    rdir = registry_dir(home=home)
+    rdir.mkdir(parents=True, exist_ok=True)
+    os.chmod(rdir, 0o700)
+    _check_secure_perms(path=rdir, max_mode=0o700)
+
+    dpath = defaults_path(home=home)
+    if not dpath.exists():
+        _atomic_write_json(path=dpath, payload={})
+    os.chmod(dpath, 0o600)
+    _check_secure_perms(path=dpath, max_mode=0o600)
+    return dpath
 
 
 def _atomic_write_json(*, path: Path, payload: Dict) -> None:
@@ -90,6 +110,24 @@ def save_registry(*, entries: Dict[str, EntryMetadata], home: Optional[Path] = N
     serialized: List[Dict] = [asdict(item) for item in sorted(entries.values(), key=lambda m: (m.service, m.account, m.name))]
     _atomic_write_json(path=rpath, payload={"version": 1, "entries": serialized})
     os.chmod(rpath, 0o600)
+
+
+def load_defaults(*, home: Optional[Path] = None) -> Dict[str, object]:
+    """Load operator defaults from defaults.json."""
+    dpath = ensure_defaults_storage(home=home)
+    _check_secure_perms(path=dpath, max_mode=0o600)
+    payload = json.loads(dpath.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise RegistryError(f"invalid defaults json: {dpath} (top-level must be object)")
+    return payload
+
+
+def save_defaults(*, payload: Dict[str, object], home: Optional[Path] = None) -> None:
+    """Persist operator defaults."""
+    dpath = ensure_defaults_storage(home=home)
+    _check_secure_perms(path=dpath, max_mode=0o600)
+    _atomic_write_json(path=dpath, payload=payload)
+    os.chmod(dpath, 0o600)
 
 
 def upsert_metadata(*, metadata: EntryMetadata, home: Optional[Path] = None) -> None:

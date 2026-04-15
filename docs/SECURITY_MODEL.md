@@ -18,11 +18,13 @@ If you understand that up front, the tool makes more sense and is easier to use 
 ## Where values live
 
 - secret values are stored in the macOS login Keychain
-- metadata is stored in `~/.config/seckit/registry.json`
+- authoritative managed metadata is stored in the keychain item comment as structured JSON
+- `~/.config/seckit/registry.json` remains a local index and recovery aid
+- operator defaults live in `~/.config/seckit/defaults.json`
 
 If iCloud Keychain sync is enabled, values can sync across your Apple devices. For non-iCloud hosts, use encrypted export/import as the fallback.
 
-The registry exists so the tool can track classification, identity, and inventory without printing or storing secret values in plain text.
+The registry exists so the tool can track inventory locally without becoming the source of truth for metadata across hosts.
 
 ## How entries are identified
 
@@ -61,7 +63,41 @@ If malware, a hostile script, or an already-compromised shell session can access
 
 - the registry directory is enforced at `0700`
 - the registry file is enforced at `0600`
-- `doctor` can report drift between the registry and the Keychain
+- the defaults file is enforced at `0600`
+- `doctor` can report drift between the local index and the Keychain
+- `doctor`, `list`, and `explain` can surface rotation and expiry warnings
+
+## Keychain fields and limits
+
+The macOS `security` CLI supports a limited generic-password field set:
+
+- native lookup/identity fields:
+  - account
+  - service
+  - label
+  - comment
+- readable raw timestamps may be exposed by the CLI, but not in a stable high-level format suitable for authoritative metadata
+
+What it does not provide is a rich custom schema. Secrets-Kit therefore stores extensible metadata as compact JSON in the keychain comment field. That is where fields like:
+
+- `source_url`
+- `source_label`
+- `rotation_days`
+- `rotation_warn_days`
+- `domains`
+- `custom`
+
+are carried.
+
+The practical size limit for comment JSON is determined by what macOS will store and return reliably for a generic-password item. Treat it as small structured metadata, not an unlimited document store.
+
+## Sync behavior
+
+iCloud Keychain synchronization is Apple-managed, not toolkit-managed.
+
+- Secrets-Kit writes normal keychain items.
+- Whether those items sync, how quickly they sync, and which fields survive intact must be validated empirically in your environment.
+- Manual VM or second-host validation is the right test for add, change, delete, and metadata preservation.
 
 That helps keep local metadata sane, but it is still operational hygiene, not a hard security boundary.
 
@@ -72,4 +108,4 @@ Use Secrets Kit when you want a more disciplined local workflow for tokens, pass
 ## [Back to README](../README.md)
 
 **Created**: 2026-03-01  
-**Updated**: 2026-04-13
+**Updated**: 2026-04-14

@@ -6,7 +6,7 @@ Resolution order:
 
 1. Explicit CLI flags
 2. `SECKIT_DEFAULT_*` environment variables
-3. `~/.config/seckit/config.json`
+3. `~/.config/seckit/defaults.json`
 
 ## Environment defaults
 
@@ -16,6 +16,8 @@ export SECKIT_DEFAULT_ACCOUNT=local-dev
 export SECKIT_DEFAULT_TYPE=secret
 export SECKIT_DEFAULT_KIND=api_key
 export SECKIT_DEFAULT_TAGS=primary
+export SECKIT_DEFAULT_ROTATION_DAYS=90
+export SECKIT_DEFAULT_ROTATION_WARN_DAYS=14
 ```
 
 Then:
@@ -29,7 +31,7 @@ That is usually the best fit for an interactive shell session or a one-off runti
 
 ## Config file defaults
 
-Create `~/.config/seckit/config.json`:
+Create `~/.config/seckit/defaults.json`:
 
 ```json
 {
@@ -37,7 +39,10 @@ Create `~/.config/seckit/config.json`:
   "account": "local-dev",
   "type": "secret",
   "kind": "api_key",
-  "tags": "primary"
+  "tags": "primary",
+  "default_rotation_days": 90,
+  "rotation_warn_days": 14,
+  "backend": "local"
 }
 ```
 
@@ -47,6 +52,9 @@ That is the better choice when you want stable defaults across shells and reboot
 
 - Defaults are optional.
 - Secrets never belong in the config file.
+- `backend` is a placeholder for future backend selection. This round still uses the standard macOS keychain path.
 - Use defaults for repeated scope information, not for raw secret values.
 
 [Back to README](../README.md)
+
+**Updated**: 2026-04-14

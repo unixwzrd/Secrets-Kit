@@ -11,7 +11,7 @@
 
 ## Purpose
 
-The registry stores non-secret metadata for each entry. Secret values are not stored here.
+The registry stores a local inventory and recovery copy of metadata for each entry. Secret values are not stored here, and the registry is not the source of truth.
 
 Registry path:
 
@@ -42,7 +42,16 @@ Top-level object:
       "account": "miafour",
       "created_at": "2026-03-02T18:20:00Z",
       "updated_at": "2026-03-02T19:05:00Z",
-      "source": "manual"
+      "source": "manual",
+      "schema_version": 1,
+      "source_url": "https://platform.openai.com/api-keys",
+      "source_label": "OpenAI dashboard",
+      "rotation_days": 90,
+      "rotation_warn_days": 14,
+      "last_rotated_at": "2026-03-02T19:05:00Z",
+      "expires_at": "",
+      "domains": ["openai", "prod"],
+      "custom": {"owner": "ops"}
     }
   ]
 }
@@ -60,6 +69,17 @@ Entry fields:
 - `created_at`: first insert timestamp (UTC ISO-8601)
 - `updated_at`: last update timestamp (UTC ISO-8601)
 - `source`: origin (`manual`, `env`, `dotenv:<path>`, `file:<path>`, etc.)
+- `schema_version`: Secrets-Kit metadata schema version
+- `source_url`: renewal or management URL
+- `source_label`: short human label for the source
+- `rotation_days`: expected rotation interval
+- `rotation_warn_days`: warning window before due
+- `last_rotated_at`: last known credential rotation timestamp
+- `expires_at`: credential expiry if known
+- `domains`: service or cloud domains the secret applies to
+- `custom`: user-owned metadata namespace
+
+The same metadata is also serialized into the keychain comment JSON. On read paths, the keychain item wins. The registry copy exists to support local inventory, migration, and recovery workflows.
 
 ## Lifecycle rules
 
@@ -92,9 +112,10 @@ So the same `name` can exist in multiple services/accounts without collision.
 ## Notes
 
 - If registry permissions drift to unsafe values, write operations fail.
+- If keychain metadata is missing but a registry record exists, Secrets-Kit can fall back to the registry and report that drift.
 - If metadata is missing but a Keychain value exists, `get --raw` can still retrieve the value by explicit tuple.
 
 ## [Back to README](../README.md)
 
 **Created**: 2026-03-02  
-**Updated**: 2026-04-12
+**Updated**: 2026-04-14

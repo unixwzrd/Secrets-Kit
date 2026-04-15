@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+import json
 import re
-from typing import Any, Dict, List, Literal
+from typing import Any, Dict, List, Literal, Optional
 
 EntryType = Literal["secret", "pii"]
 EntryKind = Literal[
@@ -41,6 +42,9 @@ class ValidationError(ValueError):
     """Input validation error."""
 
 
+METADATA_SCHEMA_VERSION = 1
+
+
 @dataclass
 class EntryMetadata:
     """Non-secret metadata for one stored secret entry."""
@@ -55,6 +59,15 @@ class EntryMetadata:
     created_at: str = field(default_factory=lambda: now_utc_iso())
     updated_at: str = field(default_factory=lambda: now_utc_iso())
     source: str = "manual"
+    schema_version: int = METADATA_SCHEMA_VERSION
+    source_url: str = ""
+    source_label: str = ""
+    rotation_days: Optional[int] = None
+    rotation_warn_days: Optional[int] = None
+    last_rotated_at: str = ""
+    expires_at: str = ""
+    domains: List[str] = field(default_factory=list)
+    custom: Dict[str, Any] = field(default_factory=dict)
 
     def key(self) -> str:
         """Return unique registry key."""
@@ -78,7 +91,36 @@ class EntryMetadata:
             created_at=str(payload.get("created_at", now_utc_iso())),
             updated_at=str(payload.get("updated_at", now_utc_iso())),
             source=str(payload.get("source", "manual")),
+            schema_version=int(payload.get("schema_version", METADATA_SCHEMA_VERSION)),
+            source_url=str(payload.get("source_url", "")),
+            source_label=str(payload.get("source_label", "")),
+            rotation_days=_optional_int(payload.get("rotation_days")),
+            rotation_warn_days=_optional_int(payload.get("rotation_warn_days")),
+            last_rotated_at=str(payload.get("last_rotated_at", "")),
+            expires_at=str(payload.get("expires_at", "")),
+            domains=normalize_domains(payload.get("domains", [])),
+            custom=normalize_custom(payload.get("custom", {})),
         )
+
+    def to_keychain_comment(self) -> str:
+        """Serialize metadata into the keychain comment payload."""
+        return json.dumps(self.to_dict(), separators=(",", ":"), sort_keys=True)
+
+    @classmethod
+    def from_keychain_comment(cls, comment: str) -> Optional["EntryMetadata"]:
+        """Parse a metadata payload stored in the keychain comment field."""
+        stripped = comment.strip()
+        if not stripped:
+            return None
+        try:
+            payload = json.loads(stripped)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(payload, dict):
+            return None
+        if "name" not in payload or "service" not in payload or "account" not in payload:
+            return None
+        return cls.from_dict(payload)
 
 
 def now_utc_iso() -> str:
@@ -143,6 +185,32 @@ def normalize_tags(*, tags_csv: str | None = None, tags: List[str] | None = None
         raw.extend(tags)
     out = sorted({item.strip() for item in raw if item.strip()})
     return out
+
+
+def normalize_domains(raw: Any) -> List[str]:
+    """Normalize domain metadata into a unique sorted list."""
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        items = raw.split(",")
+    elif isinstance(raw, list):
+        items = raw
+    else:
+        return []
+    return sorted({str(item).strip() for item in items if str(item).strip()})
+
+
+def normalize_custom(raw: Any) -> Dict[str, Any]:
+    """Normalize custom metadata to a plain string-keyed dict."""
+    if not isinstance(raw, dict):
+        return {}
+    return {str(key): value for key, value in raw.items()}
+
+
+def _optional_int(value: Any) -> Optional[int]:
+    if value in {None, ""}:
+        return None
+    return int(value)
 
 
 def make_registry_key(*, service: str, account: str, name: str) -> str:
