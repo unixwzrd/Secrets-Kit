@@ -10,6 +10,13 @@ import subprocess
 import tempfile
 from typing import Any, Dict, Optional
 
+from secrets_kit.native_helper import (
+    NativeHelperError,
+    helper_installed,
+    icloud_backend_error,
+    run_helper_request,
+)
+
 
 class BackendError(RuntimeError):
     """Keychain backend error."""
@@ -22,6 +29,41 @@ ATTRIBUTE_PATTERN = re.compile(r'^\s+(?:"(?P<qkey>[^"]+)"|(?P<hkey>0x[0-9A-Fa-f]
 def backend_service_name(*, service: str, name: str) -> str:
     """Compose keychain service name including logical secret key."""
     return f"{service}:{name}"
+
+
+def _validate_backend(*, backend: str, path: Optional[str]) -> None:
+    if backend not in {"local", "icloud"}:
+        raise BackendError(f"unsupported backend: {backend}")
+    if backend == "icloud" and path is not None:
+        raise BackendError("--keychain is only supported with backend=local")
+
+
+def _use_native_helper(*, backend: str, path: Optional[str]) -> bool:
+    if backend == "icloud":
+        return False
+    return (
+        backend == "local"
+        and path is None
+        and os.environ.get("SECKIT_USE_LOCAL_HELPER") == "1"
+        and helper_installed()
+    )
+
+
+def _helper_service_metadata(*, service: str, account: str, name: str, backend: str, value: Optional[str] = None, comment: Optional[str] = None, label: Optional[str] = None) -> Dict[str, object]:
+    payload: Dict[str, object] = {
+        "command": "",
+        "backend": backend,
+        "service": service,
+        "account": account,
+        "name": name,
+    }
+    if value is not None:
+        payload["value"] = value
+    if comment is not None:
+        payload["comment"] = comment
+    if label is not None:
+        payload["label"] = label
+    return payload
 
 
 def _run_security(*, args: list[str], stdin: Optional[str] = None) -> str:
@@ -131,8 +173,44 @@ def set_secret(
     comment: str = "",
     label: Optional[str] = None,
     path: Optional[str] = None,
+    backend: str = "local",
 ) -> None:
     """Create or update a keychain secret entry."""
+    _validate_backend(backend=backend, path=path)
+    if backend == "icloud":
+        if not helper_installed():
+            raise BackendError(icloud_backend_error())
+        payload = _helper_service_metadata(
+            service=service,
+            account=account,
+            name=name,
+            backend=backend,
+            value=value,
+            comment=comment,
+            label=label or name,
+        )
+        payload["command"] = "set"
+        try:
+            run_helper_request(payload=payload)
+        except NativeHelperError as exc:
+            raise BackendError(str(exc)) from exc
+        return
+    if _use_native_helper(backend=backend, path=path):
+        payload = _helper_service_metadata(
+            service=service,
+            account=account,
+            name=name,
+            backend=backend,
+            value=value,
+            comment=comment,
+            label=label or name,
+        )
+        payload["command"] = "set"
+        try:
+            run_helper_request(payload=payload)
+        except NativeHelperError as exc:
+            raise BackendError(str(exc)) from exc
+        return
     svc = backend_service_name(service=service, name=name)
     args = ["add-generic-password", "-a", account, "-s", svc, "-l", label or name, "-j", comment, "-U", "-w", value]
     target = keychain_path(path=path) if path else None
@@ -141,8 +219,27 @@ def set_secret(
     _run_security(args=args)
 
 
-def get_secret(*, service: str, account: str, name: str, path: Optional[str] = None) -> str:
+def get_secret(*, service: str, account: str, name: str, path: Optional[str] = None, backend: str = "local") -> str:
     """Read secret value from keychain."""
+    _validate_backend(backend=backend, path=path)
+    if backend == "icloud":
+        if not helper_installed():
+            raise BackendError(icloud_backend_error())
+        payload = _helper_service_metadata(service=service, account=account, name=name, backend=backend)
+        payload["command"] = "get"
+        try:
+            data = run_helper_request(payload=payload)
+        except NativeHelperError as exc:
+            raise BackendError(str(exc)) from exc
+        return str(data.get("value", ""))
+    if _use_native_helper(backend=backend, path=path):
+        payload = _helper_service_metadata(service=service, account=account, name=name, backend=backend)
+        payload["command"] = "get"
+        try:
+            data = run_helper_request(payload=payload)
+        except NativeHelperError as exc:
+            raise BackendError(str(exc)) from exc
+        return str(data.get("value", ""))
     svc = backend_service_name(service=service, name=name)
     args = ["find-generic-password", "-a", account, "-s", svc, "-w"]
     target = keychain_path(path=path) if path else None
@@ -151,8 +248,29 @@ def get_secret(*, service: str, account: str, name: str, path: Optional[str] = N
     return _run_security(args=args)
 
 
-def get_secret_metadata(*, service: str, account: str, name: str, path: Optional[str] = None) -> Dict[str, Any]:
+def get_secret_metadata(*, service: str, account: str, name: str, path: Optional[str] = None, backend: str = "local") -> Dict[str, Any]:
     """Read keychain metadata attributes for one secret."""
+    _validate_backend(backend=backend, path=path)
+    if backend == "icloud":
+        if not helper_installed():
+            raise BackendError(icloud_backend_error())
+        payload = _helper_service_metadata(service=service, account=account, name=name, backend=backend)
+        payload["command"] = "metadata"
+        try:
+            data = run_helper_request(payload=payload)
+        except NativeHelperError as exc:
+            raise BackendError(str(exc)) from exc
+        metadata = data.get("metadata", {})
+        return metadata if isinstance(metadata, dict) else {}
+    if _use_native_helper(backend=backend, path=path):
+        payload = _helper_service_metadata(service=service, account=account, name=name, backend=backend)
+        payload["command"] = "metadata"
+        try:
+            data = run_helper_request(payload=payload)
+        except NativeHelperError as exc:
+            raise BackendError(str(exc)) from exc
+        metadata = data.get("metadata", {})
+        return metadata if isinstance(metadata, dict) else {}
     svc = backend_service_name(service=service, name=name)
     args = ["find-generic-password", "-a", account, "-s", svc, "-g"]
     target = keychain_path(path=path) if path else None
@@ -163,8 +281,27 @@ def get_secret_metadata(*, service: str, account: str, name: str, path: Optional
     return _parse_find_generic_password_output(raw=merged)
 
 
-def secret_exists(*, service: str, account: str, name: str, path: Optional[str] = None) -> bool:
+def secret_exists(*, service: str, account: str, name: str, path: Optional[str] = None, backend: str = "local") -> bool:
     """Return whether a keychain item exists for one logical secret."""
+    _validate_backend(backend=backend, path=path)
+    if backend == "icloud":
+        if not helper_installed():
+            raise BackendError(icloud_backend_error())
+        payload = _helper_service_metadata(service=service, account=account, name=name, backend=backend)
+        payload["command"] = "exists"
+        try:
+            data = run_helper_request(payload=payload)
+        except NativeHelperError as exc:
+            raise BackendError(str(exc)) from exc
+        return bool(data.get("exists"))
+    if _use_native_helper(backend=backend, path=path):
+        payload = _helper_service_metadata(service=service, account=account, name=name, backend=backend)
+        payload["command"] = "exists"
+        try:
+            data = run_helper_request(payload=payload)
+        except NativeHelperError as exc:
+            raise BackendError(str(exc)) from exc
+        return bool(data.get("exists"))
     svc = backend_service_name(service=service, name=name)
     args = ["find-generic-password", "-a", account, "-s", svc]
     target = keychain_path(path=path) if path else None
@@ -173,8 +310,27 @@ def secret_exists(*, service: str, account: str, name: str, path: Optional[str] 
     return _security_exists(args=args)
 
 
-def delete_secret(*, service: str, account: str, name: str, path: Optional[str] = None) -> None:
+def delete_secret(*, service: str, account: str, name: str, path: Optional[str] = None, backend: str = "local") -> None:
     """Delete secret from keychain."""
+    _validate_backend(backend=backend, path=path)
+    if backend == "icloud":
+        if not helper_installed():
+            raise BackendError(icloud_backend_error())
+        payload = _helper_service_metadata(service=service, account=account, name=name, backend=backend)
+        payload["command"] = "delete"
+        try:
+            run_helper_request(payload=payload)
+        except NativeHelperError as exc:
+            raise BackendError(str(exc)) from exc
+        return
+    if _use_native_helper(backend=backend, path=path):
+        payload = _helper_service_metadata(service=service, account=account, name=name, backend=backend)
+        payload["command"] = "delete"
+        try:
+            run_helper_request(payload=payload)
+        except NativeHelperError as exc:
+            raise BackendError(str(exc)) from exc
+        return
     svc = backend_service_name(service=service, name=name)
     args = ["delete-generic-password", "-a", account, "-s", svc]
     target = keychain_path(path=path) if path else None
@@ -189,15 +345,15 @@ def check_security_cli() -> bool:
     return proc.returncode == 0
 
 
-def doctor_roundtrip(*, service: str = "seckit-doctor", account: str = "doctor") -> None:
+def doctor_roundtrip(*, service: str = "seckit-doctor", account: str = "doctor", path: Optional[str] = None, backend: str = "local") -> None:
     """Run a backend write/read/delete smoke test."""
     test_name = "DOCTOR_TEST_KEY"
     value = "doctor_ok"
-    set_secret(service=service, account=account, name=test_name, value=value)
-    fetched = get_secret(service=service, account=account, name=test_name)
+    set_secret(service=service, account=account, name=test_name, value=value, path=path, backend=backend)
+    fetched = get_secret(service=service, account=account, name=test_name, path=path, backend=backend)
     if fetched != value:
         raise BackendError("doctor roundtrip mismatch")
-    delete_secret(service=service, account=account, name=test_name)
+    delete_secret(service=service, account=account, name=test_name, path=path, backend=backend)
 
 
 def create_keychain(*, path: str, password: str) -> str:

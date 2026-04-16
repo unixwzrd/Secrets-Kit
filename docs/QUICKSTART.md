@@ -42,7 +42,6 @@ Optional extras from the tagged release:
 
 ```bash
 pip install "git+https://github.com/unixwzrd/Secrets-Kit.git@v1.0.0#egg=seckit[yaml]"
-pip install "git+https://github.com/unixwzrd/Secrets-Kit.git@v1.0.0#egg=seckit[crypto]"
 ```
 
 Check the installed version:

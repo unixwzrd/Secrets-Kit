@@ -68,7 +68,8 @@ Secrets Kit keeps the values in the macOS Keychain, which may sync through iClou
 Secrets Kit gives you a more disciplined local pattern:
 
 - keep secret values in Keychain
-- keep descriptive metadata in a local registry
+- keep authoritative metadata on the Keychain item itself
+- keep a local index only as inventory and recovery support
 - export values only when the current shell or runtime needs them
 - migrate `.env` files into placeholders instead of leaving raw values behind
 
@@ -84,6 +85,7 @@ Secrets Kit focuses on a few practical jobs:
 - export environment variables for local runtimes
 - help migrate `.env` files away from embedded secret values
 - export encrypted backups for cross-host recovery
+- target disposable keychain files during automated testing with `--keychain PATH`
 - check for drift between local index data and Keychain entries
 - carry rotation, renewal, and source metadata with the Keychain item itself
 
@@ -128,19 +130,13 @@ Optional YAML file-import support for the tagged release:
 pip install "git+https://github.com/unixwzrd/Secrets-Kit.git@v1.0.0#egg=seckit[yaml]"
 ```
 
-Optional encrypted export/import support for the tagged release:
-
-```bash
-pip install "git+https://github.com/unixwzrd/Secrets-Kit.git@v1.0.0#egg=seckit[crypto]"
-```
-
 If you already have a local checkout and intentionally want to install from it:
 
 ```bash
 pip install .
 ```
 
-If you are not importing secrets from YAML files, you do not need that extra. If you are not using encrypted export/import, you do not need the `crypto` extra.
+If you are not importing secrets from YAML files, you do not need that extra. Encrypted export/import is part of the base install.
 
 To verify what is installed:
 
@@ -211,7 +207,7 @@ Generate a placeholder-only dotenv file (no secrets in plaintext):
 seckit export --format dotenv --service my-stack --account local-dev --all > ~/.my-stack/.env
 ```
 
-Create an encrypted backup for cross-host recovery (requires `seckit[crypto]`):
+Create an encrypted backup for cross-host recovery:
 
 ```bash
 seckit export --format encrypted-json --service my-stack --account local-dev --all --out backup.json
@@ -264,7 +260,27 @@ seckit doctor
 seckit unlock
 seckit lock
 seckit keychain-status
+seckit helper status
+seckit helper install-local
+seckit helper install-icloud
 seckit migrate dotenv
+```
+
+The default backend is `local`. For local native-helper support:
+
+```bash
+seckit helper status
+seckit helper install-local
+```
+
+`install-local` now builds a universal macOS helper binary so the same installed artifact works on both Apple Silicon and Intel.
+
+For `backend=icloud`, Secrets-Kit now uses the same Swift helper. `seckit helper install-icloud` is just an alias for the standard helper install:
+
+```bash
+seckit helper status
+seckit helper install-local
+seckit helper install-icloud
 ```
 
 ## Security Notes
@@ -286,6 +302,8 @@ If you need a remote secret service, cross-host policy enforcement, or stronger 
 - [Integrations](docs/INTEGRATIONS.md)
 - [Examples](docs/EXAMPLES.md)
 - [Security Model](docs/SECURITY_MODEL.md)
+- [Cross-Host Validation](docs/CROSS_HOST_VALIDATION.md)
+- [Cross-Host Checklist](docs/CROSS_HOST_CHECKLIST.md)
 - [iCloud Sync Validation](docs/ICLOUD_SYNC_VALIDATION.md)
 - [Defaults](docs/DEFAULTS.md)
 - [Metadata Registry](docs/METADATA_REGISTRY.md)
@@ -306,7 +324,7 @@ Local checks:
 
 ```bash
 cd ~/projects/Secrets-Kit
-python -m unittest discover -s tests -v
+bash ./scripts/run_local_validation.sh
 ```
 
 Pre-commit (optional):
@@ -326,6 +344,8 @@ cd ~/projects/Secrets-Kit
 PYTHONPATH=src python -m unittest discover -s tests -v
 ```
 
+The repo-local validation script is the CI-safe entrypoint. It runs script syntax checks, Python compile checks, Python tests, and localhost transport validation when `ssh localhost` is available in batch mode.
+
 ## Support This and Other Projects
 
 - [Patreon](https://patreon.com/unixwzrd)
@@ -343,4 +363,4 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
-*Last updated: 2026-04-12*
+*Last updated: 2026-04-14*

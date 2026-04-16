@@ -15,7 +15,14 @@ from importlib.metadata import version as package_version
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
-from secrets_kit.crypto import CryptoUnavailable, build_plain_export, decrypt_payload, encrypt_payload
+from secrets_kit.native_helper import (
+    NativeHelperError,
+    build_and_install_local_helper,
+    helper_status,
+    icloud_backend_available,
+    icloud_backend_error,
+)
+from secrets_kit.crypto import CryptoUnavailable, build_plain_export, decrypt_payload, encrypt_payload, ensure_crypto_available
 from secrets_kit.exporters import export_dotenv_placeholders, export_shell_lines
 from secrets_kit.importers import (
     ImportCandidate,
@@ -48,6 +55,7 @@ from secrets_kit.models import (
     METADATA_SCHEMA_VERSION,
     EntryMetadata,
     ValidationError,
+    now_utc_iso,
     normalize_custom,
     normalize_domains,
     normalize_tags,
@@ -98,13 +106,13 @@ def _read_value(*, value: Optional[str], use_stdin: bool, allow_empty: bool) -> 
     return data.strip()
 
 
-def _read_password(*, value: Optional[str], use_stdin: bool) -> str:
+def _read_password(*, value: Optional[str], use_stdin: bool, prompt: str = "password: ") -> str:
     if use_stdin:
         data = sys.stdin.read()
         return data.strip()
     if value:
         return value
-    return getpass.getpass("password: ")
+    return getpass.getpass(prompt)
 
 
 def _format_tags(*, tags: List[str]) -> str:
@@ -177,6 +185,8 @@ def _load_defaults() -> Dict[str, object]:
 
 def _apply_defaults(*, args: argparse.Namespace) -> None:
     defaults = _load_defaults()
+    if hasattr(args, "backend") and not getattr(args, "backend", None):
+        args.backend = defaults.get("backend") or "local"
     if hasattr(args, "service") and not args.service:
         args.service = defaults.get("service")
     if hasattr(args, "account") and not args.account:
@@ -214,6 +224,21 @@ def _apply_defaults(*, args: argparse.Namespace) -> None:
             raise ValidationError(
                 "account is required. Set --account or define SECKIT_DEFAULT_ACCOUNT / config.json"
             )
+    if hasattr(args, "backend") and getattr(args, "backend", None):
+        if args.backend not in {"local", "icloud"}:
+            raise ValidationError("backend must be one of: local, icloud")
+        if hasattr(args, "keychain") and getattr(args, "keychain", None) and args.backend == "icloud":
+            raise ValidationError("--keychain is only supported with --backend local")
+        if args.backend == "icloud" and not icloud_backend_available():
+            raise ValidationError(icloud_backend_error())
+
+
+def _keychain_arg(args: argparse.Namespace) -> Optional[str]:
+    return getattr(args, "keychain", None)
+
+
+def _backend_arg(args: argparse.Namespace) -> str:
+    return getattr(args, "backend", "local")
 
 
 def _parse_meta_pairs(items: Optional[List[str]]) -> Dict[str, str]:
@@ -245,6 +270,8 @@ def _build_metadata(*, args: argparse.Namespace, name: str, source: str) -> Entr
         account=args.account,
         name=name,
         registry=registry,
+        path=_keychain_arg(args),
+        backend=_backend_arg(args),
     )
     created_at = existing["metadata"].created_at if existing else now_utc_iso()
     last_rotated_at = now_utc_iso()
@@ -300,12 +327,20 @@ def _resolve_status(*, metadata: EntryMetadata) -> List[str]:
     return statuses
 
 
-def _read_metadata(*, service: str, account: str, name: str, registry: Optional[Dict[str, EntryMetadata]] = None) -> Optional[Dict[str, object]]:
+def _read_metadata(
+    *,
+    service: str,
+    account: str,
+    name: str,
+    registry: Optional[Dict[str, EntryMetadata]] = None,
+    path: Optional[str] = None,
+    backend: str = "local",
+) -> Optional[Dict[str, object]]:
     key = f"{service}::{account}::{name}"
     registry = registry if registry is not None else load_registry()
     registry_meta = registry.get(key)
-    if secret_exists(service=service, account=account, name=name):
-        keychain_fields = get_secret_metadata(service=service, account=account, name=name)
+    if secret_exists(service=service, account=account, name=name, path=path, backend=backend):
+        keychain_fields = get_secret_metadata(service=service, account=account, name=name, path=path, backend=backend)
         keychain_meta = EntryMetadata.from_keychain_comment(str(keychain_fields.get("comment", "")))
         if keychain_meta:
             return {
@@ -334,7 +369,7 @@ def _read_metadata(*, service: str, account: str, name: str, registry: Optional[
             "keychain_fields": keychain_fields,
             "registry_fallback_used": False,
         }
-    if registry_meta:
+    if registry_meta and path is None and backend == "local":
         return {
             "metadata": registry_meta,
             "metadata_source": "registry-only",
@@ -352,7 +387,15 @@ def _merge_candidates(*, groups: Iterable[List[ImportCandidate]]) -> Dict[str, I
     return merged
 
 
-def _apply_candidates(*, candidates: Dict[str, ImportCandidate], allow_overwrite: bool, dry_run: bool, allow_empty: bool) -> Dict[str, int]:
+def _apply_candidates(
+    *,
+    candidates: Dict[str, ImportCandidate],
+    allow_overwrite: bool,
+    dry_run: bool,
+    allow_empty: bool,
+    path: Optional[str] = None,
+    backend: str = "local",
+) -> Dict[str, int]:
     registry = load_registry()
     stats = {"created": 0, "updated": 0, "skipped": 0}
     for key in sorted(candidates):
@@ -362,11 +405,15 @@ def _apply_candidates(*, candidates: Dict[str, ImportCandidate], allow_overwrite
             account=candidate.metadata.account,
             name=candidate.metadata.name,
             registry=registry,
+            path=path,
+            backend=backend,
         )
         exists = resolved is not None and secret_exists(
             service=candidate.metadata.service,
             account=candidate.metadata.account,
             name=candidate.metadata.name,
+            path=path,
+            backend=backend,
         )
         if exists and not allow_overwrite:
             stats["skipped"] += 1
@@ -389,6 +436,8 @@ def _apply_candidates(*, candidates: Dict[str, ImportCandidate], allow_overwrite
             value=candidate.value,
             label=candidate.metadata.name,
             comment=candidate.metadata.to_keychain_comment(),
+            path=path,
+            backend=backend,
         )
         upsert_metadata(metadata=candidate.metadata)
         stats["updated" if exists else "created"] += 1
@@ -407,6 +456,8 @@ def cmd_set(*, args: argparse.Namespace) -> int:
             value=value,
             label=name,
             comment=meta.to_keychain_comment(),
+            path=_keychain_arg(args),
+            backend=_backend_arg(args),
         )
         upsert_metadata(metadata=meta)
         print(f"stored: name={name} type={meta.entry_type} kind={meta.entry_kind} service={args.service} account={args.account}")
@@ -418,8 +469,8 @@ def cmd_set(*, args: argparse.Namespace) -> int:
 def cmd_get(*, args: argparse.Namespace) -> int:
     try:
         name = validate_key_name(name=args.name)
-        value = get_secret(service=args.service, account=args.account, name=name)
-        resolved = _read_metadata(service=args.service, account=args.account, name=name)
+        value = get_secret(service=args.service, account=args.account, name=name, path=_keychain_arg(args), backend=_backend_arg(args))
+        resolved = _read_metadata(service=args.service, account=args.account, name=name, path=_keychain_arg(args), backend=_backend_arg(args))
         metadata = resolved["metadata"] if resolved else None
         kind = metadata.entry_kind if isinstance(metadata, EntryMetadata) else "unknown"
         entry_type = metadata.entry_type if isinstance(metadata, EntryMetadata) else "unknown"
@@ -444,21 +495,28 @@ def cmd_list(*, args: argparse.Namespace) -> int:
         cutoff = datetime.now(timezone.utc).timestamp() - (args.stale * 86400)
     rows = []
     for indexed in entries.values():
-        resolved = _read_metadata(service=indexed.service, account=indexed.account, name=indexed.name, registry=entries)
+        if args.service and indexed.service != args.service:
+            continue
+        if args.account and indexed.account != args.account:
+            continue
+        if args.type and indexed.entry_type != args.type:
+            continue
+        if args.kind and indexed.entry_kind != args.kind:
+            continue
+        if args.tag and args.tag not in indexed.tags:
+            continue
+        resolved = _read_metadata(
+            service=indexed.service,
+            account=indexed.account,
+            name=indexed.name,
+            registry=entries,
+            path=_keychain_arg(args),
+            backend=_backend_arg(args),
+        )
         if not resolved:
             continue
         meta = resolved["metadata"]
         if not isinstance(meta, EntryMetadata):
-            continue
-        if args.service and meta.service != args.service:
-            continue
-        if args.account and meta.account != args.account:
-            continue
-        if args.type and meta.entry_type != args.type:
-            continue
-        if args.kind and meta.entry_kind != args.kind:
-            continue
-        if args.tag and args.tag not in meta.tags:
             continue
         if cutoff is not None:
             updated = _parse_timestamp(meta.updated_at)
@@ -510,7 +568,7 @@ def cmd_delete(*, args: argparse.Namespace) -> int:
         if not args.yes and not _confirm(prompt=f"Delete {name} from service={args.service} account={args.account}?"):
             print("aborted")
             return 1
-        delete_secret(service=args.service, account=args.account, name=name)
+        delete_secret(service=args.service, account=args.account, name=name, path=_keychain_arg(args), backend=_backend_arg(args))
         delete_metadata(service=args.service, account=args.account, name=name)
         print(f"deleted: name={name} service={args.service} account={args.account}")
         return 0
@@ -521,7 +579,7 @@ def cmd_delete(*, args: argparse.Namespace) -> int:
 def cmd_explain(*, args: argparse.Namespace) -> int:
     try:
         name = validate_key_name(name=args.name)
-        resolved = _read_metadata(service=args.service, account=args.account, name=name)
+        resolved = _read_metadata(service=args.service, account=args.account, name=name, path=_keychain_arg(args), backend=_backend_arg(args))
         if not resolved:
             return _fatal(message=f"entry not found: {args.service}::{args.account}::{name}", code=1)
         entry = resolved["metadata"]
@@ -589,6 +647,8 @@ def cmd_import_env(*, args: argparse.Namespace) -> int:
             allow_overwrite=args.allow_overwrite,
             dry_run=args.dry_run,
             allow_empty=args.allow_empty,
+            path=_keychain_arg(args),
+            backend=_backend_arg(args),
         )
         print(json.dumps(stats, indent=2, sort_keys=True))
         return 0
@@ -617,6 +677,8 @@ def cmd_import_file(*, args: argparse.Namespace) -> int:
             allow_overwrite=args.allow_overwrite,
             dry_run=args.dry_run,
             allow_empty=args.allow_empty,
+            path=_keychain_arg(args),
+            backend=_backend_arg(args),
         )
         print(json.dumps(stats, indent=2, sort_keys=True))
         return 0
@@ -626,7 +688,12 @@ def cmd_import_file(*, args: argparse.Namespace) -> int:
 
 def cmd_import_encrypted(*, args: argparse.Namespace) -> int:
     try:
-        password = _read_password(value=args.password, use_stdin=args.password_stdin)
+        ensure_crypto_available()
+        password = _read_password(
+            value=args.password,
+            use_stdin=args.password_stdin,
+            prompt="backup file password for encrypted import: ",
+        )
         payload = json.loads(Path(args.file).read_text(encoding="utf-8"))
         decrypted = decrypt_payload(payload=payload, password=password)
         if decrypted.get("format") != "seckit.export":
@@ -651,6 +718,8 @@ def cmd_import_encrypted(*, args: argparse.Namespace) -> int:
             allow_overwrite=args.allow_overwrite,
             dry_run=args.dry_run,
             allow_empty=args.allow_empty,
+            path=_keychain_arg(args),
+            backend=_backend_arg(args),
         )
         print(json.dumps(stats, indent=2, sort_keys=True))
         return 0
@@ -665,7 +734,14 @@ def cmd_export(*, args: argparse.Namespace) -> int:
         names = {validate_key_name(name=item) for item in args.names.split(",")} if args.names else set()
         if names:
             for name in sorted(names):
-                resolved = _read_metadata(service=args.service, account=args.account, name=name, registry=entries)
+                resolved = _read_metadata(
+                    service=args.service,
+                    account=args.account,
+                    name=name,
+                    registry=entries,
+                    path=_keychain_arg(args),
+                    backend=_backend_arg(args),
+                )
                 if not resolved:
                     continue
                 meta = resolved["metadata"]
@@ -673,21 +749,28 @@ def cmd_export(*, args: argparse.Namespace) -> int:
                     selected.append(meta)
         else:
             for indexed in entries.values():
-                resolved = _read_metadata(service=indexed.service, account=indexed.account, name=indexed.name, registry=entries)
+                if args.service and indexed.service != args.service:
+                    continue
+                if args.account and indexed.account != args.account:
+                    continue
+                if args.type and indexed.entry_type != args.type:
+                    continue
+                if args.kind and indexed.entry_kind != args.kind:
+                    continue
+                if args.tag and args.tag not in indexed.tags:
+                    continue
+                resolved = _read_metadata(
+                    service=indexed.service,
+                    account=indexed.account,
+                    name=indexed.name,
+                    registry=entries,
+                    path=_keychain_arg(args),
+                    backend=_backend_arg(args),
+                )
                 if not resolved:
                     continue
                 meta = resolved["metadata"]
                 if not isinstance(meta, EntryMetadata):
-                    continue
-                if args.service and meta.service != args.service:
-                    continue
-                if args.account and meta.account != args.account:
-                    continue
-                if args.type and meta.entry_type != args.type:
-                    continue
-                if args.kind and meta.entry_kind != args.kind:
-                    continue
-                if args.tag and args.tag not in meta.tags:
                     continue
                 if not (args.tag or args.type or args.all):
                     continue
@@ -699,7 +782,13 @@ def cmd_export(*, args: argparse.Namespace) -> int:
         if args.format == "shell":
             env_map: Dict[str, str] = {}
             for meta in sorted(selected, key=lambda item: item.name):
-                env_map[meta.name] = get_secret(service=meta.service, account=meta.account, name=meta.name)
+                env_map[meta.name] = get_secret(
+                    service=meta.service,
+                    account=meta.account,
+                    name=meta.name,
+                    path=_keychain_arg(args),
+                    backend=_backend_arg(args),
+                )
             print(export_shell_lines(env_map=env_map))
             return 0
 
@@ -709,13 +798,24 @@ def cmd_export(*, args: argparse.Namespace) -> int:
             return 0
 
         if args.format == "encrypted-json":
-            password = _read_password(value=args.password, use_stdin=args.password_stdin)
+            ensure_crypto_available()
+            password = _read_password(
+                value=args.password,
+                use_stdin=args.password_stdin,
+                prompt="new password to encrypt the backup file: ",
+            )
             items: List[Dict[str, str]] = []
             for meta in sorted(selected, key=lambda item: item.name):
                 items.append(
                     {
                         "metadata": meta.to_dict(),
-                        "value": get_secret(service=meta.service, account=meta.account, name=meta.name),
+                        "value": get_secret(
+                            service=meta.service,
+                            account=meta.account,
+                            name=meta.name,
+                            path=_keychain_arg(args),
+                            backend=_backend_arg(args),
+                        ),
                     }
                 )
             plain = build_plain_export(entries=items)
@@ -733,7 +833,6 @@ def cmd_export(*, args: argparse.Namespace) -> int:
 
 
 def cmd_doctor(*, args: argparse.Namespace) -> int:
-    del args
     status = {
         "security_cli": False,
         "registry": False,
@@ -768,7 +867,7 @@ def cmd_doctor(*, args: argparse.Namespace) -> int:
         return _fatal(message=str(exc), code=1)
 
     try:
-        doctor_roundtrip()
+        doctor_roundtrip(path=_keychain_arg(args), backend=_backend_arg(args))
         status["keychain_roundtrip"] = True
     except BackendError as exc:
         print(json.dumps(status, indent=2, sort_keys=True))
@@ -780,7 +879,9 @@ def cmd_doctor(*, args: argparse.Namespace) -> int:
         fallback = []
         warnings = []
         for meta in sorted(entries.values(), key=lambda item: (item.service, item.account, item.name)):
-            if not secret_exists(service=meta.service, account=meta.account, name=meta.name):
+            if not secret_exists(service=meta.service, account=meta.account, name=meta.name, path=_keychain_arg(args), backend=_backend_arg(args)):
+                if _keychain_arg(args) is not None:
+                    continue
                 drift.append(
                     {
                         "name": meta.name,
@@ -789,7 +890,14 @@ def cmd_doctor(*, args: argparse.Namespace) -> int:
                     }
                 )
                 continue
-            resolved = _read_metadata(service=meta.service, account=meta.account, name=meta.name, registry=entries)
+            resolved = _read_metadata(
+                service=meta.service,
+                account=meta.account,
+                name=meta.name,
+                registry=entries,
+                path=_keychain_arg(args),
+                backend=_backend_arg(args),
+            )
             if resolved and resolved["metadata_source"] == "registry-fallback":
                 fallback.append(
                     {
@@ -940,6 +1048,59 @@ def cmd_version(*, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_helper_status(*, args: argparse.Namespace) -> int:
+    del args
+    print(json.dumps(helper_status(), indent=2, sort_keys=True))
+    return 0
+
+
+def cmd_helper_install_local(*, args: argparse.Namespace) -> int:
+    del args
+    print("")
+    print("********************************************************************************")
+    print("")
+    print("About to build and install the local native Secrets-Kit helper.")
+    print("")
+    print("This helper provides native backend support for the local and iCloud Keychain backends.")
+    print("The build uses SwiftPM to produce a universal macOS binary")
+    print("for both Apple Silicon and Intel, then installs it into the active Python environment.")
+    print("")
+    print("Planned steps:")
+    print("")
+    print("  1. Check for macOS and Swift/Xcode Command Line Tools")
+    print("  2. Build the helper for arm64 and x86_64")
+    print("  3. Combine both slices into one universal binary")
+    print("  4. Copy the helper into the active environment scripts directory")
+    print("")
+    print("********************************************************************************")
+    print("")
+    try:
+        target = build_and_install_local_helper()
+        print(f"installed local helper: {target}")
+        print(json.dumps(helper_status(), indent=2, sort_keys=True))
+        return 0
+    except NativeHelperError as exc:
+        return _fatal(message=str(exc), code=1)
+
+
+def cmd_helper_install_icloud(*, args: argparse.Namespace) -> int:
+    print("")
+    print("********************************************************************************")
+    print("")
+    print("`seckit helper install-icloud` is now an alias for the standard helper install.")
+    print("")
+    print("The same Swift helper supports both:")
+    print("")
+    print("  - backend=local")
+    print("  - backend=icloud")
+    print("")
+    print("Proceeding with the standard helper install flow.")
+    print("")
+    print("********************************************************************************")
+    print("")
+    return cmd_helper_install_local(args=args)
+
+
 def cmd_migrate_dotenv(*, args: argparse.Namespace) -> int:
     dotenv = Path(args.dotenv)
     if not dotenv.exists():
@@ -956,6 +1117,8 @@ def cmd_migrate_dotenv(*, args: argparse.Namespace) -> int:
         from_env=None,
         account=args.account,
         service=args.service,
+        keychain=args.keychain,
+        backend=args.backend,
         type=args.type,
         kind=args.kind,
         tags=args.tags,
@@ -1006,17 +1169,24 @@ def cmd_migrate_metadata(*, args: argparse.Namespace) -> int:
 
     stats = {"migrated": 0, "skipped": 0, "missing_keychain": 0}
     for meta in sorted(selected, key=lambda item: (item.service, item.account, item.name)):
-        if not secret_exists(service=meta.service, account=meta.account, name=meta.name):
+        if not secret_exists(service=meta.service, account=meta.account, name=meta.name, path=_keychain_arg(args), backend=_backend_arg(args)):
             stats["missing_keychain"] += 1
             continue
-        resolved = _read_metadata(service=meta.service, account=meta.account, name=meta.name, registry=registry)
+        resolved = _read_metadata(
+            service=meta.service,
+            account=meta.account,
+            name=meta.name,
+            registry=registry,
+            path=_keychain_arg(args),
+            backend=_backend_arg(args),
+        )
         if resolved and resolved["metadata_source"] == "keychain" and not args.force:
             stats["skipped"] += 1
             continue
         if args.dry_run:
             stats["migrated"] += 1
             continue
-        value = get_secret(service=meta.service, account=meta.account, name=meta.name)
+        value = get_secret(service=meta.service, account=meta.account, name=meta.name, path=_keychain_arg(args), backend=_backend_arg(args))
         meta.updated_at = now_utc_iso()
         set_secret(
             service=meta.service,
@@ -1025,8 +1195,17 @@ def cmd_migrate_metadata(*, args: argparse.Namespace) -> int:
             value=value,
             label=meta.name,
             comment=meta.to_keychain_comment(),
+            path=_keychain_arg(args),
+            backend=_backend_arg(args),
         )
-        verify = _read_metadata(service=meta.service, account=meta.account, name=meta.name, registry=registry)
+        verify = _read_metadata(
+            service=meta.service,
+            account=meta.account,
+            name=meta.name,
+            registry=registry,
+            path=_keychain_arg(args),
+            backend=_backend_arg(args),
+        )
         if not verify or verify["metadata_source"] != "keychain":
             return _fatal(message=f"failed to verify migrated metadata for {meta.key()}", code=1)
         upsert_metadata(metadata=meta)
@@ -1051,6 +1230,8 @@ def build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--account")
     common.add_argument("--service")
+    common.add_argument("--backend", choices=["local", "icloud"])
+    common.add_argument("--keychain", help="Override keychain path (default: login.keychain-db)")
 
     p_set = sub.add_parser("set", parents=[common], help="Store or update one secret value")
     p_set.add_argument("--name", required=True)
@@ -1084,6 +1265,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_list.add_argument("--tag")
     p_list.add_argument("--stale", type=int, help="Filter entries older than N days")
     p_list.add_argument("--format", choices=["table", "json"], default="table")
+    p_list.add_argument("--backend", choices=["local", "icloud"])
+    p_list.add_argument("--keychain", help="Override keychain path (default: login.keychain-db)")
     p_list.set_defaults(func=cmd_list)
 
     p_explain = sub.add_parser("explain", parents=[common], help="Show resolved metadata for a stored entry")
@@ -1115,6 +1298,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_import_file.add_argument("--format", choices=["json", "yaml", "yml"])
     p_import_file.add_argument("--type", choices=["secret", "pii"])
     p_import_file.add_argument("--kind", choices=[*ENTRY_KIND_VALUES, "auto"])
+    p_import_file.add_argument("--backend", choices=["local", "icloud"])
+    p_import_file.add_argument("--keychain", help="Override keychain path (default: login.keychain-db)")
     p_import_file.add_argument("--dry-run", action="store_true")
     p_import_file.add_argument("--allow-overwrite", action="store_true")
     p_import_file.add_argument("--allow-empty", action="store_true")
@@ -1123,6 +1308,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_import_encrypted = import_sub.add_parser("encrypted-json", help="Import secrets from encrypted JSON export")
     p_import_encrypted.add_argument("--file", required=True)
+    p_import_encrypted.add_argument("--backend", choices=["local", "icloud"])
+    p_import_encrypted.add_argument("--keychain", help="Override keychain path (default: login.keychain-db)")
     p_import_encrypted.add_argument("--password")
     p_import_encrypted.add_argument("--password-stdin", action="store_true")
     p_import_encrypted.add_argument("--dry-run", action="store_true")
@@ -1144,6 +1331,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_export.set_defaults(func=cmd_export)
 
     p_doctor = sub.add_parser("doctor", help="Run backend, defaults, and metadata drift diagnostics")
+    p_doctor.add_argument("--backend", choices=["local", "icloud"])
+    p_doctor.add_argument("--keychain", help="Override keychain path (default: login.keychain-db)")
     p_doctor.set_defaults(func=cmd_doctor)
 
     p_unlock = sub.add_parser("unlock", help="Unlock the configured macOS keychain backend")
@@ -1166,6 +1355,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_version = sub.add_parser("version", help="Print the installed seckit version")
     p_version.set_defaults(func=cmd_version)
+
+    p_helper = sub.add_parser("helper", help="Manage the optional native helper backend")
+    helper_sub = p_helper.add_subparsers(dest="helper_command", required=True)
+    p_helper_status = helper_sub.add_parser("status", help="Show native helper discovery and toolchain status")
+    p_helper_status.set_defaults(func=cmd_helper_status)
+    p_helper_install_local = helper_sub.add_parser("install-local", help="Build and install the native helper into the active Python environment")
+    p_helper_install_local.set_defaults(func=cmd_helper_install_local)
+    p_helper_install = helper_sub.add_parser("install-icloud", help="Alias for the standard native helper install flow")
+    p_helper_install.set_defaults(func=cmd_helper_install_icloud)
 
     p_migrate = sub.add_parser("migrate", help="Migrate existing secret files into seckit")
     migrate_sub = p_migrate.add_subparsers(dest="migrate_command", required=True)

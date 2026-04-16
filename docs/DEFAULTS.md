@@ -18,6 +18,7 @@ export SECKIT_DEFAULT_KIND=api_key
 export SECKIT_DEFAULT_TAGS=primary
 export SECKIT_DEFAULT_ROTATION_DAYS=90
 export SECKIT_DEFAULT_ROTATION_WARN_DAYS=14
+export SECKIT_DEFAULT_BACKEND=local
 ```
 
 Then:
@@ -52,9 +53,12 @@ That is the better choice when you want stable defaults across shells and reboot
 
 - Defaults are optional.
 - Secrets never belong in the config file.
-- `backend` is a placeholder for future backend selection. This round still uses the standard macOS keychain path.
+- `backend` selects the active secret backend. Use `local` for the normal macOS keychain path.
+- `icloud` uses the native Swift helper and synchronizable Keychain item APIs.
+- `seckit helper install-local` builds the universal helper for both Apple Silicon and Intel macOS.
+- `seckit helper install-icloud` is an alias for the standard helper install flow.
 - Use defaults for repeated scope information, not for raw secret values.
 
 [Back to README](../README.md)
 
-**Updated**: 2026-04-14
+**Updated**: 2026-04-15

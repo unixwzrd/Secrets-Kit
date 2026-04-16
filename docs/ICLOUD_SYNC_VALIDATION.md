@@ -2,13 +2,20 @@
 
 Use this procedure to validate whether Secrets-Kit managed items sync across two macOS hosts through iCloud Keychain.
 
+Run the normal host-to-host transfer validation first:
+
+- [Cross-Host Validation](CROSS_HOST_VALIDATION.md)
+- [Cross-Host and iCloud Validation Checklist](CROSS_HOST_CHECKLIST.md)
+
+The automated disposable-keychain pass is the regression target. This iCloud section is manual only.
+
 This is not a CI test. It is a manual integration check because Apple controls the sync path.
 
 ## Preconditions
 
 - both Macs are logged into the same Apple account
 - iCloud Keychain is enabled on both Macs
-- both Macs can access the login keychain from Terminal
+- both Macs can access the login keychain from a GUI terminal session
 - both Macs have `seckit` installed
 
 ## Test Entries

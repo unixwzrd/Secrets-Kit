@@ -1,6 +1,6 @@
 # File created using '.gitignore Generator' for Visual Studio Code: https://bit.ly/vscode-gig
-# Created by https://www.toptal.com/developers/gitignore/api/visualstudiocode,macos,archive,archives,backup,c,c++,dotfilessh,flask,less,python,ssh,vim,virtualenv,zsh
-# Edit at https://www.toptal.com/developers/gitignore?templates=visualstudiocode,macos,archive,archives,backup,c,c++,dotfilessh,flask,less,python,ssh,vim,virtualenv,zsh
+# Created by https://www.toptal.com/developers/gitignore/api/zsh,visualstudiocode,virtualenv,vim,ssh,python,macos,less,flask,dotfilessh,c++,c,backup,archives,archive,xcode
+# Edit at https://www.toptal.com/developers/gitignore?templates=zsh,visualstudiocode,virtualenv,vim,ssh,python,macos,less,flask,dotfilessh,c++,c,backup,archives,archive,xcode
 
 ### Archive ###
 
@@ -290,7 +290,7 @@ venv.bak/
 .ropeproject
 
 # mkdocs documentation
-#/site
+/site
 
 # mypy
 .mypy_cache/
@@ -476,8 +476,6 @@ tags
 [Ll]ib64
 [Ll]ocal
 [Ss]cripts
-!scripts/
-!scripts/**
 pyvenv.cfg
 pip-selfcheck.json
 
@@ -499,6 +497,23 @@ pip-selfcheck.json
 # Ignore all local history of files
 .history
 .ionide
+
+### Xcode ###
+## User settings
+xcuserdata/
+
+## Xcode 8 and earlier
+*.xcscmblueprint
+*.xccheckout
+
+### Xcode Patch ###
+*.xcodeproj/*
+!*.xcodeproj/project.pbxproj
+!*.xcodeproj/xcshareddata/
+!*.xcodeproj/project.xcworkspace/
+!*.xcworkspace/contents.xcworkspacedata
+/*.gcno
+**/xcshareddata/WorkspaceSettings.xcsettings
 
 ### Zsh ###
 # Zsh compiled script + zrecompile backup
@@ -535,7 +550,7 @@ zsdoc/data
 /tests/_output/*
 !/tests/_output/.gitkeep
 
-# End of https://www.toptal.com/developers/gitignore/api/visualstudiocode,macos,archive,archives,backup,c,c++,dotfilessh,flask,less,python,ssh,vim,virtualenv,zsh
+# End of https://www.toptal.com/developers/gitignore/api/zsh,visualstudiocode,virtualenv,vim,ssh,python,macos,less,flask,dotfilessh,c++,c,backup,archives,archive,xcode
 
 # Custom rules (everything added below won't be overriden by 'Generate .gitignore File' if you use 'Update' option)
 
@@ -554,9 +569,20 @@ tools/*
 **/*.key
 **/*.pem
 **/secrets*
+!src/secrets_kit/
+!src/secrets_kit/**
+src/secrets_kit/__pycache__/
+src/secrets_kit/**/*.pyc
+.build/
+DerivedData/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.swiftpm/
+Package.resolved
 identity/device-auth.json
 
 docs/reports/
 *.local.md
 docs/internal/
-
+.gitignore
+.gitignore

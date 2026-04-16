@@ -1,12 +1,45 @@
 # Secrets-Kit Changelog
 
 **Created**: 2026-03-10  
-**Updated**: 2026-04-14
+**Updated**: 2026-04-15
 
 All notable changes to Secrets-Kit will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+### 2026-04-15 — Reverted iCloud backend to the single-helper design
+
+- **Scope:** `Secrets-Kit/src/secrets_kit/`, `Secrets-Kit/tests/`, `Secrets-Kit/docs/`, `Secrets-Kit/README.md`
+- **Category:** `cli`, `native-helper`, `documentation`
+- **What changed:**
+  - Removed the separate signed-iCloud-agent discovery and capability model from the Python layer.
+  - Restored `backend=icloud` to use the installed `seckit-keychain-helper` directly.
+  - Kept `seckit helper install-local` as the real helper install path and turned `seckit helper install-icloud` into an alias for that flow.
+  - Updated the Swift helper so synchronizable reads, deletes, and metadata queries match with `kSecAttrSynchronizableAny`.
+  - Removed `kSecUseDataProtectionKeychain` from the helper queries and cleared the helper entitlements plist back to an empty file.
+  - Kept helper-backed local operations opt-in via `SECKIT_USE_LOCAL_HELPER=1`, while the default local backend remains the `security` CLI path.
+- **Why:**
+  - The signed-agent split added complexity and broke the intended single-helper install model.
+  - The simpler experiment is to use the existing helper plus synchronizable Keychain APIs before revisiting a heavier app/agent architecture.
+
+### 2026-04-15 — Native helper groundwork, backend selection, and validation flow updates
+
+- **Scope:** `Secrets-Kit/src/secrets_kit/`, `Secrets-Kit/tests/`, `Secrets-Kit/scripts/`, `Secrets-Kit/docs/`
+- **Category:** `cli`, `testing`, `documentation`
+- **What changed:**
+  - Added `--keychain PATH` support across normal data operations, including import, export, explain, doctor, and metadata migration.
+  - Added active backend selection via defaults/env/CLI with `local` and `icloud`.
+  - Added a SwiftPM-native local helper scaffold plus `seckit helper status`, `seckit helper install-local`, a universal local-helper build for Apple Silicon and Intel, and a signed-agent requirement for `backend=icloud`.
+  - Added disposable-keychain integration coverage for direct transfer and locked-destination failure.
+  - Replaced the earlier login-keychain SSH validation helpers with disposable-keychain helpers, plus an optional `ssh localhost` transport helper.
+  - Reworked the cross-host and iCloud docs to split automated disposable-keychain validation from manual login-keychain and iCloud validation.
+  - Added a repo-local validation script and wired CI to use the same CI-safe validation path.
+  - Hard-failed unsigned `backend=icloud` usage after confirming Apple entitlement requirements block synchronizable writes from the plain helper.
+  - Expanded the checklist to separate automated validation, future helper-install checks, and manual-only login-keychain and iCloud sync work.
+- **Why:**
+  - Make transfer regression testing stable and automatable without relying on macOS GUI keychain session state.
+  - Keep iCloud and login-keychain checks explicit and manual where Apple session behavior controls the outcome.
 
 ### 2026-04-14 — Keychain-first metadata, defaults.json, and regression hardening
 
@@ -19,6 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added `seckit migrate metadata` for backfilling older registry-first entries into keychain comment metadata.
   - Added status warnings for rotation and expiry in `list`, `explain`, and `doctor`.
   - Added isolated temporary keychain regression coverage for CRUD plus metadata handling.
+  - Added cross-host validation helpers and live markdown checklists for SSH transfer and iCloud sync testing.
   - Aligned package version target to `v1.0.0`.
 - **Why:**
   - Reduce host-to-host metadata drift by making the keychain item the primary metadata carrier.

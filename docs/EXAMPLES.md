@@ -14,6 +14,9 @@ Current examples:
 - `seckit_export_hermes.sh`
 - `seckit_migrate_dotenv.sh`
 - `seckit_export_encrypted.sh`
+- `../scripts/seckit_cross_host_prepare.sh`
+- `../scripts/seckit_cross_host_verify.sh`
+- `../scripts/seckit_cross_host_transport_localhost.sh`
 
 Those are meant to be starting points, not rigid templates. In most cases you only need to change the service name, account name, dotenv path, or startup command.
 
@@ -45,7 +48,27 @@ That is often the fastest path away from plain-text secrets living in a project 
 seckit export --format encrypted-json --service my-stack --account local-dev --all --out backup.json
 ```
 
+## Cross-host validation helpers
+
+Prepare the disposable source and destination keychains:
+
+```bash
+./scripts/seckit_cross_host_prepare.sh --service sync-test --account local --reset
+```
+
+Run the direct disposable-keychain export/import verification:
+
+```bash
+./scripts/seckit_cross_host_verify.sh --service sync-test --account local
+```
+
+Optionally run the same flow through `ssh localhost`:
+
+```bash
+./scripts/seckit_cross_host_transport_localhost.sh --service sync-test --account local
+```
+
 ## [Back to README](../README.md)
 
 **Created**: 2026-04-11  
-**Updated**: 2026-04-13
+**Updated**: 2026-04-15

@@ -142,6 +142,34 @@ seckit migrate metadata --service my-stack --account local-dev
 
 Use `--dry-run` first if you want to see how many items would be updated without writing anything.
 
+## Use a disposable keychain for testing
+
+When you want isolated regression tests, point the command at a dedicated keychain file:
+
+```bash
+seckit list --keychain /tmp/test.keychain-db --service my-stack --account local-dev
+seckit explain --keychain /tmp/test.keychain-db --name OPENAI_API_KEY --service my-stack --account local-dev
+```
+
+That keeps test data out of the login keychain and makes automation reliable.
+
+## Validate cross-host transfer
+
+Use the built-in disposable-keychain helpers for the automated pass:
+
+```bash
+./scripts/seckit_cross_host_prepare.sh --service sync-test --account local --reset
+./scripts/seckit_cross_host_verify.sh --service sync-test --account local
+```
+
+To validate the pipe transport layer too:
+
+```bash
+./scripts/seckit_cross_host_transport_localhost.sh --service sync-test --account local
+```
+
+Use the login keychain and VM only for the later manual iCloud validation pass.
+
 ## A simple everyday pattern
 
 One reasonable local workflow looks like this:
@@ -156,4 +184,4 @@ That does not eliminate risk, but it is materially better than sprinkling secret
 ## [Back to README](../README.md)
 
 **Created**: 2026-04-11  
-**Updated**: 2026-04-14
+**Updated**: 2026-04-15
