@@ -9,15 +9,32 @@ import unittest
 from unittest import mock
 from contextlib import redirect_stdout, redirect_stderr
 
-from secrets_kit.cli import _apply_defaults, _read_password, build_parser, cmd_delete, cmd_doctor, cmd_get, cmd_helper_install_icloud, cmd_helper_install_local, cmd_helper_status, cmd_lock, cmd_set
+from secrets_kit.cli import _apply_defaults, _read_password, build_parser, cmd_delete, cmd_doctor, cmd_get, cmd_helper_install_icloud, cmd_helper_install_local, cmd_helper_status, cmd_lock, cmd_run, cmd_set
 
 
 class CliCommandsTest(unittest.TestCase):
     def test_parser_has_expected_commands(self) -> None:
         parser = build_parser()
         commands = parser._subparsers._group_actions[0].choices.keys()  # type: ignore[attr-defined]
-        for expected in {"set", "get", "list", "explain", "delete", "import", "export", "doctor", "migrate", "lock", "unlock", "keychain-status", "helper"}:
+        for expected in {"set", "get", "list", "explain", "delete", "import", "export", "run", "doctor", "migrate", "lock", "unlock", "keychain-status", "helper"}:
             self.assertIn(expected, commands)
+
+    def test_run_parser_preserves_separator_and_command(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(
+            [
+                "run",
+                "--service",
+                "openclaw",
+                "--account",
+                "miafour",
+                "--",
+                "/usr/bin/env",
+                "python3",
+            ]
+        )
+        self.assertEqual(args.command, "run")
+        self.assertEqual(args.child_command, ["--", "/usr/bin/env", "python3"])
 
     def test_kind_flags_parse(self) -> None:
         parser = build_parser()
@@ -261,6 +278,76 @@ class CliCommandsTest(unittest.TestCase):
             code = cmd_doctor(args=argparse.Namespace(keychain="/tmp/test.keychain-db"))
         self.assertEqual(code, 0)
         self.assertEqual(doctor_roundtrip_mock.call_args.kwargs["path"], "/tmp/test.keychain-db")
+
+    def test_run_injects_selected_secrets_and_execs_child(self) -> None:
+        from secrets_kit.models import EntryMetadata
+
+        args = argparse.Namespace(
+            service="openclaw",
+            account="miafour",
+            names="OPENAI_API_KEY,TELEGRAM_BOT_TOKEN",
+            tag=None,
+            type=None,
+            kind=None,
+            all=False,
+            keychain="/tmp/test.keychain-db",
+            backend="local",
+            child_command=["--", "/usr/bin/env", "python3"],
+        )
+        openai_meta = EntryMetadata(
+            name="OPENAI_API_KEY",
+            service="openclaw",
+            account="miafour",
+            entry_type="secret",
+            entry_kind="api_key",
+            source="manual",
+        )
+        telegram_meta = EntryMetadata(
+            name="TELEGRAM_BOT_TOKEN",
+            service="openclaw",
+            account="miafour",
+            entry_type="secret",
+            entry_kind="token",
+            source="manual",
+        )
+
+        with mock.patch("secrets_kit.cli.load_registry", return_value={}), \
+            mock.patch(
+                "secrets_kit.cli._read_metadata",
+                side_effect=[
+                    {"metadata": openai_meta},
+                    {"metadata": telegram_meta},
+                ],
+            ), \
+            mock.patch("secrets_kit.cli.get_secret", side_effect=["sk-openai", "bot-token"]), \
+            mock.patch("secrets_kit.cli._exec_child", return_value=0) as exec_mock:
+            code = cmd_run(args=args)
+
+        self.assertEqual(code, 0)
+        exec_mock.assert_called_once()
+        self.assertEqual(exec_mock.call_args.kwargs["argv"], ["/usr/bin/env", "python3"])
+        injected_env = exec_mock.call_args.kwargs["env"]
+        self.assertEqual(injected_env["OPENAI_API_KEY"], "sk-openai")
+        self.assertEqual(injected_env["TELEGRAM_BOT_TOKEN"], "bot-token")
+
+    def test_run_requires_target_command(self) -> None:
+        err = io.StringIO()
+        args = argparse.Namespace(
+            service="openclaw",
+            account="miafour",
+            names=None,
+            tag=None,
+            type=None,
+            kind=None,
+            all=False,
+            keychain=None,
+            backend="local",
+            child_command=["--"],
+        )
+        with redirect_stderr(err):
+            code = cmd_run(args=args)
+        self.assertEqual(code, 2)
+        self.assertIn("run requires a target command", err.getvalue())
 
     def test_migrate_metadata_passes_keychain_path(self) -> None:
         from secrets_kit.cli import cmd_migrate_metadata

@@ -215,12 +215,12 @@ def _apply_defaults(*, args: argparse.Namespace) -> None:
             args.kind = defaults.get("kind") or "api_key"
 
     if hasattr(args, "service") and not args.service:
-        if args.command in {"set", "get", "delete", "export", "import", "migrate"}:
+        if args.command in {"set", "get", "delete", "export", "import", "migrate", "run"}:
             raise ValidationError(
                 "service is required. Set --service or define SECKIT_DEFAULT_SERVICE / config.json"
             )
     if hasattr(args, "account") and not args.account:
-        if args.command in {"set", "get", "delete", "export", "import", "migrate"}:
+        if args.command in {"set", "get", "delete", "export", "import", "migrate", "run"}:
             raise ValidationError(
                 "account is required. Set --account or define SECKIT_DEFAULT_ACCOUNT / config.json"
             )
@@ -261,6 +261,93 @@ def _resolve_domains(*, domain: Optional[List[str]], domains_csv: Optional[str])
     if domain:
         items.extend(domain)
     return normalize_domains(items)
+
+
+def _select_entries(
+    *,
+    args: argparse.Namespace,
+    require_explicit_selection: bool,
+) -> List[EntryMetadata]:
+    entries = load_registry()
+    selected: Dict[str, EntryMetadata] = {}
+    names = {validate_key_name(name=item) for item in args.names.split(",")} if getattr(args, "names", None) else set()
+
+    if names:
+        for name in sorted(names):
+            resolved = _read_metadata(
+                service=args.service,
+                account=args.account,
+                name=name,
+                registry=entries,
+                path=_keychain_arg(args),
+                backend=_backend_arg(args),
+            )
+            if not resolved:
+                continue
+            meta = resolved["metadata"]
+            if isinstance(meta, EntryMetadata):
+                selected[meta.key()] = meta
+        return sorted(selected.values(), key=lambda item: item.name)
+
+    explicit_filter = bool(
+        getattr(args, "tag", None)
+        or getattr(args, "type", None)
+        or getattr(args, "kind", None)
+        or getattr(args, "all", False)
+    )
+    for indexed in entries.values():
+        if args.service and indexed.service != args.service:
+            continue
+        if args.account and indexed.account != args.account:
+            continue
+        if getattr(args, "type", None) and indexed.entry_type != args.type:
+            continue
+        if getattr(args, "kind", None) and indexed.entry_kind != args.kind:
+            continue
+        if getattr(args, "tag", None) and args.tag not in indexed.tags:
+            continue
+        if require_explicit_selection and not explicit_filter:
+            continue
+        resolved = _read_metadata(
+            service=indexed.service,
+            account=indexed.account,
+            name=indexed.name,
+            registry=entries,
+            path=_keychain_arg(args),
+            backend=_backend_arg(args),
+        )
+        if not resolved:
+            continue
+        meta = resolved["metadata"]
+        if isinstance(meta, EntryMetadata):
+            selected[meta.key()] = meta
+
+    return sorted(selected.values(), key=lambda item: item.name)
+
+
+def _build_env_map(*, entries: List[EntryMetadata], args: argparse.Namespace) -> Dict[str, str]:
+    env_map: Dict[str, str] = {}
+    for meta in entries:
+        env_map[meta.name] = get_secret(
+            service=meta.service,
+            account=meta.account,
+            name=meta.name,
+            path=_keychain_arg(args),
+            backend=_backend_arg(args),
+        )
+    return env_map
+
+
+def _child_command_args(raw_args: List[str]) -> List[str]:
+    args = list(raw_args)
+    if args and args[0] == "--":
+        args = args[1:]
+    return args
+
+
+def _exec_child(*, argv: List[str], env: Dict[str, str]) -> int:
+    os.execvpe(argv[0], argv, env)
+    return 0
 
 
 def _build_metadata(*, args: argparse.Namespace, name: str, source: str) -> EntryMetadata:
@@ -729,67 +816,12 @@ def cmd_import_encrypted(*, args: argparse.Namespace) -> int:
 
 def cmd_export(*, args: argparse.Namespace) -> int:
     try:
-        entries = load_registry()
-        selected: List[EntryMetadata] = []
-        names = {validate_key_name(name=item) for item in args.names.split(",")} if args.names else set()
-        if names:
-            for name in sorted(names):
-                resolved = _read_metadata(
-                    service=args.service,
-                    account=args.account,
-                    name=name,
-                    registry=entries,
-                    path=_keychain_arg(args),
-                    backend=_backend_arg(args),
-                )
-                if not resolved:
-                    continue
-                meta = resolved["metadata"]
-                if isinstance(meta, EntryMetadata):
-                    selected.append(meta)
-        else:
-            for indexed in entries.values():
-                if args.service and indexed.service != args.service:
-                    continue
-                if args.account and indexed.account != args.account:
-                    continue
-                if args.type and indexed.entry_type != args.type:
-                    continue
-                if args.kind and indexed.entry_kind != args.kind:
-                    continue
-                if args.tag and args.tag not in indexed.tags:
-                    continue
-                resolved = _read_metadata(
-                    service=indexed.service,
-                    account=indexed.account,
-                    name=indexed.name,
-                    registry=entries,
-                    path=_keychain_arg(args),
-                    backend=_backend_arg(args),
-                )
-                if not resolved:
-                    continue
-                meta = resolved["metadata"]
-                if not isinstance(meta, EntryMetadata):
-                    continue
-                if not (args.tag or args.type or args.all):
-                    continue
-                selected.append(meta)
-
+        selected = _select_entries(args=args, require_explicit_selection=True)
         if not selected:
             return _fatal(message="no matching entries selected for export", code=1)
 
         if args.format == "shell":
-            env_map: Dict[str, str] = {}
-            for meta in sorted(selected, key=lambda item: item.name):
-                env_map[meta.name] = get_secret(
-                    service=meta.service,
-                    account=meta.account,
-                    name=meta.name,
-                    path=_keychain_arg(args),
-                    backend=_backend_arg(args),
-                )
-            print(export_shell_lines(env_map=env_map))
+            print(export_shell_lines(env_map=_build_env_map(entries=selected, args=args)))
             return 0
 
         if args.format == "dotenv":
@@ -830,6 +862,27 @@ def cmd_export(*, args: argparse.Namespace) -> int:
         return _fatal(message=f"unsupported format: {args.format}", code=1)
     except (ValidationError, RegistryError, BackendError, CryptoUnavailable) as exc:
         return _fatal(message=str(exc), code=1)
+
+
+def cmd_run(*, args: argparse.Namespace) -> int:
+    command = _child_command_args(args.child_command)
+    try:
+        if not command:
+            return _fatal(message="run requires a target command after --", code=2)
+
+        selected = _select_entries(args=args, require_explicit_selection=False)
+        if not selected:
+            return _fatal(message="no matching entries selected for run", code=1)
+
+        env = os.environ.copy()
+        env.update(_build_env_map(entries=selected, args=args))
+        return _exec_child(argv=command, env=env)
+    except (ValidationError, RegistryError, BackendError) as exc:
+        return _fatal(message=str(exc), code=1)
+    except FileNotFoundError:
+        return _fatal(message=f"command not found: {command[0]}", code=127)
+    except OSError as exc:
+        return _fatal(message=f"failed to launch {command[0]}: {exc}", code=126)
 
 
 def cmd_doctor(*, args: argparse.Namespace) -> int:
@@ -1329,6 +1382,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_export.add_argument("--kind", choices=ENTRY_KIND_VALUES)
     p_export.add_argument("--all", action="store_true")
     p_export.set_defaults(func=cmd_export)
+
+    p_run = sub.add_parser("run", parents=[common], help="Resolve secrets in the parent process and exec a child command")
+    p_run.add_argument("--names")
+    p_run.add_argument("--tag")
+    p_run.add_argument("--type", choices=["secret", "pii"])
+    p_run.add_argument("--kind", choices=ENTRY_KIND_VALUES)
+    p_run.add_argument("--all", action="store_true")
+    p_run.add_argument("child_command", nargs=argparse.REMAINDER)
+    p_run.set_defaults(func=cmd_run)
 
     p_doctor = sub.add_parser("doctor", help="Run backend, defaults, and metadata drift diagnostics")
     p_doctor.add_argument("--backend", choices=["local", "icloud"])
