@@ -328,13 +328,20 @@ def _select_entries(
 def _build_env_map(*, entries: List[EntryMetadata], args: argparse.Namespace) -> Dict[str, str]:
     env_map: Dict[str, str] = {}
     for meta in entries:
-        env_map[meta.name] = get_secret(
-            service=meta.service,
-            account=meta.account,
-            name=meta.name,
-            path=_keychain_arg(args),
-            backend=_backend_arg(args),
-        )
+        try:
+            env_map[meta.name] = get_secret(
+                service=meta.service,
+                account=meta.account,
+                name=meta.name,
+                path=_keychain_arg(args),
+                backend=_backend_arg(args),
+            )
+        except BackendError as exc:
+            raise BackendError(
+                f"failed to read secret for run: service={meta.service} account={meta.account} "
+                f"name={meta.name}. Use --names/--tag to narrow the injected set if this command "
+                f"does not need every entry in the scope. Underlying error: {exc}"
+            ) from exc
     return env_map
 
 
@@ -427,7 +434,30 @@ def _read_metadata(
     registry = registry if registry is not None else load_registry()
     registry_meta = registry.get(key)
     if secret_exists(service=service, account=account, name=name, path=path, backend=backend):
-        keychain_fields = get_secret_metadata(service=service, account=account, name=name, path=path, backend=backend)
+        keychain_fields: Dict[str, object] = {}
+        try:
+            keychain_fields = get_secret_metadata(service=service, account=account, name=name, path=path, backend=backend)
+        except BackendError:
+            if registry_meta:
+                return {
+                    "metadata": registry_meta,
+                    "metadata_source": "registry-fallback",
+                    "keychain_fields": {},
+                    "registry_fallback_used": True,
+                }
+            minimal = EntryMetadata(
+                name=name,
+                service=service,
+                account=account,
+                comment="",
+                source="keychain-unmanaged",
+            )
+            return {
+                "metadata": minimal,
+                "metadata_source": "keychain-minimal",
+                "keychain_fields": {},
+                "registry_fallback_used": False,
+            }
         keychain_meta = EntryMetadata.from_keychain_comment(str(keychain_fields.get("comment", "")))
         if keychain_meta:
             return {

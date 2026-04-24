@@ -245,6 +245,43 @@ seckit export --format shell --all
 
 That is especially useful when you are launching the same local stack repeatedly from one shell session.
 
+## Run a Command with Injected Secrets
+
+Use `seckit run` when you want Secrets-Kit to resolve the selected secrets in the parent process and then launch a child command with those values already injected into its environment.
+
+Basic form:
+
+```bash
+seckit run --service my-stack --account local-dev --all -- /usr/bin/env
+```
+
+OpenClaw-style example:
+
+```bash
+seckit run --service openclaw --account miafour -- openclaw skills
+```
+
+Inject only selected values:
+
+```bash
+seckit run --service my-stack --account local-dev --names OPENAI_API_KEY,ADMIN_PASSWORD -- python3 app.py
+```
+
+If you define defaults, you can omit `--service` and `--account`:
+
+```bash
+export SECKIT_DEFAULT_SERVICE=my-stack
+export SECKIT_DEFAULT_ACCOUNT=local-dev
+seckit run --all -- python3 app.py
+```
+
+Important:
+
+- the child command must come after `--`
+- selection flags match `export`: `--all`, `--names`, `--tag`, `--type`, `--kind`
+- if you do not pass a selection flag, `run` injects every matching entry in the selected `service/account` scope
+- if you do not pass `--service` and `--account`, you must define defaults first
+
 ## Command Surface
 
 ```bash
@@ -256,6 +293,7 @@ seckit delete
 seckit import env
 seckit import file
 seckit export
+seckit run
 seckit doctor
 seckit unlock
 seckit lock

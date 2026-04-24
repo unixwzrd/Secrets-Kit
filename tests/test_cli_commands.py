@@ -349,6 +349,73 @@ class CliCommandsTest(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("run requires a target command", err.getvalue())
 
+    def test_run_reports_which_secret_failed_to_read(self) -> None:
+        from secrets_kit.keychain_backend import BackendError
+        from secrets_kit.models import EntryMetadata
+
+        args = argparse.Namespace(
+            service="openclaw",
+            account="miafour",
+            names="APPLE_APP_PASSWORD",
+            tag=None,
+            type=None,
+            kind=None,
+            all=False,
+            keychain=None,
+            backend="local",
+            child_command=["--", "/usr/bin/env"],
+        )
+        apple_meta = EntryMetadata(
+            name="APPLE_APP_PASSWORD",
+            service="openclaw",
+            account="miafour",
+            entry_type="secret",
+            entry_kind="password",
+            source="manual",
+        )
+        err = io.StringIO()
+        with mock.patch("secrets_kit.cli.load_registry", return_value={}), \
+            mock.patch("secrets_kit.cli._read_metadata", return_value={"metadata": apple_meta}), \
+            mock.patch("secrets_kit.cli.get_secret", side_effect=BackendError("security find-generic-password failed")), \
+            redirect_stderr(err):
+            code = cmd_run(args=args)
+
+        self.assertEqual(code, 1)
+        self.assertIn("failed to read secret for run", err.getvalue())
+        self.assertIn("name=APPLE_APP_PASSWORD", err.getvalue())
+        self.assertIn("--names/--tag", err.getvalue())
+
+    def test_read_metadata_falls_back_to_registry_when_keychain_metadata_read_fails(self) -> None:
+        from secrets_kit.cli import _read_metadata
+        from secrets_kit.keychain_backend import BackendError
+        from secrets_kit.models import EntryMetadata
+
+        registry_entry = EntryMetadata(
+            name="APPLE_APP_PASSWORD",
+            service="hermes",
+            account="miafour",
+            entry_type="secret",
+            entry_kind="password",
+            source="manual",
+        )
+        registry = {registry_entry.key(): registry_entry}
+
+        with mock.patch("secrets_kit.cli.secret_exists", return_value=True), \
+            mock.patch("secrets_kit.cli.get_secret_metadata", side_effect=BackendError("metadata denied")):
+            resolved = _read_metadata(
+                service="hermes",
+                account="miafour",
+                name="APPLE_APP_PASSWORD",
+                registry=registry,
+            )
+
+        self.assertIsNotNone(resolved)
+        assert resolved is not None
+        self.assertEqual(resolved["metadata_source"], "registry-fallback")
+        self.assertTrue(resolved["registry_fallback_used"])
+        self.assertEqual(resolved["metadata"], registry_entry)
+        self.assertEqual(resolved["keychain_fields"], {})
+
     def test_migrate_metadata_passes_keychain_path(self) -> None:
         from secrets_kit.cli import cmd_migrate_metadata
         from secrets_kit.models import EntryMetadata

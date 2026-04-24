@@ -89,6 +89,39 @@ eval "$(seckit export --format shell --service my-stack --account local-dev --al
 
 That pattern works for CLIs, local web apps, agent runtimes, and scripts that expect environment variables in the current shell.
 
+## Run a command with injected secrets
+
+Use `run` when you want Secrets-Kit to resolve the secrets in the parent process and launch a child command with those variables already present.
+
+```bash
+seckit run --service my-stack --account local-dev --all -- /usr/bin/env
+```
+
+Inject only selected values:
+
+```bash
+seckit run --service my-stack --account local-dev --names OPENAI_API_KEY,ADMIN_PASSWORD -- python3 app.py
+```
+
+OpenClaw-style example:
+
+```bash
+seckit run --service openclaw --account miafour -- openclaw skills
+```
+
+If you configured defaults, the shorter form works too:
+
+```bash
+seckit run --all -- python3 app.py
+```
+
+Important notes:
+
+- the child command must come after `--`
+- selection flags match `export`: `--all`, `--names`, `--tag`, `--type`, `--kind`
+- if you do not pass a selection flag, `run` injects every matching entry in the selected `service/account` scope
+- if you omit `--service` and `--account`, you must define defaults first
+
 ## Export placeholder dotenv
 
 ```bash

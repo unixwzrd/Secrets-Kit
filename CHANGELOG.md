@@ -1,12 +1,35 @@
 # Secrets-Kit Changelog
 
 **Created**: 2026-03-10  
-**Updated**: 2026-04-15
+**Updated**: 2026-04-18
 
 All notable changes to Secrets-Kit will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+### 2026-04-18 — Parent-side `seckit run` env injection for child processes
+
+- **Scope:** `Secrets-Kit/src/secrets_kit/cli.py`, `Secrets-Kit/tests/test_cli_commands.py`
+- **Category:** `cli`, `integration`, `testing`
+- **What changed:**
+  - Added `seckit run` so selected or filtered secrets can be resolved in the parent process, injected into a child environment map, and then handed off with `exec`.
+  - Added explicit child-command parsing and validation so runtime wrappers can use `seckit run -- <command>` safely from non-interactive launch paths.
+  - Added regression coverage to confirm that requested secrets are injected into the child env and that a missing target command fails clearly.
+- **Why:**
+  - Support application launch workflows that need parent-side secret injection instead of relying on child-side `.env` rereads or shell-eval export patterns.
+
+### 2026-04-16 — Cross-host validation expansion, helper packaging, and backend plumbing follow-through
+
+- **Scope:** `Secrets-Kit/src/secrets_kit/`, `Secrets-Kit/tests/`, `Secrets-Kit/docs/`, `Secrets-Kit/README.md`, `Secrets-Kit/.github/workflows/ci.yml`, `Secrets-Kit/.gitignore`, `Secrets-Kit/pyproject.toml`
+- **Category:** `cli`, `native-helper`, `testing`, `documentation`
+- **What changed:**
+  - Expanded the native-helper packaging and installation groundwork, including helper source layout, helper bridge code, helper-focused tests, and backend-resolution coverage.
+  - Added repo-local cross-host validation docs and disposable-keychain oriented test coverage to make transfer and helper flows easier to verify outside a live login-keychain session.
+  - Added crypto/helper plumbing and CLI/default handling refinements needed to support the newer export/import and backend-selection paths cleanly.
+  - Tightened pre-release docs, examples, defaults, and ignore/CI configuration around those validation workflows.
+- **Why:**
+  - Make pre-release validation more reproducible and keep the helper-backed backend work coherent enough to test before a broader release.
 
 ### 2026-04-15 — Reverted iCloud backend to the single-helper design
 
