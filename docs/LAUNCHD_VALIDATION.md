@@ -37,9 +37,13 @@ If the default temporary-item setup is denied by macOS, use an existing item:
 
 This does not create or delete any keychain item.
 
+For a normal run that cleans itself up:
+
 ```bash
 ./scripts/seckit_launchd_smoke.sh --mode login-agent
 ```
+
+After a normal successful run, the script unloads the launchd job, removes the plist, and verifies both cleanup steps. A `--keep` run preserves the plist and output files for inspection.
 
 If the login keychain is locked or the session cannot prompt:
 
@@ -113,18 +117,24 @@ Every mode writes proof JSON from the process started by launchd. The output inc
 
 ```json
 {
-  "uid": 1002,
+  "agent_simulator": true,
+  "child_argv0": "/Users/example/projects/secrets-kit/scripts/seckit_launchd_agent_simulator.py",
   "euid": 1002,
-  "user": "example",
   "home": "/Users/example",
   "keychain": "/Users/example/Library/Keychains/seckit-service.keychain-db",
-  "mode": "service-agent",
   "launchd_target": "gui/1002/ai.unixwzrd.seckit.launchd-smoke.service-agent.example",
+  "mode": "service-agent",
+  "name": "SECKIT_TEST_ENV",
+  "pid": 12345,
+  "ppid": 1,
+  "seckit_bin": "/Users/example/.venv/bin/seckit",
+  "uid": 1002,
+  "user": "example",
   "value": "expected-service-agent-example"
 }
 ```
 
-That file is the evidence that launchd started the process and that `seckit run` injected the secret.
+That file is the evidence that launchd started `seckit`, `seckit run` launched a separate child process, and the child process received the selected secret in its environment.
 
 Keep artifacts for inspection:
 

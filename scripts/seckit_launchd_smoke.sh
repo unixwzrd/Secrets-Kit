@@ -232,6 +232,22 @@ cleanup() {
   fi
 }
 
+verify_cleanup() {
+  local failed=0
+  if [[ -e "$PLIST_PATH" ]]; then
+    echo "cleanup verification failed: plist still exists: $PLIST_PATH" >&2
+    failed=1
+  fi
+  if launchctl print "$SERVICE_TARGET" >/dev/null 2>&1; then
+    echo "cleanup verification failed: launchd target is still registered: $SERVICE_TARGET" >&2
+    failed=1
+  fi
+  if [[ "$failed" != "0" ]]; then
+    exit 1
+  fi
+  echo "cleanup verified: removed plist and launchd target"
+}
+
 write_agent_plist() {
   cat > "$PLIST_PATH" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -383,6 +399,7 @@ mkdir -p "$PLIST_DIR" "$OUT_DIR"
 
 if [[ "$CLEANUP_ONLY" == "1" ]]; then
   cleanup
+  verify_cleanup
   echo "cleaned launchd smoke test for mode=${MODE} account=${ACCOUNT}"
   exit 0
 fi
@@ -452,4 +469,5 @@ run_launchd_job
 
 if [[ "$KEEP" != "1" ]]; then
   cleanup
+  verify_cleanup
 fi

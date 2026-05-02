@@ -1,12 +1,25 @@
 # Secrets-Kit Changelog
 
 **Created**: 2026-03-10  
-**Updated**: 2026-04-18
+**Updated**: 2026-05-02
 
 All notable changes to Secrets-Kit will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+### 2026-05-02 — v1.1.0 launchd runtime validation and release workflow
+
+- **Scope:** `Secrets-Kit/scripts/`, `Secrets-Kit/docs/`, `Secrets-Kit/tests/`, `Secrets-Kit/.github/workflows/`, `Secrets-Kit/src/secrets_kit/`
+- **Category:** `launchd`, `runtime`, `testing`, `documentation`, `release`
+- **What changed:**
+  - Added a multi-mode launchd smoke workflow for user LaunchAgents, dedicated service-keychain LaunchAgents, and service-keychain LaunchDaemons.
+  - Added a standalone `scripts/seckit_launchd_agent_simulator.py` child process so validation proves `seckit run` launches another process with secrets in its environment.
+  - Added explicit launchd cleanup verification after normal smoke-test runs.
+  - Added CI/local validation and release workflow support for repeatable pre-release checks.
+  - Updated launchd, security-model, quickstart, usage, integration, and validation documentation around the supported runtime-launch paths.
+- **Why:**
+  - Make Secrets Kit release-ready for real agent/service launch workflows where secrets must be injected into child processes without exposing values on the command line.
 
 ### 2026-04-18 — Parent-side `seckit run` env injection for child processes
 

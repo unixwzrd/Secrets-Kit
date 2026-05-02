@@ -12,6 +12,7 @@
   - [Installation](#installation)
   - [Quick Start](#quick-start)
   - [Defaults](#defaults)
+  - [Run a Command with Injected Secrets](#run-a-command-with-injected-secrets)
   - [Command Surface](#command-surface)
   - [Security Notes](#security-notes)
   - [Documentation](#documentation)
@@ -25,13 +26,13 @@ It stores secret values in the macOS login Keychain, keeps the authoritative met
 
 Repository name: `Secrets-Kit`  
 CLI command: `seckit`  
-Current release target: `v1.0.0`
+Current release target: `v1.1.0`
 
 ## **IMPORTANT: Read This First**
 
 Secrets Kit is intentionally narrow in scope:
 
-- macOS only in `v1.0.0`
+- macOS only in `v1.1.0`
 - stores secret values in the user's login Keychain
 - keeps managed metadata in the keychain item comment as structured JSON
 - keeps a local inventory/index in `~/.config/seckit/registry.json`
@@ -105,7 +106,7 @@ The preferred install path is directly from GitHub.
 Install the current tagged release:
 
 ```bash
-pip install "git+https://github.com/unixwzrd/Secrets-Kit.git@v1.0.0"
+pip install "git+https://github.com/unixwzrd/Secrets-Kit.git@v1.1.0"
 ```
 
 Install from the moving default branch if you explicitly want the latest unreleased changes:
@@ -130,7 +131,7 @@ If `pip` is not installed or is not on your `PATH`, use `python3 -m pip` instead
 Optional YAML file-import support for the tagged release:
 
 ```bash
-pip install "git+https://github.com/unixwzrd/Secrets-Kit.git@v1.0.0#egg=seckit[yaml]"
+pip install "git+https://github.com/unixwzrd/Secrets-Kit.git@v1.1.0#egg=seckit[yaml]"
 ```
 
 If you already have a local checkout and intentionally want to install from it:
@@ -352,17 +353,25 @@ If you need a remote secret service, cross-host policy enforcement, or stronger 
 
 ## Documentation
 
-- [Quickstart](docs/QUICKSTART.md)
-- [Usage & Workflows](docs/USAGE.md)
-- [Integrations](docs/INTEGRATIONS.md)
-- [Examples](docs/EXAMPLES.md)
-- [Security Model](docs/SECURITY_MODEL.md)
-- [launchd Validation](docs/LAUNCHD_VALIDATION.md)
-- [Cross-Host Validation](docs/CROSS_HOST_VALIDATION.md)
-- [Cross-Host Checklist](docs/CROSS_HOST_CHECKLIST.md)
-- [iCloud Sync Validation](docs/ICLOUD_SYNC_VALIDATION.md)
-- [Defaults](docs/DEFAULTS.md)
-- [Metadata Registry](docs/METADATA_REGISTRY.md)
+Start here:
+
+- [Quickstart](docs/QUICKSTART.md) - shortest path to install, store a value, and run a command with injected secrets.
+- [Usage & Workflows](docs/USAGE.md) - everyday command reference for storing, listing, importing, exporting, and running processes.
+- [Security Model](docs/SECURITY_MODEL.md) - plain-language explanation of what Secrets Kit does and does not protect.
+
+Runtime and integration guides:
+
+- [Integrations](docs/INTEGRATIONS.md) - generic app, agent, Hermes, and OpenClaw launch patterns.
+- [launchd Validation](docs/LAUNCHD_VALIDATION.md) - LaunchAgent and LaunchDaemon behavior with proof files.
+- [Examples](docs/EXAMPLES.md) - small scripts and command examples.
+- [Defaults](docs/DEFAULTS.md) - how to avoid repeating service/account flags.
+
+Validation and internals:
+
+- [Cross-Host Validation](docs/CROSS_HOST_VALIDATION.md) - disposable-keychain transfer validation.
+- [Cross-Host Checklist](docs/CROSS_HOST_CHECKLIST.md) - operational checklist for validation passes.
+- [iCloud Sync Validation](docs/ICLOUD_SYNC_VALIDATION.md) - manual iCloud Keychain sync checks.
+- [Metadata Registry](docs/METADATA_REGISTRY.md) - technical schema details for the local metadata index.
 
 ## Contributing
 

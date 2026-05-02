@@ -41,7 +41,7 @@ bash -n \
 
 echo
 echo "== python compile check =="
-python3 -m py_compile src/secrets_kit/*.py
+python3 -m py_compile src/secrets_kit/*.py scripts/seckit_launchd_agent_simulator.py
 
 echo
 echo "== swift helper build =="
