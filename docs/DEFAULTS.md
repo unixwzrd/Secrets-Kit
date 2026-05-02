@@ -7,6 +7,7 @@ Resolution order:
 1. Explicit CLI flags
 2. `SECKIT_DEFAULT_*` environment variables
 3. `~/.config/seckit/defaults.json`
+4. current OS user for `account` only
 
 ## Environment defaults
 
@@ -25,7 +26,7 @@ Then:
 
 ```bash
 seckit list
-seckit export --format shell --all
+seckit run -- python3 app.py
 ```
 
 That is usually the best fit for an interactive shell session or a one-off runtime launch.
@@ -53,12 +54,14 @@ That is the better choice when you want stable defaults across shells and reboot
 
 - Defaults are optional.
 - Secrets never belong in the config file.
+- `service` must be explicit or configured when a command needs a service scope.
+- `account` falls back to the current OS user when it is not explicit or configured.
 - `backend` selects the active secret backend. Use `local` for the normal macOS keychain path.
 - `icloud` uses the native Swift helper and synchronizable Keychain item APIs.
 - `seckit helper install-local` builds the universal helper for both Apple Silicon and Intel macOS.
-- `seckit helper install-icloud` is an alias for the standard helper install flow.
+- `seckit helper install-icloud` remains as a compatibility alias, but `install-local` is the canonical helper install command.
 - Use defaults for repeated scope information, not for raw secret values.
 
 [Back to README](../README.md)
 
-**Updated**: 2026-04-15
+**Updated**: 2026-04-28

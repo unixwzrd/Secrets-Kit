@@ -183,6 +183,10 @@ def _load_defaults() -> Dict[str, object]:
     return defaults
 
 
+def _current_os_account() -> str:
+    return getpass.getuser() or "default"
+
+
 def _apply_defaults(*, args: argparse.Namespace) -> None:
     defaults = _load_defaults()
     if hasattr(args, "backend") and not getattr(args, "backend", None):
@@ -191,6 +195,8 @@ def _apply_defaults(*, args: argparse.Namespace) -> None:
         args.service = defaults.get("service")
     if hasattr(args, "account") and not args.account:
         args.account = defaults.get("account")
+    if hasattr(args, "account") and not args.account:
+        args.account = _current_os_account()
     if hasattr(args, "type") and not args.type:
         args.type = defaults.get("type")
     if hasattr(args, "kind") and not args.kind:
@@ -219,11 +225,10 @@ def _apply_defaults(*, args: argparse.Namespace) -> None:
             raise ValidationError(
                 "service is required. Set --service or define SECKIT_DEFAULT_SERVICE / config.json"
             )
-    if hasattr(args, "account") and not args.account:
-        if args.command in {"set", "get", "delete", "export", "import", "migrate", "run"}:
-            raise ValidationError(
-                "account is required. Set --account or define SECKIT_DEFAULT_ACCOUNT / config.json"
-            )
+    if hasattr(args, "from_account") and not getattr(args, "from_account", None):
+        args.from_account = args.account or _current_os_account()
+    if hasattr(args, "to_account") and not getattr(args, "to_account", None):
+        args.to_account = args.from_account or args.account or _current_os_account()
     if hasattr(args, "backend") and getattr(args, "backend", None):
         if args.backend not in {"local", "icloud"}:
             raise ValidationError("backend must be one of: local, icloud")
@@ -514,7 +519,7 @@ def _apply_candidates(
     backend: str = "local",
 ) -> Dict[str, int]:
     registry = load_registry()
-    stats = {"created": 0, "updated": 0, "skipped": 0}
+    stats = {"created": 0, "updated": 0, "skipped": 0, "unchanged": 0}
     for key in sorted(candidates):
         candidate = candidates[key]
         resolved = _read_metadata(
@@ -541,7 +546,19 @@ def _apply_candidates(
         if resolved:
             existing_meta = resolved["metadata"]
             if isinstance(existing_meta, EntryMetadata):
+                candidate.metadata = _merge_import_metadata(existing=existing_meta, incoming=candidate.metadata)
                 candidate.metadata.created_at = existing_meta.created_at
+            if exists and not dry_run:
+                current_value = get_secret(
+                    service=candidate.metadata.service,
+                    account=candidate.metadata.account,
+                    name=candidate.metadata.name,
+                    path=path,
+                    backend=backend,
+                )
+                if current_value == candidate.value:
+                    stats["unchanged"] += 1
+                    continue
         candidate.metadata.updated_at = now_utc_iso()
         if dry_run:
             stats["updated" if exists else "created"] += 1
@@ -559,6 +576,22 @@ def _apply_candidates(
         upsert_metadata(metadata=candidate.metadata)
         stats["updated" if exists else "created"] += 1
     return stats
+
+
+def _merge_import_metadata(*, existing: EntryMetadata, incoming: EntryMetadata) -> EntryMetadata:
+    merged = EntryMetadata.from_dict(existing.to_dict())
+    merged.source = incoming.source
+    merged.updated_at = now_utc_iso()
+    # Keep existing classification/tags/comment unless the destination did not have them.
+    if not merged.entry_type:
+        merged.entry_type = incoming.entry_type
+    if merged.entry_kind == "generic" and incoming.entry_kind != "generic":
+        merged.entry_kind = incoming.entry_kind
+    if not merged.tags and incoming.tags:
+        merged.tags = incoming.tags
+    if not merged.comment and incoming.comment:
+        merged.comment = incoming.comment
+    return merged
 
 
 def cmd_set(*, args: argparse.Namespace) -> int:
@@ -761,7 +794,7 @@ def cmd_import_env(*, args: argparse.Namespace) -> int:
             return 1
         stats = _apply_candidates(
             candidates=merged,
-            allow_overwrite=args.allow_overwrite,
+            allow_overwrite=args.allow_overwrite or getattr(args, "upsert", False),
             dry_run=args.dry_run,
             allow_empty=args.allow_empty,
             path=_keychain_arg(args),
@@ -913,6 +946,86 @@ def cmd_run(*, args: argparse.Namespace) -> int:
         return _fatal(message=f"command not found: {command[0]}", code=127)
     except OSError as exc:
         return _fatal(message=f"failed to launch {command[0]}: {exc}", code=126)
+
+
+def cmd_service_copy(*, args: argparse.Namespace) -> int:
+    try:
+        from_account = args.from_account or _current_os_account()
+        to_account = args.to_account or from_account
+        selector_args = argparse.Namespace(
+            service=args.from_service,
+            account=from_account,
+            names=args.names,
+            tag=args.tag,
+            type=args.type,
+            kind=args.kind,
+            all=True,
+            keychain=args.keychain,
+            backend=_backend_arg(args),
+        )
+        selected = _select_entries(args=selector_args, require_explicit_selection=False)
+        if not selected:
+            return _fatal(
+                message=f"no matching entries selected for service copy: {args.from_service}/{from_account}",
+                code=1,
+            )
+
+        stats = {"created": 0, "updated": 0, "skipped": 0}
+        for source_meta in selected:
+            dest_exists = secret_exists(
+                service=args.to_service,
+                account=to_account,
+                name=source_meta.name,
+                path=_keychain_arg(args),
+                backend=_backend_arg(args),
+            )
+            if dest_exists and not args.overwrite:
+                stats["skipped"] += 1
+                continue
+
+            value = get_secret(
+                service=source_meta.service,
+                account=source_meta.account,
+                name=source_meta.name,
+                path=_keychain_arg(args),
+                backend=_backend_arg(args),
+            )
+            dest_meta = EntryMetadata.from_dict(source_meta.to_dict())
+            dest_meta.service = args.to_service
+            dest_meta.account = to_account
+            dest_meta.source = f"copy:{source_meta.service}/{source_meta.account}"
+            dest_meta.updated_at = now_utc_iso()
+            if not dest_exists:
+                dest_meta.created_at = now_utc_iso()
+            else:
+                existing = _read_metadata(
+                    service=args.to_service,
+                    account=to_account,
+                    name=source_meta.name,
+                    path=_keychain_arg(args),
+                    backend=_backend_arg(args),
+                )
+                if existing and isinstance(existing.get("metadata"), EntryMetadata):
+                    dest_meta.created_at = existing["metadata"].created_at
+
+            if not args.dry_run:
+                set_secret(
+                    service=args.to_service,
+                    account=to_account,
+                    name=source_meta.name,
+                    value=value,
+                    label=source_meta.name,
+                    comment=dest_meta.to_keychain_comment(),
+                    path=_keychain_arg(args),
+                    backend=_backend_arg(args),
+                )
+                upsert_metadata(metadata=dest_meta)
+            stats["updated" if dest_exists else "created"] += 1
+
+        print(json.dumps(stats, indent=2, sort_keys=True))
+        return 0
+    except (ValidationError, RegistryError, BackendError) as exc:
+        return _fatal(message=str(exc), code=1)
 
 
 def cmd_doctor(*, args: argparse.Namespace) -> int:
@@ -1207,6 +1320,7 @@ def cmd_migrate_dotenv(*, args: argparse.Namespace) -> int:
         tags=args.tags,
         dry_run=args.dry_run,
         allow_overwrite=args.allow_overwrite,
+        upsert=False,
         allow_empty=args.allow_empty,
         yes=args.yes,
     )
@@ -1372,6 +1486,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_import_env.add_argument("--tags")
     p_import_env.add_argument("--dry-run", action="store_true")
     p_import_env.add_argument("--allow-overwrite", action="store_true")
+    p_import_env.add_argument("--upsert", action="store_true", help="Create new names and update existing values")
     p_import_env.add_argument("--allow-empty", action="store_true")
     p_import_env.add_argument("--yes", action="store_true")
     p_import_env.set_defaults(func=cmd_import_env)
@@ -1421,6 +1536,23 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--all", action="store_true")
     p_run.add_argument("child_command", nargs=argparse.REMAINDER)
     p_run.set_defaults(func=cmd_run)
+
+    p_service = sub.add_parser("service", help="Manage service-scoped secret groups")
+    service_sub = p_service.add_subparsers(dest="service_command", required=True)
+    p_service_copy = service_sub.add_parser("copy", help="Copy secrets from one service scope to another")
+    p_service_copy.add_argument("--from-service", required=True)
+    p_service_copy.add_argument("--to-service", required=True)
+    p_service_copy.add_argument("--from-account")
+    p_service_copy.add_argument("--to-account")
+    p_service_copy.add_argument("--backend", choices=["local", "icloud"])
+    p_service_copy.add_argument("--keychain", help="Override keychain path (default: login.keychain-db)")
+    p_service_copy.add_argument("--names")
+    p_service_copy.add_argument("--tag")
+    p_service_copy.add_argument("--type", choices=["secret", "pii"])
+    p_service_copy.add_argument("--kind", choices=ENTRY_KIND_VALUES)
+    p_service_copy.add_argument("--overwrite", action="store_true")
+    p_service_copy.add_argument("--dry-run", action="store_true")
+    p_service_copy.set_defaults(func=cmd_service_copy)
 
     p_doctor = sub.add_parser("doctor", help="Run backend, defaults, and metadata drift diagnostics")
     p_doctor.add_argument("--backend", choices=["local", "icloud"])

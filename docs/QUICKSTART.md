@@ -5,7 +5,7 @@
   - [2. Make sure Keychain access works](#2-make-sure-keychain-access-works)
   - [3. Store a couple of values](#3-store-a-couple-of-values)
   - [4. Check what is stored](#4-check-what-is-stored)
-  - [5. Export values into the current shell](#5-export-values-into-the-current-shell)
+  - [5. Run a command with those values](#5-run-a-command-with-those-values)
   - [6. Relock when you are done](#6-relock-when-you-are-done)
   - [What this quickstart is trying to accomplish](#what-this-quickstart-is-trying-to-accomplish)
   - [Back to README](#back-to-readme)
@@ -106,13 +106,19 @@ OPENAI_API_KEY     secret  api_key   my-stack  local-dev  -     ok      2026-04-
 ADMIN_PASSWORD     secret  password  my-stack  local-dev  -     ok      2026-04-12T01:04:34Z
 ```
 
-## 5. Export values into the current shell
+## 5. Run a command with those values
 
 ```bash
-eval "$(seckit export --format shell --service my-stack --account local-dev --all)"
+seckit run --service my-stack --account local-dev -- /usr/bin/env | grep -E '^(OPENAI_API_KEY|ADMIN_PASSWORD)='
 ```
 
-At that point, the current shell can launch whatever local tool needs those variables.
+Use the same pattern for your actual runtime:
+
+```bash
+seckit run --service my-stack --account local-dev -- python3 app.py
+```
+
+`seckit run` resolves the selected secrets in the parent process, overlays them into the child environment, and does not put secret values on the command line.
 
 If you need a dotenv file for a runtime but want no plaintext secrets, export placeholders:
 
@@ -127,10 +133,10 @@ export SECKIT_DEFAULT_SERVICE=my-stack
 export SECKIT_DEFAULT_ACCOUNT=local-dev
 ```
 
-Then the export becomes:
+Then the launch becomes:
 
 ```bash
-eval "$(seckit export --format shell --all)"
+seckit run -- python3 app.py
 ```
 
 ## 6. Relock when you are done
@@ -146,7 +152,7 @@ The point is not to create a perfect secret-management system in one command. Th
 - secret values in Keychain
 - authoritative metadata in the keychain comment JSON
 - registry as a local inventory and recovery index
-- runtime export only when needed
+- runtime launch through `seckit run` when a process needs secrets
 - defaults for the scopes you use all the time
 
 For fuller workflows, see:
@@ -158,4 +164,4 @@ For fuller workflows, see:
 ## [Back to README](../README.md)
 
 **Created**: 2026-03-01  
-**Updated**: 2026-04-14
+**Updated**: 2026-04-28

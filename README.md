@@ -21,7 +21,7 @@
 
 Secrets Kit is a local macOS command-line tool for handling API keys, access tokens, passwords, and other sensitive values without leaving them scattered across `.env` files, shell startup files, random notes, or project directories.
 
-It stores secret values in the macOS login Keychain, keeps the authoritative metadata with the keychain item itself, and can export environment variables into the current shell when a runtime actually needs them. A local registry remains as an index and recovery aid, not the source of truth. The goal is not to promise perfect security. The goal is to give operators and developers a cleaner, safer workflow than plain-text secrets spread around the filesystem.
+It stores secret values in the macOS login Keychain, keeps the authoritative metadata with the keychain item itself, and can launch a child process with selected secrets inherited through the environment. A local registry remains as an index and recovery aid, not the source of truth. The goal is not to promise perfect security. The goal is to give operators and developers a cleaner, safer workflow than plain-text secrets spread around the filesystem.
 
 Repository name: `Secrets-Kit`  
 CLI command: `seckit`  
@@ -36,7 +36,8 @@ Secrets Kit is intentionally narrow in scope:
 - keeps managed metadata in the keychain item comment as structured JSON
 - keeps a local inventory/index in `~/.config/seckit/registry.json`
 - supports command defaults in `~/.config/seckit/defaults.json`
-- exports values into the current shell for local runtime use
+- launches child processes with selected secrets in their environment
+- can still export values for shell-session workflows when needed
 
 That makes it useful, but it also means it has limits.
 
@@ -70,7 +71,8 @@ Secrets Kit gives you a more disciplined local pattern:
 - keep secret values in Keychain
 - keep authoritative metadata on the Keychain item itself
 - keep a local index only as inventory and recovery support
-- export values only when the current shell or runtime needs them
+- prefer `seckit run` when launching a process that needs secrets
+- export values only when the current shell itself needs them
 - migrate `.env` files into placeholders instead of leaving raw values behind
 
 It is not magic. It just gives you a much better default workflow than loose plain-text files.
@@ -82,7 +84,8 @@ Secrets Kit focuses on a few practical jobs:
 - store, retrieve, list, explain, and delete secrets
 - classify entries with `type` and `kind`
 - import from existing environment files
-- export environment variables for local runtimes
+- run local commands with selected environment variables injected
+- export environment variables for shell-session workflows
 - help migrate `.env` files away from embedded secret values
 - export encrypted backups for cross-host recovery
 - target disposable keychain files during automated testing with `--keychain PATH`
@@ -195,10 +198,10 @@ ADMIN_PASSWORD           secret  password  my-stack  local-dev  -     2026-04-12
 GATEWAY_TOKEN            secret  token     my-stack  local-dev  -     2026-04-12T01:04:34Z
 ```
 
-Export them into the current shell only when your runtime needs them:
+Launch a runtime with those values inherited by the child process:
 
 ```bash
-eval "$(seckit export --format shell --service my-stack --account local-dev --all)"
+seckit run --service my-stack --account local-dev -- python3 app.py
 ```
 
 Generate a placeholder-only dotenv file (no secrets in plaintext):
@@ -240,7 +243,7 @@ Then shorter commands become practical:
 
 ```bash
 seckit list
-seckit export --format shell --all
+seckit run -- python3 app.py
 ```
 
 That is especially useful when you are launching the same local stack repeatedly from one shell session.
@@ -252,7 +255,7 @@ Use `seckit run` when you want Secrets-Kit to resolve the selected secrets in th
 Basic form:
 
 ```bash
-seckit run --service my-stack --account local-dev --all -- /usr/bin/env
+seckit run --service my-stack --account local-dev -- /usr/bin/env
 ```
 
 OpenClaw-style example:
@@ -272,7 +275,7 @@ If you define defaults, you can omit `--service` and `--account`:
 ```bash
 export SECKIT_DEFAULT_SERVICE=my-stack
 export SECKIT_DEFAULT_ACCOUNT=local-dev
-seckit run --all -- python3 app.py
+seckit run -- python3 app.py
 ```
 
 Important:
@@ -280,7 +283,21 @@ Important:
 - the child command must come after `--`
 - selection flags match `export`: `--all`, `--names`, `--tag`, `--type`, `--kind`
 - if you do not pass a selection flag, `run` injects every matching entry in the selected `service/account` scope
-- if you do not pass `--service` and `--account`, you must define defaults first
+- if you do not pass `--account`, Secrets-Kit uses saved defaults or the current OS user
+- if you do not pass `--service`, you must define a default service first
+
+Copy one service scope into another when two applications share most of the same keys:
+
+```bash
+seckit service copy --from-service openclaw --to-service hermes --dry-run
+seckit service copy --from-service openclaw --to-service hermes
+```
+
+Importing a changed `.env` file can intentionally add new names and update existing values:
+
+```bash
+seckit import env --dotenv .env --service hermes --upsert --yes
+```
 
 ## Command Surface
 
@@ -294,13 +311,13 @@ seckit import env
 seckit import file
 seckit export
 seckit run
+seckit service copy
 seckit doctor
 seckit unlock
 seckit lock
 seckit keychain-status
 seckit helper status
 seckit helper install-local
-seckit helper install-icloud
 seckit migrate dotenv
 ```
 
@@ -313,12 +330,11 @@ seckit helper install-local
 
 `install-local` now builds a universal macOS helper binary so the same installed artifact works on both Apple Silicon and Intel.
 
-For `backend=icloud`, Secrets-Kit now uses the same Swift helper. `seckit helper install-icloud` is just an alias for the standard helper install:
+For `backend=icloud`, Secrets-Kit uses the same Swift helper. Install it with the standard helper command:
 
 ```bash
 seckit helper status
 seckit helper install-local
-seckit helper install-icloud
 ```
 
 ## Security Notes
@@ -328,7 +344,8 @@ Secrets Kit improves local secret hygiene, but it does not make sensitive materi
 - secret values live in the login Keychain, not in the registry
 - the registry contains metadata only
 - normal output stays redacted unless you explicitly ask for raw values
-- exported variables still exist in the current process environment once you export them
+- exported variables still exist in the current shell environment once you export them
+- variables injected with `seckit run` are visible to the launched child process
 - a compromised local session can still expose what that session can already access
 
 If you need a remote secret service, cross-host policy enforcement, or stronger isolation guarantees, use a tool designed for that problem.
@@ -340,12 +357,12 @@ If you need a remote secret service, cross-host policy enforcement, or stronger 
 - [Integrations](docs/INTEGRATIONS.md)
 - [Examples](docs/EXAMPLES.md)
 - [Security Model](docs/SECURITY_MODEL.md)
+- [launchd Validation](docs/LAUNCHD_VALIDATION.md)
 - [Cross-Host Validation](docs/CROSS_HOST_VALIDATION.md)
 - [Cross-Host Checklist](docs/CROSS_HOST_CHECKLIST.md)
 - [iCloud Sync Validation](docs/ICLOUD_SYNC_VALIDATION.md)
 - [Defaults](docs/DEFAULTS.md)
 - [Metadata Registry](docs/METADATA_REGISTRY.md)
-- [OpenClaw Integration (Legacy Example)](docs/INTEGRATION_OPENCLAW.md)
 
 ## Contributing
 

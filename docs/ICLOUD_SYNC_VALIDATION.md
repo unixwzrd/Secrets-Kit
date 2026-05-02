@@ -1,6 +1,6 @@
 # iCloud Sync Validation
 
-Use this procedure to validate whether Secrets-Kit managed items sync across two macOS hosts through iCloud Keychain.
+Use this procedure to validate whether Secrets-Kit items written with `--backend icloud` sync across two macOS hosts through iCloud Keychain.
 
 Run the normal host-to-host transfer validation first:
 
@@ -17,6 +17,7 @@ This is not a CI test. It is a manual integration check because Apple controls t
 - iCloud Keychain is enabled on both Macs
 - both Macs can access the login keychain from a GUI terminal session
 - both Macs have `seckit` installed
+- both Macs have the native helper installed with `seckit helper install-local`
 
 ## Test Entries
 
@@ -29,9 +30,9 @@ Use isolated names so you do not touch real credentials:
 Example create commands on the primary host:
 
 ```bash
-echo 'alpha-1' | seckit set --name SECKIT_TEST_ALPHA --stdin --service sync-test --account local --kind generic --comment "sync alpha" --source-label "manual sync test" --rotation-days 30
-echo 'beta-1' | seckit set --name SECKIT_TEST_BETA --stdin --service sync-test --account local --kind generic --comment "sync beta"
-echo 'delete-me' | seckit set --name SECKIT_TEST_DELETE_ME --stdin --service sync-test --account local --kind generic --comment "delete path"
+echo 'alpha-1' | seckit set --backend icloud --name SECKIT_TEST_ALPHA --stdin --service sync-test --account local --kind generic --comment "sync alpha" --source-label "manual sync test" --rotation-days 30
+echo 'beta-1' | seckit set --backend icloud --name SECKIT_TEST_BETA --stdin --service sync-test --account local --kind generic --comment "sync beta"
+echo 'delete-me' | seckit set --backend icloud --name SECKIT_TEST_DELETE_ME --stdin --service sync-test --account local --kind generic --comment "delete path"
 ```
 
 ## Validation Steps
@@ -39,7 +40,7 @@ echo 'delete-me' | seckit set --name SECKIT_TEST_DELETE_ME --stdin --service syn
 1. On the primary host, run:
 
 ```bash
-seckit explain --name SECKIT_TEST_ALPHA --service sync-test --account local
+seckit explain --backend icloud --name SECKIT_TEST_ALPHA --service sync-test --account local
 ```
 
 Confirm the keychain comment JSON is present and the metadata source is `keychain`.
@@ -47,7 +48,7 @@ Confirm the keychain comment JSON is present and the metadata source is `keychai
 2. On the second host or VM, poll for the same entry:
 
 ```bash
-seckit explain --name SECKIT_TEST_ALPHA --service sync-test --account local
+seckit explain --backend icloud --name SECKIT_TEST_ALPHA --service sync-test --account local
 ```
 
 Record:
@@ -60,14 +61,14 @@ Record:
 3. On the second host, modify one item and add one new item:
 
 ```bash
-echo 'alpha-2' | seckit set --name SECKIT_TEST_ALPHA --stdin --service sync-test --account local --kind generic --comment "updated on vm"
-echo 'gamma-1' | seckit set --name SECKIT_TEST_GAMMA --stdin --service sync-test --account local --kind generic --comment "created on vm"
+echo 'alpha-2' | seckit set --backend icloud --name SECKIT_TEST_ALPHA --stdin --service sync-test --account local --kind generic --comment "updated on second host"
+echo 'gamma-1' | seckit set --backend icloud --name SECKIT_TEST_GAMMA --stdin --service sync-test --account local --kind generic --comment "created on second host"
 ```
 
 4. On the second host, delete one item:
 
 ```bash
-seckit delete --name SECKIT_TEST_DELETE_ME --service sync-test --account local --yes
+seckit delete --backend icloud --name SECKIT_TEST_DELETE_ME --service sync-test --account local --yes
 ```
 
 5. Return to the primary host and verify:
@@ -98,8 +99,8 @@ If neither values nor metadata sync, do not assume iCloud Keychain is a viable c
 Remove the test entries on both hosts:
 
 ```bash
-seckit delete --name SECKIT_TEST_ALPHA --service sync-test --account local --yes
-seckit delete --name SECKIT_TEST_BETA --service sync-test --account local --yes
-seckit delete --name SECKIT_TEST_GAMMA --service sync-test --account local --yes
-seckit delete --name SECKIT_TEST_DELETE_ME --service sync-test --account local --yes
+seckit delete --backend icloud --name SECKIT_TEST_ALPHA --service sync-test --account local --yes
+seckit delete --backend icloud --name SECKIT_TEST_BETA --service sync-test --account local --yes
+seckit delete --backend icloud --name SECKIT_TEST_GAMMA --service sync-test --account local --yes
+seckit delete --backend icloud --name SECKIT_TEST_DELETE_ME --service sync-test --account local --yes
 ```

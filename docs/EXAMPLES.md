@@ -1,7 +1,7 @@
 # Examples
 
 - [Examples](#examples)
-  - [A generic export example](#a-generic-export-example)
+  - [A generic run example](#a-generic-run-example)
   - [An encrypted backup example](#an-encrypted-backup-example)
   - [A generic dotenv migration example](#a-generic-dotenv-migration-example)
   - [Back to README](#back-to-readme)
@@ -10,8 +10,8 @@ The `docs/examples/` directory contains short shell examples you can copy and ad
 
 Current examples:
 
-- `seckit_export_openclaw.sh`
-- `seckit_export_hermes.sh`
+- `seckit_run_openclaw.sh`
+- `seckit_run_hermes.sh`
 - `seckit_migrate_dotenv.sh`
 - `seckit_export_encrypted.sh`
 - `../scripts/seckit_cross_host_prepare.sh`
@@ -20,14 +20,15 @@ Current examples:
 
 Those are meant to be starting points, not rigid templates. In most cases you only need to change the service name, account name, dotenv path, or startup command.
 
-## A generic export example
+## A generic run example
 
-Even without the sample scripts, the basic pattern is:
+Even without the sample scripts, the basic process-launch pattern is:
 
 ```bash
-eval "$(seckit export --format shell --service my-stack --account local-dev --all)"
-./start-my-stack.sh
+seckit run --service my-stack --account local-dev -- ./start-my-stack.sh
 ```
+
+Use shell export only when the current interactive shell needs the values. Use `seckit run` when launching a process.
 
 ## A generic dotenv migration example
 
@@ -71,4 +72,4 @@ Optionally run the same flow through `ssh localhost`:
 ## [Back to README](../README.md)
 
 **Created**: 2026-04-11  
-**Updated**: 2026-04-15
+**Updated**: 2026-04-28

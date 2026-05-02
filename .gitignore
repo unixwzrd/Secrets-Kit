@@ -476,6 +476,9 @@ tags
 [Ll]ib64
 [Ll]ocal
 [Ss]cripts
+!scripts/
+!scripts/*.sh
+!scripts/*.py
 pyvenv.cfg
 pip-selfcheck.json
 
@@ -584,5 +587,5 @@ identity/device-auth.json
 docs/reports/
 *.local.md
 docs/internal/
-.gitignore
+docs/archive/
 .gitignore

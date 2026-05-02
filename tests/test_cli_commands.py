@@ -9,14 +9,14 @@ import unittest
 from unittest import mock
 from contextlib import redirect_stdout, redirect_stderr
 
-from secrets_kit.cli import _apply_defaults, _read_password, build_parser, cmd_delete, cmd_doctor, cmd_get, cmd_helper_install_icloud, cmd_helper_install_local, cmd_helper_status, cmd_lock, cmd_run, cmd_set
+from secrets_kit.cli import _apply_defaults, _read_password, build_parser, cmd_delete, cmd_doctor, cmd_get, cmd_helper_install_icloud, cmd_helper_install_local, cmd_helper_status, cmd_import_env, cmd_lock, cmd_run, cmd_service_copy, cmd_set
 
 
 class CliCommandsTest(unittest.TestCase):
     def test_parser_has_expected_commands(self) -> None:
         parser = build_parser()
         commands = parser._subparsers._group_actions[0].choices.keys()  # type: ignore[attr-defined]
-        for expected in {"set", "get", "list", "explain", "delete", "import", "export", "run", "doctor", "migrate", "lock", "unlock", "keychain-status", "helper"}:
+        for expected in {"set", "get", "list", "explain", "delete", "import", "export", "run", "service", "doctor", "migrate", "lock", "unlock", "keychain-status", "helper"}:
             self.assertIn(expected, commands)
 
     def test_run_parser_preserves_separator_and_command(self) -> None:
@@ -35,6 +35,24 @@ class CliCommandsTest(unittest.TestCase):
         )
         self.assertEqual(args.command, "run")
         self.assertEqual(args.child_command, ["--", "/usr/bin/env", "python3"])
+
+    def test_service_copy_parser(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(
+            [
+                "service",
+                "copy",
+                "--from-service",
+                "OpenClaw",
+                "--to-service",
+                "Hermes",
+                "--dry-run",
+            ]
+        )
+        self.assertEqual(args.command, "service")
+        self.assertEqual(args.service_command, "copy")
+        self.assertEqual(args.from_service, "OpenClaw")
+        self.assertEqual(args.to_service, "Hermes")
 
     def test_kind_flags_parse(self) -> None:
         parser = build_parser()
@@ -196,6 +214,24 @@ class CliCommandsTest(unittest.TestCase):
             with self.assertRaisesRegex(Exception, "install-local"):
                 _apply_defaults(args=args)
 
+    def test_account_defaults_to_current_user(self) -> None:
+        args = argparse.Namespace(
+            command="run",
+            service="openclaw",
+            account=None,
+            type=None,
+            kind=None,
+            tags=None,
+            tag=None,
+            rotation_days=None,
+            rotation_warn_days=None,
+            backend="local",
+            keychain=None,
+        )
+        with mock.patch("getpass.getuser", return_value="miafour"):
+            _apply_defaults(args=args)
+        self.assertEqual(args.account, "miafour")
+
     def test_read_password_uses_custom_prompt(self) -> None:
         with mock.patch("getpass.getpass", return_value="backup-pass") as getpass_mock:
             value = _read_password(value=None, use_stdin=False, prompt="new password to encrypt the backup file: ")
@@ -329,6 +365,100 @@ class CliCommandsTest(unittest.TestCase):
         injected_env = exec_mock.call_args.kwargs["env"]
         self.assertEqual(injected_env["OPENAI_API_KEY"], "sk-openai")
         self.assertEqual(injected_env["TELEGRAM_BOT_TOKEN"], "bot-token")
+
+    def test_run_without_names_injects_service_scope(self) -> None:
+        from secrets_kit.models import EntryMetadata
+
+        args = argparse.Namespace(
+            service="openclaw",
+            account="miafour",
+            names=None,
+            tag=None,
+            type=None,
+            kind=None,
+            all=False,
+            keychain=None,
+            backend="local",
+            child_command=["--", "/usr/bin/env"],
+        )
+        meta = EntryMetadata(
+            name="OPENAI_API_KEY",
+            service="openclaw",
+            account="miafour",
+            entry_type="secret",
+            entry_kind="api_key",
+            source="manual",
+        )
+        with mock.patch("secrets_kit.cli._select_entries", return_value=[meta]) as select_mock, \
+            mock.patch("secrets_kit.cli.get_secret", return_value="sk-openai"), \
+            mock.patch("secrets_kit.cli._exec_child", return_value=0) as exec_mock:
+            code = cmd_run(args=args)
+        self.assertEqual(code, 0)
+        self.assertFalse(select_mock.call_args.kwargs["require_explicit_selection"])
+        self.assertEqual(exec_mock.call_args.kwargs["env"]["OPENAI_API_KEY"], "sk-openai")
+
+    def test_service_copy_skips_existing_by_default(self) -> None:
+        from secrets_kit.models import EntryMetadata
+
+        meta = EntryMetadata(
+            name="OPENAI_API_KEY",
+            service="OpenClaw",
+            account="miafour",
+            entry_type="secret",
+            entry_kind="api_key",
+            source="manual",
+        )
+        args = argparse.Namespace(
+            from_service="OpenClaw",
+            from_account="miafour",
+            to_service="Hermes",
+            to_account="miafour",
+            names=None,
+            tag=None,
+            type=None,
+            kind=None,
+            overwrite=False,
+            dry_run=False,
+            keychain=None,
+            backend="local",
+        )
+        out = io.StringIO()
+        with mock.patch("secrets_kit.cli._select_entries", return_value=[meta]), \
+            mock.patch("secrets_kit.cli.get_secret", return_value="sk-openai"), \
+            mock.patch("secrets_kit.cli.secret_exists", return_value=True), \
+            mock.patch("secrets_kit.cli.set_secret") as set_secret_mock, \
+            redirect_stdout(out):
+            code = cmd_service_copy(args=args)
+        self.assertEqual(code, 0)
+        self.assertFalse(set_secret_mock.called)
+        self.assertEqual(json.loads(out.getvalue()), {"created": 0, "skipped": 1, "updated": 0})
+
+    def test_import_env_upsert_allows_overwrite(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            dotenv = Path(tmp) / ".env"
+            dotenv.write_text("OPENAI_API_KEY=sk-new\n", encoding="utf-8")
+            args = argparse.Namespace(
+                dotenv=str(dotenv),
+                from_env=None,
+                account="miafour",
+                service="Hermes",
+                keychain=None,
+                backend="local",
+                type="secret",
+                kind="auto",
+                tags=None,
+                dry_run=False,
+                allow_overwrite=False,
+                upsert=True,
+                allow_empty=False,
+                yes=True,
+            )
+            out = io.StringIO()
+            with mock.patch("secrets_kit.cli._apply_candidates", return_value={"created": 0, "updated": 1, "skipped": 0, "unchanged": 0}) as apply_mock, \
+                redirect_stdout(out):
+                code = cmd_import_env(args=args)
+        self.assertEqual(code, 0)
+        self.assertTrue(apply_mock.call_args.kwargs["allow_overwrite"])
 
     def test_run_requires_target_command(self) -> None:
         err = io.StringIO()

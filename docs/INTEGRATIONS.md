@@ -9,19 +9,18 @@
   - [What not to assume](#what-not-to-assume)
   - [Back to README](#back-to-readme)
 
-Secrets Kit is not tied to one framework, agent, or stack. The general pattern is simple:
+Secrets Kit is not tied to one framework, agent, or stack. The preferred process-launch pattern is simple:
 
 1. keep the values in Keychain
-2. export what the current shell needs
-3. start the local runtime
+2. run the target process through `seckit run`
+3. let the child process inherit only the selected environment variables
 
 If a tool can read environment variables from the shell that launches it, it can work with Secrets Kit.
 
 ## Generic local stack
 
 ```bash
-eval "$(seckit export --format shell --service my-stack --account local-dev --all)"
-./start-my-stack.sh
+seckit run --service my-stack --account local-dev -- ./start-my-stack.sh
 ```
 
 If you run that stack often, define defaults first:
@@ -34,15 +33,13 @@ export SECKIT_DEFAULT_ACCOUNT=local-dev
 Then the handoff becomes shorter:
 
 ```bash
-eval "$(seckit export --format shell --all)"
-./start-my-stack.sh
+seckit run -- ./start-my-stack.sh
 ```
 
 ## Local UI or web application
 
 ```bash
-eval "$(seckit export --format shell --service my-ui --account default --all)"
-npm run dev
+seckit run --service my-ui -- npm run dev
 ```
 
 This is a good fit when a development server expects tokens or API keys in the current shell but you do not want them sitting in a checked-in `.env` file.
@@ -50,8 +47,7 @@ This is a good fit when a development server expects tokens or API keys in the c
 ## Agent runtime or automation script
 
 ```bash
-eval "$(seckit export --format shell --service agents --account local-dev --all)"
-./run-agents.sh
+seckit run --service agents --account local-dev -- ./run-agents.sh
 ```
 
 That model works for local agent runners, orchestrators, and shell-based automation that load credentials from environment variables at startup.
@@ -59,8 +55,7 @@ That model works for local agent runners, orchestrators, and shell-based automat
 ## Hermes example
 
 ```bash
-eval "$(seckit export --format shell --service hermes --account local-dev --all)"
-~/bin/hermes-stack restart all
+seckit run --service hermes --account local-dev -- ~/bin/hermes-stack restart all
 ```
 
 If you keep separate environments, use separate scopes:
@@ -72,15 +67,21 @@ seckit list --service hermes --account prod
 ## OpenClaw example
 
 ```bash
-eval "$(seckit export --format shell --service openclaw --account local-dev --all)"
-~/bin/openclaw-stack restart all
+seckit run --service openclaw --account local-dev -- ~/bin/openclaw-stack restart all
 ```
 
-If you use wrappers that already know how to pull from Secrets Kit, keep those wrappers as the integration point and let them handle export during startup.
+If you need to create a new service scope from an existing one:
+
+```bash
+seckit service copy --from-service openclaw --to-service hermes --dry-run
+seckit service copy --from-service openclaw --to-service hermes
+```
+
+If you use wrappers that already know how to pull from Secrets Kit, keep those wrappers as the integration point and let them handle `run` during startup.
 
 ## What not to assume
 
-Secrets Kit does not change the security model of the runtime you start afterward. Once you export secrets into a shell and launch a process, that process can access what it needs to access. Secrets Kit is about reducing secret sprawl and improving local hygiene, not about creating a hardened isolation boundary around every downstream tool.
+Secrets Kit does not change the security model of the runtime you start afterward. Once a process inherits secrets in its environment, that process can access what it needs to access. Secrets Kit is about reducing secret sprawl and improving local hygiene, not about creating a hardened isolation boundary around every downstream tool.
 
 ## [Back to README](../README.md)
 

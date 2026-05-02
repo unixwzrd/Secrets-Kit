@@ -81,20 +81,16 @@ seckit list --service my-stack --account local-dev --stale 90
 
 `list` now includes a `STATUS` column so upcoming rotation or expiry issues are visible without exposing the value.
 
-## Export for a local runtime
+## Run a command with injected secrets
 
 ```bash
-eval "$(seckit export --format shell --service my-stack --account local-dev --all)"
+seckit run --service my-stack --account local-dev -- python3 app.py
 ```
-
-That pattern works for CLIs, local web apps, agent runtimes, and scripts that expect environment variables in the current shell.
-
-## Run a command with injected secrets
 
 Use `run` when you want Secrets-Kit to resolve the secrets in the parent process and launch a child command with those variables already present.
 
 ```bash
-seckit run --service my-stack --account local-dev --all -- /usr/bin/env
+seckit run --service my-stack --account local-dev -- /usr/bin/env
 ```
 
 Inject only selected values:
@@ -112,7 +108,7 @@ seckit run --service openclaw --account miafour -- openclaw skills
 If you configured defaults, the shorter form works too:
 
 ```bash
-seckit run --all -- python3 app.py
+seckit run -- python3 app.py
 ```
 
 Important notes:
@@ -120,7 +116,25 @@ Important notes:
 - the child command must come after `--`
 - selection flags match `export`: `--all`, `--names`, `--tag`, `--type`, `--kind`
 - if you do not pass a selection flag, `run` injects every matching entry in the selected `service/account` scope
-- if you omit `--service` and `--account`, you must define defaults first
+- if you omit `--account`, Secrets-Kit uses saved defaults or the current OS user
+- if you omit `--service`, you must define a default service first
+
+## Export for a shell session
+
+```bash
+eval "$(seckit export --format shell --service my-stack --account local-dev --all)"
+```
+
+Use this only when the current shell needs the values. Prefer `seckit run` when launching a process.
+
+## Copy a service scope
+
+```bash
+seckit service copy --from-service openclaw --to-service hermes --dry-run
+seckit service copy --from-service openclaw --to-service hermes
+```
+
+Copying a service is useful when two applications share most keys but should keep separate service scopes. Existing destination names are skipped unless you pass `--overwrite`.
 
 ## Export placeholder dotenv
 
@@ -143,8 +157,10 @@ seckit import encrypted-json --file backup.json
 ## Import an existing dotenv file
 
 ```bash
-seckit import env --dotenv ~/.config/my-stack/.env --service my-stack --account local-dev --allow-overwrite
+seckit import env --dotenv ~/.config/my-stack/.env --service my-stack --account local-dev --upsert
 ```
+
+Use `--upsert` when a dotenv file has newly added names or intentionally changed values. Plain import skips existing names unless overwrite/upsert behavior is requested.
 
 ## Migrate a dotenv file and replace inline values
 

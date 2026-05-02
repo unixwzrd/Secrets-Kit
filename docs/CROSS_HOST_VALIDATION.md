@@ -104,14 +104,14 @@ Use this to confirm the pipe transport layer does not change metadata behavior.
 
 ## Manual Login-Keychain and iCloud Validation
 
-Do not automate this track through SSH. Use a GUI terminal session on the host and on the VM.
+Do not automate this track through SSH. Use a GUI terminal session on each host.
 
 Manual flow:
 
 1. unlock the login keychain in a GUI shell
 2. create or refresh the `SECKIT_TEST_*` entries in the login keychain
 3. verify `seckit doctor`
-4. observe sync behavior on the VM
+4. observe sync behavior on the second host
 5. modify, add, and delete from one side
 6. verify propagation on the other side
 

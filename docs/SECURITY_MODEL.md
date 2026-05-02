@@ -6,6 +6,7 @@
   - [What the redaction rules do](#what-the-redaction-rules-do)
   - [What this protects against](#what-this-protects-against)
   - [What this does not protect against](#what-this-does-not-protect-against)
+  - [launchd and unattended services](#launchd-and-unattended-services)
   - [Permissions and drift](#permissions-and-drift)
   - [Practical takeaway](#practical-takeaway)
   - [Back to README](#back-to-readme)
@@ -17,12 +18,14 @@ If you understand that up front, the tool makes more sense and is easier to use 
 
 ## Where values live
 
-- secret values are stored in the macOS login Keychain
+- secret values are stored in macOS Keychain generic-password items
+- the default local backend uses the login Keychain, while `--keychain PATH` targets a specific local keychain file
+- `--backend icloud` uses the native helper and synchronizable Keychain item attributes
 - authoritative managed metadata is stored in the keychain item comment as structured JSON
 - `~/.config/seckit/registry.json` remains a local index and recovery aid
 - operator defaults live in `~/.config/seckit/defaults.json`
 
-If iCloud Keychain sync is enabled, values can sync across your Apple devices. For non-iCloud hosts, use encrypted export/import as the fallback.
+If iCloud Keychain sync is enabled and `--backend icloud` is used through the native helper, values may sync across your Apple devices. Apple controls that sync path. For non-iCloud hosts, or when you need an explicit transfer artifact, use encrypted export/import as the fallback.
 
 The registry exists so the tool can track inventory locally without becoming the source of truth for metadata across hosts.
 
@@ -38,7 +41,7 @@ That lets you keep the same environment-variable-style name in different scopes 
 
 ## What the redaction rules do
 
-Normal output is redacted by default. You have to explicitly ask for raw values with commands like `get --raw` or by exporting them into the current shell.
+Normal output is redacted by default. You have to explicitly ask for raw values with commands like `get --raw`, export them for a shell session, or launch a child process with `seckit run`.
 
 That default helps prevent casual leaks into terminal history, screenshots, or copied command output.
 
@@ -51,13 +54,26 @@ Secrets Kit helps with a very common local problem:
 - raw tokens committed by mistake
 - values left behind in project directories and archives
 
-Moving those values into Keychain and exporting them only when needed is a meaningful improvement over plain-text sprawl.
+Moving those values into Keychain and launching processes through `seckit run` is a meaningful improvement over plain-text sprawl. Shell export remains available for interactive sessions, but it should not be the default process-launch pattern.
 
 ## What this does not protect against
 
 Secrets Kit does not make a compromised local machine safe.
 
-If malware, a hostile script, or an already-compromised shell session can access the Keychain or the exported process environment, Secrets Kit cannot override that reality. It also is not a remote secret service, policy engine, or multi-host trust system.
+If malware, a hostile script, or an already-compromised shell session can access the Keychain or a launched process environment, Secrets Kit cannot override that reality. Child processes launched with `seckit run` can read every selected variable they inherit. Secrets Kit also is not a remote secret service, policy engine, or multi-host trust system.
+
+## launchd and unattended services
+
+The login keychain is a user-session credential store. It is appropriate for interactive user tools and LaunchAgents that run while the user is logged in and the login keychain is accessible. It is not a reliable storage backend for unattended services that must keep running after logout or start after reboot before user login.
+
+For unattended launchd services, use a dedicated service keychain:
+
+- user-owned background service: LaunchAgent plus `~/Library/Keychains/seckit-service.keychain-db`
+- machine service: LaunchDaemon plus `/Library/Application Support/SecretsKit/seckit-service.keychain-db`
+
+The service keychain is still encrypted. Reboot-safe daemon mode requires unlock material. Secrets-Kit's smoke-test model stores a random service-keychain password in a root-owned `0600` file for LaunchDaemon mode. That file is sensitive service credential material and must be protected like an API token.
+
+A dedicated service keychain is not a security bypass. It is an explicit service credential store for cases where the operational requirement is "run without a logged-in desktop user."
 
 ## Permissions and drift
 
@@ -95,9 +111,10 @@ The practical size limit for comment JSON is determined by what macOS will store
 
 iCloud Keychain synchronization is Apple-managed, not toolkit-managed.
 
-- Secrets-Kit writes normal keychain items.
+- Local backend items are local Keychain items unless your environment syncs them independently.
+- iCloud backend items are written through the native helper with synchronizable Keychain attributes.
 - Whether those items sync, how quickly they sync, and which fields survive intact must be validated empirically in your environment.
-- Manual VM or second-host validation is the right test for add, change, delete, and metadata preservation.
+- Manual second-host validation is the right test for add, change, delete, and metadata preservation.
 
 That helps keep local metadata sane, but it is still operational hygiene, not a hard security boundary.
 
@@ -108,4 +125,4 @@ Use Secrets Kit when you want a more disciplined local workflow for tokens, pass
 ## [Back to README](../README.md)
 
 **Created**: 2026-03-01  
-**Updated**: 2026-04-14
+**Updated**: 2026-04-28

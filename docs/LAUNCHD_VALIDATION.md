@@ -1,0 +1,192 @@
+# launchd Validation
+
+Back: [README](../README.md)
+
+`seckit run` must work when launchd starts the process. There are three supported launchd modes, and they have different Keychain requirements.
+
+## Decision Table
+
+| Use case | launchd type | Keychain | Works after logout | Works after reboot before login |
+| --- | --- | --- | --- | --- |
+| Interactive user app or desktop agent | LaunchAgent | user login keychain | not guaranteed | no |
+| User-owned background service | LaunchAgent | dedicated user service keychain | yes, during same boot after provisioning | not guaranteed |
+| Machine/service daemon | LaunchDaemon | dedicated system service keychain + root-only unlock file | yes | yes |
+
+Unsupported model:
+
+- An unattended daemon reading another user's login keychain after logout or reboot.
+- A service storing another user's login keychain password so it can unlock that keychain later.
+
+## Mode 1: Login Keychain LaunchAgent
+
+Use this when a user is logged in and the process should read that user's login keychain.
+
+The smoke script installs a per-user LaunchAgent that runs the installed `seckit` executable from the active environment:
+
+```text
+seckit run ... -- python scripts/seckit_launchd_agent_simulator.py
+```
+
+The `scripts/seckit_launchd_agent_simulator.py` child is the thing that reads the injected environment variable and writes the proof file. This tests the intended production pattern: `seckit` resolves secrets, then launches a separate agent/service process with those secrets in its environment.
+
+If the default temporary-item setup is denied by macOS, use an existing item:
+
+```bash
+./scripts/seckit_launchd_smoke.sh --use-existing --service hermes --name APPLE_ID --keep
+```
+
+This does not create or delete any keychain item.
+
+```bash
+./scripts/seckit_launchd_smoke.sh --mode login-agent
+```
+
+If the login keychain is locked or the session cannot prompt:
+
+```bash
+./scripts/seckit_launchd_smoke.sh --mode login-agent --unlock
+```
+
+This mode proves the LaunchAgent runs in `gui/$UID` and reads:
+
+```text
+~/Library/Keychains/login.keychain-db
+```
+
+This is not the right model for unattended post-logout or post-reboot services.
+
+## Mode 2: Dedicated Service Keychain LaunchAgent
+
+Use this when a user installs a service while logged in and the service may need to keep running after logout during the same boot.
+
+```bash
+./scripts/seckit_launchd_smoke.sh --mode service-agent
+```
+
+This provisions:
+
+```text
+~/Library/Keychains/seckit-service.keychain-db
+~/.config/seckit/service-keychain.pass
+```
+
+The password file is `0600` and belongs to that user. It is sensitive service credential material. Protect it like an API token.
+
+Cleanup the LaunchAgent/test item:
+
+```bash
+./scripts/seckit_launchd_smoke.sh --mode service-agent --cleanup
+```
+
+The service keychain and password file are intentionally not deleted by cleanup because they represent the provisioned service credential store.
+
+## Mode 3: Dedicated Service Keychain LaunchDaemon
+
+Use this when a machine-level service must survive logout and reboot before any user logs in.
+
+```bash
+sudo ./scripts/seckit_launchd_smoke.sh --mode service-daemon
+```
+
+This provisions:
+
+```text
+/Library/Application Support/SecretsKit/seckit-service.keychain-db
+/Library/Application Support/SecretsKit/seckit-service.keychain.pass
+/Library/Application Support/SecretsKit/seckit-launchd-smoke-wrapper.sh
+/Library/LaunchDaemons/ai.unixwzrd.seckit.launchd-smoke.service-daemon.<user>.plist
+```
+
+The root-owned password file must be mode `0600`. The wrapper unlocks the service keychain, then runs `seckit run --keychain <service-keychain>`.
+
+Cleanup the daemon/test item:
+
+```bash
+sudo ./scripts/seckit_launchd_smoke.sh --mode service-daemon --cleanup
+```
+
+The system service keychain and password file are intentionally retained unless an administrator removes them.
+
+## Proof Output
+
+Every mode writes proof JSON from the process started by launchd. The output includes:
+
+```json
+{
+  "uid": 1002,
+  "euid": 1002,
+  "user": "example",
+  "home": "/Users/example",
+  "keychain": "/Users/example/Library/Keychains/seckit-service.keychain-db",
+  "mode": "service-agent",
+  "launchd_target": "gui/1002/ai.unixwzrd.seckit.launchd-smoke.service-agent.example",
+  "value": "expected-service-agent-example"
+}
+```
+
+That file is the evidence that launchd started the process and that `seckit run` injected the secret.
+
+Keep artifacts for inspection:
+
+```bash
+./scripts/seckit_launchd_smoke.sh --mode service-agent --keep
+cat "$TMPDIR/seckit-launchd-smoke-$(id -un)/service-agent-result.txt"
+./scripts/seckit_launchd_smoke.sh --mode service-agent --cleanup
+```
+
+## Gated Tests
+
+Normal validation does not run live launchd tests by default.
+
+Run all user LaunchAgent tests:
+
+```bash
+SECKIT_RUN_LAUNCHD_TESTS=1 \
+SECKIT_RUN_LAUNCHD_LOGIN_KEYCHAIN_TESTS=1 \
+SECKIT_RUN_LAUNCHD_SERVICE_KEYCHAIN_TESTS=1 \
+PYTHONPATH=src python3 -m unittest tests.test_launchd_run_flow -v
+```
+
+Run the LaunchDaemon test:
+
+```bash
+sudo SECKIT_RUN_LAUNCHD_TESTS=1 \
+  SECKIT_RUN_LAUNCHD_DAEMON_TESTS=1 \
+  PYTHONPATH=src python3 -m unittest tests.test_launchd_run_flow -v
+```
+
+## Manual Reboot Test
+
+To prove reboot-safe behavior:
+
+1. Run daemon setup and keep artifacts:
+
+```bash
+sudo ./scripts/seckit_launchd_smoke.sh --mode service-daemon --keep
+```
+
+2. Reboot the machine.
+3. Before any user login, or immediately after boot via admin access, verify the proof file was recreated or the daemon can be kickstarted:
+
+```bash
+sudo launchctl kickstart -k system/ai.unixwzrd.seckit.launchd-smoke.service-daemon.root
+cat /tmp/seckit-launchd-smoke-root/service-daemon-result.txt
+```
+
+4. Cleanup when finished:
+
+```bash
+sudo ./scripts/seckit_launchd_smoke.sh --mode service-daemon --cleanup
+```
+
+## Password Prompt Notes
+
+The disposable launchd test keychain password used by the Python unittest is:
+
+```text
+launchd-pass
+```
+
+The service keychain modes generate their own random passwords and store them in the documented password files. Those password files are the unlock material for unattended service operation.
+
+If `login-agent` reports `User interaction is not allowed`, the failure happened before launchd ran. Use that user's GUI Terminal session or switch to a dedicated service-keychain mode.
