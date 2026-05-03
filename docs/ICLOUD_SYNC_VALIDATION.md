@@ -1,8 +1,14 @@
 # iCloud Sync Validation
 
-**Updated**: 2026-05-02
+**Updated**: 2026-05-03
 
-Use this procedure to validate whether Secrets-Kit items written with **`--backend icloud-helper`** (alias **`icloud`**) sync across two macOS hosts through iCloud Keychain.
+## Platform reality (read first)
+
+**`--backend icloud`** depends on Apple running the entitled **`seckit-keychain-helper`** on your Mac. On some **macOS versions**, a **notarized Developer ID** helper is still **killed at launch** (`SIGKILL`, **taskgated** / **AMFI -413**) even when **`spctl`** reports **accepted**. That is an **Apple / OS policy** issue, not something Secrets-Kit can fix in Python. If you hit that, treat the **iCloud Keychain** path as **unavailable on that machine** until Apple addresses it (Feedback Assistant / OS update).
+
+**Cross-host “sync” you can rely on today** is **`seckit export`** → **encrypted artifact** → move by any channel → **`seckit import`** (see [Cross-Host Validation](CROSS_HOST_VALIDATION.md)). That is **independent** of the helper and does **not** promise live Keychain merge semantics.
+
+Use this procedure to validate whether Secrets-Kit items written with **`--backend icloud-helper`** (alias **`icloud`**) sync across two macOS hosts through iCloud Keychain **where the helper actually starts**.
 
 **Step-by-step checklist (recommended):** [plans/icloud-two-host-checklist.md](plans/icloud-two-host-checklist.md)
 
@@ -159,7 +165,7 @@ If **`--backend icloud`** still fails after a **wheel install**:
 printf 'alpha-icloud-1\n' | seckit set --backend icloud --name SECKIT_TEST_ALPHA --stdin --service sync-test --account local --kind generic --comment "sync alpha"
 ```
 
-- If you see **`helper was terminated by SIGKILL (-9)`**, capture **`log stream`** around the run. If you see **`taskgated-helper`** / **ManagedClient** *Disallowing … because no eligible provisioning profiles found*, **AMFI -413** *No matching profile found*, and **restricted entitlements … validation failed**, this is **MDM / configuration-profile policy**, not a broken Swift helper or a failed `codesign -vv` on disk. **Notarization (notarytool Accepted) does not override that gate.** Fix: **organization IT** must allow the Developer ID binary, deploy a **provisioning profile** that matches, or you must run on a **non-managed** Mac. On a personal Mac without that log line, the same wheel may run.
+- If you see **`helper was terminated by SIGKILL (-9)`**, capture **`log stream`** around the run. Logs may show **`taskgated-helper`** / **ManagedClient** *Disallowing … because no eligible provisioning profiles found*, **AMFI -413** *No matching profile found*, and **restricted entitlements … validation failed** — this can occur **without work/school MDM** (**`profiles status -type enrollment`** may still show **No**). You may also see **`spctl`** report **accepted** (**Notarized Developer ID**) while exec still fails; treat that as an **OS / Apple** path (Feedback Assistant), not a Python packaging bug. Until Apple or a future OS fixes it, use **`--backend secure`** plus **encrypted export/import** for cross-host moves; see [Cross-Host Validation](CROSS_HOST_VALIDATION.md).
 - If **`selftest`** dies with SIGKILL but logs look like **Keychain-only**, see older notes on **`kSecAttrAccessGroup`** and wheel freshness.
 
 If it still fails, capture the exact `ERROR:` line. The important cases are:

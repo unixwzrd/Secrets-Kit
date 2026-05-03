@@ -650,9 +650,9 @@ tools/*
 .env
 **/*.key
 **/*.pem
-**/secrets*
-!src/secrets_kit/
-!src/secrets_kit/**
+**/secrets
+**/secrets.*
+**/.secrets
 src/secrets_kit/__pycache__/
 src/secrets_kit/**/*.pyc
 .build/
@@ -670,6 +670,7 @@ docs/archive/
 
 ### Secrets-Kit: bundled Keychain helper (built at wheel time; see scripts/build_bundled_helper_for_wheel.sh)
 src/secrets_kit/native_helper_bundled/seckit-keychain-helper
+src/secrets_kit/native_helper_bundled/*.zip
 docs/plans/*
 !docs/plans/icloud-two-host-checklist.md
 .gitignore

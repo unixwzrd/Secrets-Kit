@@ -112,8 +112,9 @@ The practical size limit for comment JSON is determined by what macOS will store
 iCloud Keychain synchronization is Apple-managed, not toolkit-managed.
 
 - Local backend items are local Keychain items unless your environment syncs them independently.
-- iCloud backend items are written through the native helper with synchronizable Keychain attributes.
-- Whether those items sync, how quickly they sync, and which fields survive intact must be validated empirically in your environment.
+- iCloud backend items are written through the native helper with synchronizable Keychain attributes **only if macOS allows that helper to execute**; on some systems a notarized binary may still be rejected at launch (see [ICLOUD_SYNC_VALIDATION.md](ICLOUD_SYNC_VALIDATION.md)).
+- **Operational sync between machines** that does not depend on Apple’s helper: use **encrypted export** and **import** on the other host ([CROSS_HOST_VALIDATION.md](CROSS_HOST_VALIDATION.md)).
+- Whether iCloud items sync, how quickly they sync, and which fields survive intact must be validated empirically when the backend is available.
 - Manual second-host validation is the right test for add, change, delete, and metadata preservation.
 
 That helps keep local metadata sane, but it is still operational hygiene, not a hard security boundary.
@@ -125,4 +126,4 @@ Use Secrets Kit when you want a more disciplined local workflow for tokens, pass
 ## [Back to README](../README.md)
 
 **Created**: 2026-03-01  
-**Updated**: 2026-04-28
+**Updated**: 2026-05-03

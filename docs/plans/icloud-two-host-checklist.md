@@ -1,9 +1,11 @@
 # iCloud Keychain — two-host manual test checklist
 
 **Created:** 2026-05-02  
-**Updated:** 2026-05-02
+**Updated:** 2026-05-03
 
-Use this as a **manual** integration pass. Apple controls sync timing and policy; record wait times and any failures.
+Use this as a **manual** integration pass when **`seckit helper status`** shows **`backend_availability.icloud`: true** on both hosts **and** the helper process is **not** killed by macOS at launch. If the helper fails with **`SIGKILL (-9)`**, stop here and use **encrypted export/import** ([Cross-Host Validation](../CROSS_HOST_VALIDATION.md)) instead—do not treat iCloud Keychain as available on that machine.
+
+Apple controls sync timing and policy; record wait times and any failures.
 
 **Supporting detail and troubleshooting:** [ICLOUD_SYNC_VALIDATION.md](../ICLOUD_SYNC_VALIDATION.md)
 

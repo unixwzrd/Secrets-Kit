@@ -3,10 +3,13 @@
 **Created**: 2026-03-10  
 **Updated**: 2026-05-03
 
-All notable changes to Secrets-Kit will be documented in this file.
-
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+### 2026-05-03 — Honest iCloud positioning; `.gitignore` `.DS_Store` / `secrets*` / helper `.zip`
+
+- **Scope:** `.gitignore`, `docs/ICLOUD_SYNC_VALIDATION.md`, `README.md`, `docs/SECURITY_MODEL.md`, `docs/plans/icloud-two-host-checklist.md`, `native_helper_bundled/README.md`, `CHANGELOG.md`
+- **What changed:** **`**/secrets*`** matched the package directory **`secrets_kit`**, so **`!src/secrets_kit/**`** re-included **everything** under the package—including **`.DS_Store`**—overriding ignore rules. Replaced with **`**/secrets`**, **`**/secrets.*`**, **`**/.secrets`** and **dropped** the broad negation. Ignore **`native_helper_bundled/*.zip`** (artifact only). Docs/README now put **encrypted export/import** first for **cross-host** reliability; **iCloud** backend described as **conditional on the OS running the helper** (Apple **SIGKILL** / **-413** caveat).
 
 ### 2026-05-03 — Release hygiene: `.gitignore`, local validation, subprocess `HOME` test
 
