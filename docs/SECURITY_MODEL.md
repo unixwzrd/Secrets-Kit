@@ -20,12 +20,12 @@ If you understand that up front, the tool makes more sense and is easier to use 
 
 - secret values are stored in macOS Keychain generic-password items
 - the default local backend uses the login Keychain, while `--keychain PATH` targets a specific local keychain file
-- `--backend icloud` uses the native helper and synchronizable Keychain item attributes
+- **`--backend icloud` / `icloud-helper` is legacy and not supported**—it relied on a native helper and Apple policy that routinely blocks that binary; use **`--backend secure`** and export/import for cross-host work ([ICLOUD_SYNC_VALIDATION.md](ICLOUD_SYNC_VALIDATION.md))
 - authoritative managed metadata is stored in the keychain item comment as structured JSON
 - `~/.config/seckit/registry.json` remains a local index and recovery aid
 - operator defaults live in `~/.config/seckit/defaults.json`
 
-If iCloud Keychain sync is enabled and `--backend icloud` is used through the native helper, values may sync across your Apple devices. Apple controls that sync path. For non-iCloud hosts, or when you need an explicit transfer artifact, use encrypted export/import as the fallback.
+**Do not rely on `--backend icloud` for sync.** Prefer **`--backend secure`** and encrypted **export/import** between machines. Any description below of iCloud helper behavior is historical context only.
 
 The registry exists so the tool can track inventory locally without becoming the source of truth for metadata across hosts.
 
@@ -109,13 +109,13 @@ The practical size limit for comment JSON is determined by what macOS will store
 
 ## Sync behavior
 
-iCloud Keychain synchronization is Apple-managed, not toolkit-managed.
+**Supported cross-host workflow:** **encrypted export** and **import** ([CROSS_HOST_VALIDATION.md](CROSS_HOST_VALIDATION.md)) with **`--backend secure`**.
+
+iCloud-helper / synchronizable Keychain items are **not a supported Secrets-Kit feature** ([ICLOUD_SYNC_VALIDATION.md](ICLOUD_SYNC_VALIDATION.md)). Remaining notes are for maintainers:
 
 - Local backend items are local Keychain items unless your environment syncs them independently.
-- iCloud backend items are written through the native helper with synchronizable Keychain attributes **only if macOS allows that helper to execute**; on some systems a notarized binary may still be rejected at launch (see [ICLOUD_SYNC_VALIDATION.md](ICLOUD_SYNC_VALIDATION.md)).
-- **Operational sync between machines** that does not depend on Apple’s helper: use **encrypted export** and **import** on the other host ([CROSS_HOST_VALIDATION.md](CROSS_HOST_VALIDATION.md)).
-- Whether iCloud items sync, how quickly they sync, and which fields survive intact must be validated empirically when the backend is available.
-- Manual second-host validation is the right test for add, change, delete, and metadata preservation.
+- Legacy iCloud-helper code depended on macOS executing an entitled helper; typical outcomes are failure at launch, not reliable sync.
+- Any manual second-host checklist for iCloud was experimental only.
 
 That helps keep local metadata sane, but it is still operational hygiene, not a hard security boundary.
 
@@ -126,4 +126,4 @@ Use Secrets Kit when you want a more disciplined local workflow for tokens, pass
 ## [Back to README](../README.md)
 
 **Created**: 2026-03-01  
-**Updated**: 2026-05-03
+**Updated**: 2026-05-04

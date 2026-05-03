@@ -1,7 +1,9 @@
-# iCloud Keychain — two-host manual test checklist
+# iCloud Keychain — two-host manual test checklist (historical / experimental)
+
+> **Secrets-Kit does not support `--backend icloud`.** This checklist is retained for maintainers and curiosity only. Use **`--backend secure`** and **encrypted export/import** between hosts ([Cross-Host Validation](../CROSS_HOST_VALIDATION.md)).
 
 **Created:** 2026-05-02  
-**Updated:** 2026-05-03
+**Updated:** 2026-05-04
 
 Use this as a **manual** integration pass when **`seckit helper status`** shows **`backend_availability.icloud`: true** on both hosts **and** the helper process is **not** killed by macOS at launch. If the helper fails with **`SIGKILL (-9)`**, stop here and use **encrypted export/import** ([Cross-Host Validation](../CROSS_HOST_VALIDATION.md)) instead—do not treat iCloud Keychain as available on that machine.
 

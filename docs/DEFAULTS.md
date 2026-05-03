@@ -57,7 +57,7 @@ Write the same keys without editing JSON by hand:
 ```bash
 seckit config path
 seckit config show
-seckit config set backend icloud-helper
+seckit config set backend secure
 seckit config set service my-stack
 seckit config unset backend
 ```
@@ -76,11 +76,9 @@ Allowed keys: `service`, `account`, `backend`, `type`, `kind`, `tags`, `default_
 - Secrets never belong in the config file.
 - `service` must be explicit or configured when a command needs a service scope.
 - `account` falls back to the current OS user when it is not explicit or configured.
-- `backend` selects the secret backend. **`secure`** (alias **`local`**) uses the macOS **`security`** CLI (including custom `--keychain` paths). **`icloud-helper`** (alias **`icloud`**) uses the entitled native helper for synchronizable Keychain items.
-- The **`seckit`** CLI does not compile the helper; release builds use **`scripts/build_bundled_helper_for_wheel.sh`** (see [GITHUB_RELEASE_BUILD.md](GITHUB_RELEASE_BUILD.md)).
-- Ad-hoc or wrongly signed binaries that carry `keychain-access-groups` may be killed by macOS; use published wheels or a maintainer-signed helper.
+- `backend` selects the secret backend. **`secure`** (alias **`local`**) only — macOS **`security`** CLI. **`icloud`** / **`icloud-helper`** were **removed** ([ICLOUD_SYNC_VALIDATION.md](ICLOUD_SYNC_VALIDATION.md)); use **`secure`** and export/import.
 - Use defaults for repeated scope information, not for raw secret values.
 
 [Back to README](../README.md)
 
-**Updated**: 2026-05-02
+**Updated**: 2026-05-05

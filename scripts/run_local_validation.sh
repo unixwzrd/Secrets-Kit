@@ -14,7 +14,6 @@ Usage:
 Runs the CI-safe local validation sequence:
   - helper script syntax checks
   - Python bytecode compile check
-  - Swift native helper compile check when Swift is available
   - Python unittest suite
   - optional localhost transport validation when ssh localhost works
 
@@ -45,6 +44,7 @@ echo "== syntax checks =="
 bash -n \
   scripts/build_bundled_helper_for_wheel.sh \
   scripts/package_release_wheels.sh \
+  scripts/release_preflight.sh \
   scripts/seckit_cross_host_prepare.sh \
   scripts/seckit_cross_host_verify.sh \
   scripts/seckit_cross_host_transport_localhost.sh \
@@ -54,14 +54,6 @@ bash -n \
 echo
 echo "== python compile check =="
 "$PYTHON_BIN" -m py_compile src/secrets_kit/*.py scripts/seckit_launchd_agent_simulator.py
-
-echo
-echo "== swift helper build =="
-if command -v swift >/dev/null 2>&1; then
-  swift build -c release --package-path src/secrets_kit/native_helper_src
-else
-  echo "skipped: swift not found"
-fi
 
 echo
 echo "== python tests =="

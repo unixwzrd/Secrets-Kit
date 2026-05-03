@@ -1,11 +1,9 @@
-# Bundled native helper (wheel build only)
+# Native helper directory (removed)
 
-The file `seckit-keychain-helper` in this directory is **not committed** to git. Neither are **`*.zip`** drops of the helper—only this README is tracked.
+The Swift **`seckit-keychain-helper`** binary is **no longer built or shipped**. macOS killed that
+process at launch on typical configurations (SIGKILL), so Secrets-Kit only supports
+**`--backend secure`** with the **`security`** CLI plus **export/import** for cross-host work.
 
-It is produced by
-`scripts/build_bundled_helper_for_wheel.sh` immediately before `python -m build` on macOS release
-machines (see [docs/GITHUB_RELEASE_BUILD.md](../../docs/GITHUB_RELEASE_BUILD.md)).
+This directory may be empty in wheels; **`README.md`** is tracked for packaging layout.
 
-**Runtime:** **`--backend secure`** (alias **`local`**) never runs this binary (the **`security`** CLI handles the login keychain). Only **`--backend icloud-helper`** (alias **`icloud`**) loads **`icloud_helper_binary_path()`**: after optional **`SECKIT_HELPER_PATH`**, search order is wheel **bundled** → Python **`bin/`** → **`PATH`**, using the first executable whose code signature includes synchronizable Keychain entitlements.
-
-**Updated**: 2026-05-03
+**Updated**: 2026-05-04

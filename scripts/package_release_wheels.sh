@@ -12,7 +12,7 @@
 #    unset SECKIT_RELEASE_SIGNING_IDENTITY
 #
 # 3) Optional: build several interpreters on your machine (comma-separated; must exist on PATH):
-#    export PY_VERSIONS='3.9,3.10,3.11,3.12'
+#    export PY_VERSIONS='3.9,3.10,3.11,3.12,3.13'
 #
 # 4) Optional: notarize + staple before wheels — set ONE of: SECKIT_NOTARY_KEYCHAIN_PROFILE,
 #    or SECKIT_NOTARY_KEY_PATH + KEY_ID + ISSUER_ID, or SECKIT_NOTARY_APPLE_ID (see notarize_bundled_helper.sh).
@@ -41,22 +41,7 @@ if [[ ! -f "$ROOT/setup.cfg" ]] || ! grep -q 'plat_name' "$ROOT/setup.cfg"; then
   exit 1
 fi
 
-echo "==> Swift universal helper + codesign"
-bash "$ROOT/scripts/build_bundled_helper_for_wheel.sh"
-
-if [[ ! -f "$ROOT/src/secrets_kit/native_helper_bundled/seckit-keychain-helper" ]]; then
-  echo "Bundled helper missing after build script." >&2
-  exit 1
-fi
-
-if [[ -n "${SECKIT_NOTARY_KEYCHAIN_PROFILE:-}" ]] || {
-  [[ -n "${SECKIT_NOTARY_KEY_PATH:-}" && -n "${SECKIT_NOTARY_KEY_ID:-}" && -n "${SECKIT_NOTARY_ISSUER_ID:-}" ]]
-} || [[ -n "${SECKIT_NOTARY_APPLE_ID:-}" ]]; then
-  echo "==> Notarize + staple"
-  bash "$ROOT/scripts/notarize_bundled_helper.sh" "$ROOT/src/secrets_kit/native_helper_bundled/seckit-keychain-helper"
-else
-  echo "==> Skip notarization (set no SECKIT_NOTARY_* / SECKIT_NOTARY_APPLE_ID). For MDM/strict Macs see docs/GITHUB_RELEASE_BUILD.md"
-fi
+echo "==> Skip Swift helper (removed); building wheels with security-cli backend only"
 
 python3 -m pip install -U pip setuptools wheel build
 

@@ -1,10 +1,30 @@
 # Secrets-Kit Changelog
 
 **Created**: 2026-03-10  
-**Updated**: 2026-05-03
+**Updated**: 2026-05-05
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+### 2026-05-05 — Remove Swift iCloud helper: `secure` + `security` CLI only
+
+- **Scope:** `src/secrets_kit/keychain_backend.py`, `src/secrets_kit/native_helper.py`, `src/secrets_kit/native_helper_src/` (deleted), `pyproject.toml`, `scripts/build_bundled_helper_for_wheel.sh`, `scripts/package_release_wheels.sh`, `scripts/run_local_validation.sh`, `scripts/seckit_launchd_smoke.sh`, `.github/workflows/release.yml`, tests, `docs/*`, `setup.cfg`.
+- **What changed:** **`--backend icloud` / `icloud-helper`** now **error** with a clear “removed” message. **Native Swift helper**, **wheel bundling**, and **CI bundled-helper job** are **gone**. **`helper status`** returns a **stub JSON** (`helper.removed: true`). Release wheels are **Python-only** (plus `native_helper_bundled/README.md` for layout). Local validation no longer runs SwiftPM.
+
+### 2026-05-04 — Position: `--backend icloud` / `icloud-helper` is unsupported (docs + runtime warning)
+
+- **Scope:** `src/secrets_kit/keychain_backend.py`, `src/secrets_kit/native_helper.py`, `native_helper_bundled/README.md`, `README.md`, `docs/ICLOUD_SYNC_VALIDATION.md`, `docs/SECURITY_MODEL.md`, `docs/DEFAULTS.md`, `docs/README.md`, `docs/plans/icloud-two-host-checklist.md`, `tests/test_native_helper.py`, `CHANGELOG.md`
+- **What changed:** The synchronizable Keychain helper path is documented as **not a supported, reliable feature**; **`--backend secure`** + **export/import** are the supported cross-host story. Resolving **`NativeKeychainStore`** prints a **one-time stderr warning**. **`icloud_backend_error()`** and related docs state the same. Code and wheels may retain the helper for **legacy experimentation** only.
+
+### 2026-05-04 — CI: wheel smoke on every matrix Python; add 3.13 to GitHub matrices
+
+- **Scope:** `.github/workflows/ci.yml`, `.github/workflows/release.yml`, `docs/GITHUB_RELEASE_BUILD.md`, `scripts/package_release_wheels.sh`, `CHANGELOG.md`
+- **What changed:** **`ci`** tests (and **`release`** wheel builds) now include **Python 3.13** alongside **3.9–3.12**. Release **`wheel`** smoke install runs for **each** matrix interpreter so every built wheel is exercised with a matching `python`, not only 3.12. Docs clarify that **PR/push CI** is the full multi-Python matrix; **`release`** **`validate`** stays a single fast job on 3.12.
+
+### 2026-05-03 — v1.2.0 pre-release: `version --json` / `--info`, SIGKILL recovery hint, CI preflight + wheel smoke
+
+- **Scope:** `src/secrets_kit/cli.py`, `src/secrets_kit/native_helper.py`, `src/secrets_kit/native_helper_src/.../main.swift`, `src/secrets_kit/native_helper_bundled/README.md`, `scripts/release_preflight.sh`, `.github/workflows/release.yml`, `docs/GITHUB_RELEASE_BUILD.md`, `tests/test_cli_commands.py`, `tests/test_native_helper.py`, `CHANGELOG.md`
+- **What changed:** **`seckit version --json`** and **`--info`** add machine- and human-readable diagnostics (platform, Python, safe defaults subset, helper status) while the default **`seckit version`** line stays a single package version for scripting. **`NativeHelperError`** after helper **SIGKILL** appends a short pointer to **`docs/ICLOUD_SYNC_VALIDATION.md`** and **`--backend secure`** + encrypted export. **`scripts/release_preflight.sh`** runs in the release **`validate`** job on tag **`v*`** to enforce **`pyproject.toml`** **`version`** match (optional **`CHANGELOG.md`** warning). **`wheel`** matrix builds a **`.whl`** per Python; **2026-05-04** extended smoke install to **every** matrix interpreter (was initially **3.12**-only to save minutes). Swift **`getSecret`** best-effort clears the **`Data`** copy holding the password before JSON (documented as **not** a full-memory crypto guarantee).
 
 ### 2026-05-03 — Honest iCloud positioning; `.gitignore` `.DS_Store` / `secrets*` / helper `.zip`
 

@@ -1,42 +1,35 @@
-# iCloud Sync Validation
+# iCloud / synchronizable Keychain (historical)
 
-**Updated**: 2026-05-03
+**Updated**: 2026-05-05
 
-## Platform reality (read first)
+## Project position (read first)
 
-**`--backend icloud`** depends on Apple running the entitled **`seckit-keychain-helper`** on your Mac. On some **macOS versions**, a **notarized Developer ID** helper is still **killed at launch** (`SIGKILL`, **taskgated** / **AMFI -413**) even when **`spctl`** reports **accepted**. That is an **Apple / OS policy** issue, not something Secrets-Kit can fix in Python. If you hit that, treat the **iCloud Keychain** path as **unavailable on that machine** until Apple addresses it (Feedback Assistant / OS update).
+**The `--backend icloud` / `icloud-helper` path is removed from Secrets-Kit.** The Swift **`seckit-keychain-helper`** was routinely **SIGKILL**ed by macOS; shipping it offered no reliable value.
+
+**Use:** **`--backend secure`** ( **`security`** CLI) and **`seckit export` / `seckit import`** for cross-host transfer.
+
+---
+
+## Platform reality (historical detail)
+
+**`--backend icloud`** was intended to depend on Apple running the entitled **`seckit-keychain-helper`** on your Mac. On many **macOS versions**, a **notarized Developer ID** helper is still **killed at launch** (`SIGKILL`, **taskgated** / **AMFI -413**) even when **`spctl`** reports **accepted**. That is an **Apple / OS policy** issue, not something Secrets-Kit can fix in Python.
 
 **Cross-host “sync” you can rely on today** is **`seckit export`** → **encrypted artifact** → move by any channel → **`seckit import`** (see [Cross-Host Validation](CROSS_HOST_VALIDATION.md)). That is **independent** of the helper and does **not** promise live Keychain merge semantics.
 
-Use this procedure to validate whether Secrets-Kit items written with **`--backend icloud-helper`** (alias **`icloud`**) sync across two macOS hosts through iCloud Keychain **where the helper actually starts**.
+Everything from **Preconditions** through **Cleanup** below is **archived** from the pre-removal era. Current `seckit` rejects **`--backend icloud`** with the removal error; do not treat the bash snippets as a supported procedure.
 
-**Step-by-step checklist (recommended):** [plans/icloud-two-host-checklist.md](plans/icloud-two-host-checklist.md)
+**Historical checklist:** [plans/icloud-two-host-checklist.md](plans/icloud-two-host-checklist.md)
 
-Run the normal host-to-host transfer validation first:
+For **supported** cross-host validation today, use:
 
 - [Cross-Host Validation](CROSS_HOST_VALIDATION.md)
 - [Cross-Host and iCloud Validation Checklist](CROSS_HOST_CHECKLIST.md)
 
-The automated disposable-keychain pass is the regression target. This iCloud section is manual only.
+The automated disposable-keychain regression target uses **`--backend secure`**. Everything below that still mentions **`icloud`** is **archived** (not a CI test; was manual when the helper existed).
 
-This is not a CI test. It is a manual integration check because Apple controls the sync path.
+## Removed Swift helper
 
-## Shipped helper (end users)
-
-**`seckit` does not compile or codesign the helper.** Install a **macOS wheel** (PyPI, GitHub Release, or `pip install` from a tag that published wheels). The wheel contains `seckit-keychain-helper` beside the package; `seckit helper status` shows **`helper.bundled_path`**, **`helper.path`** (entitled binary used for **`--backend icloud-helper`**, alias `--backend icloud`), and **`backend_availability`**.
-
-- **`--backend secure`** (alias **`local`**): **only** the macOS **`security`** CLI — no `seckit-keychain-helper`.
-- **`--backend icloud-helper`** (alias **`icloud`**): requires the entitled **`seckit-keychain-helper`** from the wheel, or set **`SECKIT_HELPER_PATH`** to a suitable binary you trust.
-
-## Maintainer: building the bundled binary
-
-Source for the helper stays in the repo under **`src/secrets_kit/native_helper_src/`**. To produce the Mach-O that wheels ship, run on macOS:
-
-```bash
-bash scripts/build_bundled_helper_for_wheel.sh
-```
-
-See [GITHUB_RELEASE_BUILD.md](GITHUB_RELEASE_BUILD.md) for signing identity, Team ID, CI, and **`package_release_wheels.sh`**.
+The **`seckit-keychain-helper`** binary and **`native_helper_src/`** Swift project are **gone**. Wheels do not bundle a Mach-O. **`seckit helper status`** returns JSON with **`helper.removed`: true** for compatibility.
 
 ## Troubleshooting: `security find-identity` (maintainer / signing Mac only)
 
@@ -63,19 +56,19 @@ If you are **building release artifacts** and see **`0 valid identities found`**
 1) <HEX…> "Apple Development: …"
 ```
 
-Only then can **`scripts/build_bundled_helper_for_wheel.sh`** be signed successfully on that Mac.
+The **bundled Swift helper** and **`scripts/build_bundled_helper_for_wheel.sh`** (now a no-op stub) are **removed**; this signing paragraph applies only if you are **forking** and reviving a helper yourself.
 
-## Preconditions
+## Preconditions (historical — applies only to old releases that still had the helper)
 
 - both Macs are logged into the same Apple account
 - iCloud Keychain is enabled on both Macs
 - both Macs can access the login keychain from a GUI terminal session
-- both Macs have `seckit` installed from a **macOS wheel** (or equivalent) so an entitled helper is present
-- `seckit helper status` shows **`backend_availability.icloud`: true** if you are validating **`--backend icloud`**
+- both Macs had an entitled **`seckit-keychain-helper`** available (project **no longer ships** this)
+- **`seckit helper status`** showed **`backend_availability.icloud`: true** when the icloud backend existed
 
-## Test Entries
+## Test Entries (historical)
 
-Use isolated names so you do not touch real credentials:
+**These `seckit` examples use `--backend icloud`, which current releases reject.** Use isolated names so you do not touch real credentials:
 
 - `SECKIT_TEST_ALPHA`
 - `SECKIT_TEST_BETA`
@@ -89,7 +82,7 @@ echo 'beta-1' | seckit set --backend icloud --name SECKIT_TEST_BETA --stdin --se
 echo 'delete-me' | seckit set --backend icloud --name SECKIT_TEST_DELETE_ME --stdin --service sync-test --account local --kind generic --comment "delete path"
 ```
 
-## Validation Steps
+## Validation Steps (historical)
 
 1. On the primary host, run:
 
@@ -136,7 +129,7 @@ seckit delete --backend icloud --name SECKIT_TEST_DELETE_ME --service sync-test 
 
 This catches cases where an item looked synced transiently but did not persist cleanly.
 
-## Expected Outcomes
+## Expected Outcomes (historical)
 
 Successful validation means:
 
@@ -148,7 +141,9 @@ If values sync but metadata does not, keep the current keychain-first model for 
 
 If neither values nor metadata sync, do not assume iCloud Keychain is a viable cross-host workflow for your environment. Use encrypted export/import instead.
 
-## If The Helper Fails
+## If The Helper Fails (historical)
+
+**Current releases:** there is no helper to troubleshoot — use **`--backend secure`** and **export/import**. The following applied when the project still shipped **`seckit-keychain-helper`**.
 
 Confirm resolution and entitlements:
 
@@ -156,7 +151,9 @@ Confirm resolution and entitlements:
 seckit helper status
 ```
 
-If **`--backend icloud`** still fails after a **wheel install**:
+`helper status` today reports **`helper.removed`: true**; the steps below are for **old builds** only.
+
+If **`--backend icloud`** failed after a **wheel install** (historical):
 
 1. Prefer a **current wheel** from the project (older or ad-hoc–signed artifacts may lack iCloud entitlements).
 2. Set **`SECKIT_HELPER_PATH`** only if you have a known-good entitled binary.
@@ -165,17 +162,16 @@ If **`--backend icloud`** still fails after a **wheel install**:
 printf 'alpha-icloud-1\n' | seckit set --backend icloud --name SECKIT_TEST_ALPHA --stdin --service sync-test --account local --kind generic --comment "sync alpha"
 ```
 
-- If you see **`helper was terminated by SIGKILL (-9)`**, capture **`log stream`** around the run. Logs may show **`taskgated-helper`** / **ManagedClient** *Disallowing … because no eligible provisioning profiles found*, **AMFI -413** *No matching profile found*, and **restricted entitlements … validation failed** — this can occur **without work/school MDM** (**`profiles status -type enrollment`** may still show **No**). You may also see **`spctl`** report **accepted** (**Notarized Developer ID**) while exec still fails; treat that as an **OS / Apple** path (Feedback Assistant), not a Python packaging bug. Until Apple or a future OS fixes it, use **`--backend secure`** plus **encrypted export/import** for cross-host moves; see [Cross-Host Validation](CROSS_HOST_VALIDATION.md).
-- If **`selftest`** dies with SIGKILL but logs look like **Keychain-only**, see older notes on **`kSecAttrAccessGroup`** and wheel freshness.
+- **`helper was terminated by SIGKILL (-9)`** was the dominant failure mode: **`log stream`** could show **`taskgated-helper`** / **ManagedClient** *Disallowing … because no eligible provisioning profiles found*, **AMFI -413** *No matching profile found*, and **restricted entitlements … validation failed** — often **without** MDM (**`profiles status -type enrollment`** could still show **No**). **`spctl`** could report **accepted** while exec still failed — an **Apple / OS** policy issue, not fixable in Python. That outcome is why the backend was **removed**; use **`--backend secure`** plus **encrypted export/import** ( [Cross-Host Validation](CROSS_HOST_VALIDATION.md) ).
 
-If it still fails, capture the exact `ERROR:` line. The important cases are:
+If it still fails, capture the exact `ERROR:` line. The important cases were:
 
 - `Missing entitlement` or `-34018`: the resolved helper lacks the required entitlements or Team ID / access group does not match your environment.
-- `helper was terminated by SIGKILL (-9)`: macOS killed the helper — use logs to distinguish **MDM / taskgated / -413** (above) vs **unnotarized Developer ID** (`spctl` *Unnotarized*) vs **sync Keychain `OSStatus`** when **`selftest` succeeds**.
+- `helper was terminated by SIGKILL (-9)`: macOS killed the helper — see SIGKILL bullet above.
 - `User interaction is not allowed`: run from the logged-in GUI user session or unlock the login keychain first.
-- `No such file` or “native helper not found”: install a **macOS wheel** with a bundled binary, or set **`SECKIT_HELPER_PATH`**.
+- `No such file` or “native helper not found” (historical): old wheels bundled a Mach-O or **`SECKIT_HELPER_PATH`** could point at one.
 
-## Cleanup
+## Cleanup (historical)
 
 Remove the test entries on both hosts:
 

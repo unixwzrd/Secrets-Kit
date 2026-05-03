@@ -11,6 +11,7 @@ from contextlib import redirect_stdout, redirect_stderr
 
 from secrets_kit.cli import (
     _apply_defaults,
+    _cli_version,
     _read_password,
     build_parser,
     cmd_config_path,
@@ -26,6 +27,7 @@ from secrets_kit.cli import (
     cmd_run,
     cmd_service_copy,
     cmd_set,
+    cmd_version,
 )
 
 
@@ -101,11 +103,17 @@ class CliCommandsTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
             with mock.patch.object(Path, "home", return_value=home):
-                code = cmd_config_set(args=argparse.Namespace(key="backend", value="icloud"))
+                code = cmd_config_set(args=argparse.Namespace(key="backend", value="local"))
                 self.assertEqual(code, 0)
                 dpath = home / ".config" / "seckit" / "defaults.json"
                 payload = json.loads(dpath.read_text(encoding="utf-8"))
-                self.assertEqual(payload.get("backend"), "icloud-helper")
+                self.assertEqual(payload.get("backend"), "secure")
+
+    def test_config_set_rejects_icloud_backend(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(Path, "home", return_value=Path(tmp)):
+                code = cmd_config_set(args=argparse.Namespace(key="backend", value="icloud"))
+        self.assertEqual(code, 1)
 
     def test_config_set_rejects_invalid_backend(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -138,8 +146,8 @@ class CliCommandsTest(unittest.TestCase):
         self.assertEqual(args.kind, "token")
         args = parser.parse_args(["set", "--name", "OPENAI_API_KEY", "--value", "x", "--kind", "token", "--keychain", "/tmp/test.keychain-db"])
         self.assertEqual(args.keychain, "/tmp/test.keychain-db")
-        args = parser.parse_args(["set", "--name", "OPENAI_API_KEY", "--value", "x", "--backend", "icloud"])
-        self.assertEqual(args.backend, "icloud")
+        args = parser.parse_args(["set", "--name", "OPENAI_API_KEY", "--value", "x", "--backend", "local"])
+        self.assertEqual(args.backend, "local")
 
         args = parser.parse_args(["import", "file", "--file", "secrets.json", "--kind", "auto"])
         self.assertEqual(args.kind, "auto")
@@ -229,7 +237,7 @@ class CliCommandsTest(unittest.TestCase):
                         "kind": "api_key",
                         "default_rotation_days": 90,
                         "rotation_warn_days": 14,
-                        "backend": "icloud",
+                        "backend": "secure",
                     }
                 ),
                 encoding="utf-8",
@@ -247,36 +255,42 @@ class CliCommandsTest(unittest.TestCase):
                 backend=None,
                 keychain=None,
             )
-            with mock.patch("pathlib.Path.home", return_value=home), \
-                mock.patch("secrets_kit.cli.icloud_backend_available", return_value=True):
+            with mock.patch("pathlib.Path.home", return_value=home):
                 _apply_defaults(args=args)
             self.assertEqual(args.service, "hermes")
             self.assertEqual(args.account, "default")
             self.assertEqual(args.kind, "api_key")
             self.assertEqual(args.rotation_days, 90)
             self.assertEqual(args.rotation_warn_days, 14)
-            self.assertEqual(args.backend, "icloud-helper")
+            self.assertEqual(args.backend, "secure")
 
-    def test_apply_defaults_rejects_icloud_with_keychain(self) -> None:
-        args = argparse.Namespace(
-            command="get",
-            service="sync-test",
-            account="local",
-            type=None,
-            kind=None,
-            tags=None,
-            tag=None,
-            rotation_days=None,
-            rotation_warn_days=None,
-            backend="icloud",
-            keychain="/tmp/test.keychain-db",
-        )
+    def test_apply_defaults_rejects_icloud_in_defaults_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            with mock.patch.object(Path, "home", return_value=Path(tmp)):
-                with self.assertRaisesRegex(Exception, "--keychain is only supported with --backend secure"):
+            home = Path(tmp)
+            config_dir = home / ".config" / "seckit"
+            config_dir.mkdir(parents=True, exist_ok=True)
+            (config_dir / "defaults.json").write_text(
+                json.dumps({"service": "s", "account": "a", "backend": "icloud"}),
+                encoding="utf-8",
+            )
+            args = argparse.Namespace(
+                command="get",
+                service=None,
+                account=None,
+                type=None,
+                kind=None,
+                tags=None,
+                tag=None,
+                rotation_days=None,
+                rotation_warn_days=None,
+                backend=None,
+                keychain=None,
+            )
+            with mock.patch("pathlib.Path.home", return_value=home):
+                with self.assertRaisesRegex(Exception, "icloud / icloud-helper backend was removed"):
                     _apply_defaults(args=args)
 
-    def test_apply_defaults_rejects_icloud_without_helper(self) -> None:
+    def test_apply_defaults_rejects_icloud_explicit_backend(self) -> None:
         args = argparse.Namespace(
             command="get",
             service="sync-test",
@@ -291,10 +305,8 @@ class CliCommandsTest(unittest.TestCase):
             keychain=None,
         )
         with tempfile.TemporaryDirectory() as tmp:
-            with mock.patch.object(Path, "home", return_value=Path(tmp)), \
-                mock.patch("secrets_kit.cli.icloud_backend_available", return_value=False), \
-                mock.patch("secrets_kit.cli.icloud_backend_error", return_value="Use a macOS wheel with the bundled helper"):
-                with self.assertRaisesRegex(Exception, "macOS wheel"):
+            with mock.patch.object(Path, "home", return_value=Path(tmp)):
+                with self.assertRaisesRegex(Exception, "icloud / icloud-helper backend was removed"):
                     _apply_defaults(args=args)
 
     def test_account_defaults_to_current_user(self) -> None:
@@ -670,6 +682,60 @@ class CliCommandsTest(unittest.TestCase):
             code = cmd_helper_status(args=argparse.Namespace())
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(out.getvalue()), payload)
+
+    def test_version_default_prints_only_package_version(self) -> None:
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = cmd_version(args=argparse.Namespace(version_info=False, version_json=False))
+        self.assertEqual(code, 0)
+        self.assertEqual(out.getvalue(), f"{_cli_version()}\n")
+
+    def test_version_json_contains_core_keys(self) -> None:
+        fake = {
+            "version": "9.9.9",
+            "platform": "darwin",
+            "python": "3.12.0",
+            "defaults_path": "/x/defaults.json",
+            "defaults": {"backend": "secure"},
+            "backend_availability": {"secure": True, "icloud": False, "local": True, "icloud-helper": False},
+            "helper": {"installed": False, "path": None, "bundled_path": None},
+        }
+        out = io.StringIO()
+        with mock.patch("secrets_kit.cli._version_info_dict", return_value=fake), redirect_stdout(out):
+            code = cmd_version(args=argparse.Namespace(version_info=False, version_json=True))
+        self.assertEqual(code, 0)
+        parsed = json.loads(out.getvalue())
+        self.assertEqual(parsed, fake)
+        for key in ("version", "backend_availability", "helper", "defaults", "platform", "python"):
+            self.assertIn(key, parsed)
+
+    def test_version_info_includes_version_line(self) -> None:
+        fake_data = {
+            "version": "1.0.0",
+            "platform": "linux",
+            "python": "3.12.0",
+            "defaults_path": None,
+            "defaults": {},
+            "backend_availability": {"secure": True, "icloud": False},
+            "helper": {"installed": False, "path": None, "bundled_path": None},
+        }
+        out = io.StringIO()
+        with mock.patch("secrets_kit.cli._version_info_dict", return_value=fake_data), redirect_stdout(out):
+            code = cmd_version(args=argparse.Namespace(version_info=True, version_json=False))
+        self.assertEqual(code, 0)
+        self.assertIn("version: 1.0.0", out.getvalue())
+        self.assertIn("platform: linux", out.getvalue())
+        self.assertIn("backend_availability:", out.getvalue())
+
+    def test_version_parse_flags(self) -> None:
+        parser = build_parser()
+        a = parser.parse_args(["version"])
+        self.assertFalse(a.version_info)
+        self.assertFalse(a.version_json)
+        b = parser.parse_args(["version", "--json"])
+        self.assertTrue(b.version_json)
+        c = parser.parse_args(["version", "--info"])
+        self.assertTrue(c.version_info)
 
 
 if __name__ == "__main__":

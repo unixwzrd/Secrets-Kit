@@ -15,11 +15,7 @@ from importlib.metadata import version as package_version
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
-from secrets_kit.native_helper import (
-    helper_status,
-    icloud_backend_available,
-    icloud_backend_error,
-)
+from secrets_kit.native_helper import helper_status
 from secrets_kit.crypto import CryptoUnavailable, build_plain_export, decrypt_payload, encrypt_payload, ensure_crypto_available
 from secrets_kit.exporters import export_dotenv_placeholders, export_shell_lines
 from secrets_kit.importers import (
@@ -31,7 +27,6 @@ from secrets_kit.importers import (
 )
 from secrets_kit.keychain_backend import (
     BACKEND_CHOICES,
-    BACKEND_ICLOUD_HELPER,
     BACKEND_SECURE,
     BackendError,
     check_security_cli,
@@ -102,6 +97,29 @@ def _cli_version() -> str:
         return package_version("seckit")
     except PackageNotFoundError:
         return "0.1.0"
+
+
+def _version_info_dict() -> Dict[str, object]:
+    """Build a JSON-safe dict for `seckit version --json` / `--info` (no secret values)."""
+    status = helper_status()
+    info: Dict[str, object] = {
+        "version": _cli_version(),
+        "platform": sys.platform,
+        "python": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+        "backend_availability": status["backend_availability"],
+        "helper": status["helper"],
+    }
+    try:
+        ensure_defaults_storage()
+        dpath = defaults_path()
+        info["defaults_path"] = str(dpath)
+        merged = _load_defaults()
+        safe = {k: merged[k] for k in _CONFIG_STORABLE_KEYS if k in merged}
+        info["defaults"] = {str(k): safe[k] for k in sorted(safe.keys(), key=str)}
+    except (RegistryError, OSError, TypeError, ValueError):
+        info["defaults_path"] = None
+        info["defaults"] = {}
+    return info
 
 
 def _confirm(*, prompt: str) -> bool:
@@ -207,7 +225,13 @@ def _apply_defaults(*, args: argparse.Namespace) -> None:
     defaults = _load_defaults()
     if hasattr(args, "backend") and not getattr(args, "backend", None):
         raw_backend = defaults.get("backend")
-        args.backend = normalize_backend(str(raw_backend)) if raw_backend else BACKEND_SECURE
+        if raw_backend:
+            try:
+                args.backend = normalize_backend(str(raw_backend))
+            except BackendError as exc:
+                raise ValidationError(str(exc)) from exc
+        else:
+            args.backend = BACKEND_SECURE
     if hasattr(args, "service") and not args.service:
         args.service = defaults.get("service")
     if hasattr(args, "account") and not args.account:
@@ -247,17 +271,12 @@ def _apply_defaults(*, args: argparse.Namespace) -> None:
     if hasattr(args, "to_account") and not getattr(args, "to_account", None):
         args.to_account = args.from_account or args.account or _current_os_account()
     if hasattr(args, "backend") and getattr(args, "backend", None):
-        normalized = normalize_backend(args.backend)
-        if normalized not in {BACKEND_SECURE, BACKEND_ICLOUD_HELPER}:
-            raise ValidationError(
-                f"backend must be one of: {BACKEND_SECURE}, {BACKEND_ICLOUD_HELPER} (aliases: local, icloud)"
-            )
-        if hasattr(args, "keychain") and getattr(args, "keychain", None) and normalized == BACKEND_ICLOUD_HELPER:
-            raise ValidationError(
-                "--keychain is only supported with --backend secure (alias: local)"
-            )
-        if normalized == BACKEND_ICLOUD_HELPER and not icloud_backend_available():
-            raise ValidationError(icloud_backend_error())
+        try:
+            normalized = normalize_backend(args.backend)
+        except BackendError as exc:
+            raise ValidationError(str(exc)) from exc
+        if hasattr(args, "keychain") and getattr(args, "keychain", None) and not is_secure_backend(normalized):
+            raise ValidationError("--keychain is only supported with --backend secure (alias: local)")
         args.backend = normalized
 
 
@@ -265,12 +284,10 @@ def _validate_config_entry(*, key: str, value: str) -> object:
     """Coerce CLI string value for a defaults.json key."""
     v = value.strip()
     if key == "backend":
-        normalized = normalize_backend(v)
-        if normalized not in {BACKEND_SECURE, BACKEND_ICLOUD_HELPER}:
-            raise ValidationError(
-                f"backend must be one of: {BACKEND_SECURE}, {BACKEND_ICLOUD_HELPER} (aliases: local, icloud)"
-            )
-        return normalized
+        try:
+            return normalize_backend(v)
+        except BackendError as exc:
+            raise ValidationError(str(exc)) from exc
     if key == "type":
         if v not in {"secret", "pii"}:
             raise ValidationError("type must be secret or pii")
@@ -1380,7 +1397,36 @@ def cmd_keychain_status(*, args: argparse.Namespace) -> int:
 
 
 def cmd_version(*, args: argparse.Namespace) -> int:
-    del args
+    if getattr(args, "version_json", False):
+        print(json.dumps(_version_info_dict(), indent=2, sort_keys=True))
+        return 0
+    if getattr(args, "version_info", False):
+        data = _version_info_dict()
+        lines = [
+            f"version: {data['version']}",
+            f"platform: {data['platform']}",
+            f"python: {data['python']}",
+        ]
+        dp = data.get("defaults_path")
+        lines.append(f"defaults_path: {dp if dp else '(unknown)'}")
+        defaults = data.get("defaults") or {}
+        if defaults:
+            lines.append("defaults:")
+            for k in sorted(defaults.keys(), key=str):
+                lines.append(f"  {k}: {defaults[k]!r}")
+        else:
+            lines.append("defaults: (none)")
+        ba = data.get("backend_availability") or {}
+        lines.append(
+            "backend_availability: "
+            + ", ".join(f"{k}={ba[k]}" for k in sorted(ba.keys(), key=str))
+        )
+        hb = data.get("helper") or {}
+        lines.append(f"helper.installed: {hb.get('installed')}")
+        lines.append(f"helper.path: {hb.get('path') or '(none)'}")
+        lines.append(f"helper.bundled_path: {hb.get('bundled_path') or '(none)'}")
+        print("\n".join(lines))
+        return 0
     print(_cli_version())
     return 0
 
@@ -1695,13 +1741,26 @@ def build_parser() -> argparse.ArgumentParser:
     p_keychain.set_defaults(func=cmd_keychain_status)
 
     p_version = sub.add_parser("version", help="Print the installed seckit version")
-    p_version.set_defaults(func=cmd_version)
+    vgrp = p_version.add_mutually_exclusive_group()
+    vgrp.add_argument(
+        "--info",
+        action="store_true",
+        dest="version_info",
+        help="Print version, platform, defaults summary, and helper status stub (no secret values)",
+    )
+    vgrp.add_argument(
+        "--json",
+        action="store_true",
+        dest="version_json",
+        help="Same as --info as JSON (sorted keys)",
+    )
+    p_version.set_defaults(func=cmd_version, version_info=False, version_json=False)
 
-    p_helper = sub.add_parser("helper", help="Inspect the native Keychain helper shipped with the package")
+    p_helper = sub.add_parser("helper", help="Show status of the removed native helper (compatibility JSON)")
     helper_sub = p_helper.add_subparsers(dest="helper_command", required=True)
     p_helper_status = helper_sub.add_parser(
         "status",
-        help="Show resolved helper path, bundled binary, and backend availability",
+        help="JSON: secure backend only; Swift helper removed",
     )
     p_helper_status.set_defaults(func=cmd_helper_status)
 

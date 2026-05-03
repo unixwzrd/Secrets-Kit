@@ -1,17 +1,14 @@
 """Keychain and secret-store backends for seckit.
 
-There are two Keychain-related implementations today, selected by
-``resolve_secret_store``:
+``resolve_secret_store`` returns :class:`SecurityCliStore`: the macOS ``security`` CLI
+against the login keychain (or ``--keychain`` path). Canonical backend id: ``secure`` (alias: ``local``).
 
-* **Fully local Keychain** → ``SecurityCliStore`` uses the macOS ``security``
-  CLI. Canonical id: ``secure`` (alias: ``local``).
-* **Synchronizable / iCloud Keychain** → ``NativeKeychainStore`` uses the
-  entitled helper only. Canonical id: ``icloud-helper`` (alias: ``icloud``).
-  The helper JSON payload still uses ``backend: "icloud"`` for the Swift tool.
+The former synchronizable / iCloud Keychain helper (``icloud``, ``icloud-helper``) was **removed** —
+macOS kills that helper at launch in typical configurations. Use **export/import** for cross-host transfer.
 
 Additional backends (PGP, vault, broker) should implement :class:`SecretStore`,
-extend :func:`normalize_backend` / validation, and register in
-:func:`resolve_secret_store` and ``secrets_kit.cli``.
+extend :func:`normalize_backend` / validation, and register in :func:`resolve_secret_store`
+and ``secrets_kit.cli``.
 """
 
 from __future__ import annotations
@@ -24,13 +21,6 @@ import subprocess
 import tempfile
 from typing import Any, Dict, FrozenSet, Optional, Protocol
 
-from secrets_kit.native_helper import (
-    NativeHelperError,
-    icloud_backend_available,
-    icloud_backend_error,
-    run_helper_request,
-)
-
 
 class BackendError(RuntimeError):
     """Keychain backend error."""
@@ -39,39 +29,40 @@ class BackendError(RuntimeError):
 BACKEND_SECURE = "secure"
 """Local Keychain only: ``security`` CLI (alias: ``local``)."""
 
-BACKEND_ICLOUD_HELPER = "icloud-helper"
-"""Synchronizable Keychain via native helper (alias: ``icloud``)."""
-
-# Payload field sent to Swift ``seckit-keychain-helper`` (must match ``main.swift``).
-HELPER_WIRE_BACKEND_ICLOUD = "icloud"
+ICLOUD_BACKEND_REMOVED_MESSAGE = (
+    "The icloud / icloud-helper backend was removed: the synchronizable Keychain helper is killed by "
+    "macOS (SIGKILL / entitlements) and is not usable. Use --backend secure (or local) and "
+    "seckit export / import for cross-host transfer. See docs/ICLOUD_SYNC_VALIDATION.md."
+)
 
 _BACKEND_ALIASES: Dict[str, str] = {
     "local": BACKEND_SECURE,
-    "icloud": BACKEND_ICLOUD_HELPER,
 }
 
-# Accepted on CLI / env / defaults.json (includes legacy aliases).
+# Accepted on CLI / env / defaults.json (``local`` is an alias for ``secure``).
 BACKEND_CHOICES: tuple[str, ...] = (
     BACKEND_SECURE,
-    BACKEND_ICLOUD_HELPER,
     "local",
-    "icloud",
 )
 
-_KNOWN_NORMALIZED: FrozenSet[str] = frozenset({BACKEND_SECURE, BACKEND_ICLOUD_HELPER})
+_KNOWN_NORMALIZED: FrozenSet[str] = frozenset({BACKEND_SECURE})
 
 
 def normalize_backend(backend: str) -> str:
-    """Return canonical backend id (``secure`` or ``icloud-helper``)."""
-    return _BACKEND_ALIASES.get(backend.strip().lower(), backend.strip().lower())
+    """Return canonical backend id (``secure`` only; alias ``local``)."""
+    raw = backend.strip().lower()
+    if raw in {"icloud", "icloud-helper"}:
+        raise BackendError(ICLOUD_BACKEND_REMOVED_MESSAGE)
+    normalized = _BACKEND_ALIASES.get(raw, raw)
+    if normalized not in _KNOWN_NORMALIZED:
+        raise BackendError(
+            f"unsupported backend: {backend!r} (expected {BACKEND_SECURE} or alias local)"
+        )
+    return normalized
 
 
 def is_secure_backend(backend: str) -> bool:
     return normalize_backend(backend) == BACKEND_SECURE
-
-
-def is_icloud_helper_backend(backend: str) -> bool:
-    return normalize_backend(backend) == BACKEND_ICLOUD_HELPER
 
 
 DEFAULT_KEYCHAIN_PATH = os.path.expanduser("~/Library/Keychains/login.keychain-db")
@@ -85,30 +76,10 @@ def backend_service_name(*, service: str, name: str) -> str:
 
 def _validate_backend(*, backend: str, path: Optional[str]) -> str:
     normalized = normalize_backend(backend)
-    if normalized not in _KNOWN_NORMALIZED:
-        raise BackendError(
-            f"unsupported backend: {backend!r} (expected {BACKEND_SECURE}, {BACKEND_ICLOUD_HELPER}, or aliases local, icloud)"
-        )
-    if normalized == BACKEND_ICLOUD_HELPER and path is not None:
-        raise BackendError("--keychain is only supported with --backend secure (alias: local)")
+    if path is not None:
+        # Custom keychain files are only used with the security CLI (secure backend).
+        pass
     return normalized
-
-
-def _helper_service_metadata(*, service: str, account: str, name: str, backend: str, value: Optional[str] = None, comment: Optional[str] = None, label: Optional[str] = None) -> Dict[str, object]:
-    payload: Dict[str, object] = {
-        "command": "",
-        "backend": backend,
-        "service": service,
-        "account": account,
-        "name": name,
-    }
-    if value is not None:
-        payload["value"] = value
-    if comment is not None:
-        payload["comment"] = comment
-    if label is not None:
-        payload["label"] = label
-    return payload
 
 
 class SecretStore(Protocol):
@@ -175,65 +146,12 @@ class SecurityCliStore:
         _run_security(args=self._append_target(args))
 
 
-class NativeKeychainStore:
-    """Synchronizable Keychain via the native helper (``--backend icloud-helper`` only)."""
-
-    def _request(self, *, command: str, service: str, account: str, name: str, value: Optional[str] = None, comment: Optional[str] = None, label: Optional[str] = None) -> Dict[str, Any]:
-        payload = _helper_service_metadata(
-            service=service,
-            account=account,
-            name=name,
-            backend=HELPER_WIRE_BACKEND_ICLOUD,
-            value=value,
-            comment=comment,
-            label=label,
-        )
-        payload["command"] = command
-        try:
-            return run_helper_request(payload=payload)
-        except NativeHelperError as exc:
-            raise BackendError(str(exc)) from exc
-
-    def set(self, *, service: str, account: str, name: str, value: str, comment: str = "", label: Optional[str] = None) -> None:
-        self._request(
-            command="set",
-            service=service,
-            account=account,
-            name=name,
-            value=value,
-            comment=comment,
-            label=label or name,
-        )
-
-    def get(self, *, service: str, account: str, name: str) -> str:
-        data = self._request(command="get", service=service, account=account, name=name)
-        return str(data.get("value", ""))
-
-    def metadata(self, *, service: str, account: str, name: str) -> Dict[str, Any]:
-        data = self._request(command="metadata", service=service, account=account, name=name)
-        metadata = data.get("metadata", {})
-        return metadata if isinstance(metadata, dict) else {}
-
-    def exists(self, *, service: str, account: str, name: str) -> bool:
-        data = self._request(command="exists", service=service, account=account, name=name)
-        return bool(data.get("exists"))
-
-    def delete(self, *, service: str, account: str, name: str) -> None:
-        self._request(command="delete", service=service, account=account, name=name)
-
-
 def resolve_secret_store(*, backend: str = "secure", path: Optional[str] = None) -> SecretStore:
     """Resolve the concrete :class:`SecretStore` for ``backend`` (and optional keychain ``path``).
 
-    ``backend`` may be canonical (``secure``, ``icloud-helper``) or legacy alias
-    (``local``, ``icloud``). To add a backend, extend :func:`normalize_backend`,
-    :func:`_validate_backend`, and this function; align ``secrets_kit.cli``.
+    Only ``secure`` (alias ``local``) is supported—the macOS ``security`` CLI.
     """
-    normalized = _validate_backend(backend=backend, path=path)
-    if normalized == BACKEND_ICLOUD_HELPER:
-        if not icloud_backend_available():
-            raise BackendError(icloud_backend_error())
-        return NativeKeychainStore()
+    _validate_backend(backend=backend, path=path)
     return SecurityCliStore(path=path)
 
 

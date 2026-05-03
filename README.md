@@ -14,8 +14,7 @@ Secrets Kit is a **macOS** CLI that stores secret values in the **login Keychain
 |----------|----------------|
 | macOS, Python 3.9+, `security` + login Keychain | Hosted vault, HSM, zero-knowledge guarantees |
 | **Primary cross-host:** `seckit export` / **`import`** (e.g. **encrypted JSON**) + you move the file | Phone home; your Keychain password is never read by the tool |
-| Optional **iCloud Keychain** items via entitled helper (`--backend icloud`) **when macOS allows the helper to run** | Live multi-master “sync” guarantees; **iCloud Drive does not replace Keychain** (see docs) |
-| `seckit run`, import/export, encrypted cross-host backup | Protection on an already-compromised machine/session |
+| `seckit run`, import/export, encrypted cross-host backup | Deprecated **`icloud`** backends (removed); live multi-master “sync” guarantees; **iCloud Drive does not replace Keychain** (see docs); protection on an already-compromised machine/session |
 
 If that trust model is unclear, use something else until it is.
 
@@ -25,7 +24,7 @@ If that trust model is unclear, use something else until it is.
 pip install "git+https://github.com/unixwzrd/Secrets-Kit.git@v1.2.0#egg=seckit"
 ```
 
-Development checkout: `pip install -e .` in a venv. **Install a published macOS wheel** for day-to-day use so the bundled `seckit-keychain-helper` is present (required for **`--backend icloud`** when the OS loads it). Maintainer signing and building that binary are described in [GitHub release build](docs/GITHUB_RELEASE_BUILD.md). **iCloud** path caveats and validation: [iCloud Sync Validation](docs/ICLOUD_SYNC_VALIDATION.md). **Reliable host-to-host transfer:** [Cross-Host Validation](docs/CROSS_HOST_VALIDATION.md) (encrypted export).
+Development checkout: `pip install -e .` in a venv. For day-to-day use, **`--backend secure`** is sufficient (no helper). Wheels still bundle **`seckit-keychain-helper`** for the **legacy, unsupported** **`--backend icloud`** path; see [iCloud Sync Validation](docs/ICLOUD_SYNC_VALIDATION.md). **Reliable host-to-host transfer:** [Cross-Host Validation](docs/CROSS_HOST_VALIDATION.md) (encrypted export).
 
 ```bash
 seckit version
@@ -67,7 +66,7 @@ Issues and PRs welcome (CLI UX, backends, docs, import/export edge cases). Local
 bash ./scripts/run_local_validation.sh
 ```
 
-**Updated:** 2026-05-03
+**Updated:** 2026-05-05
 
 ---
 
