@@ -16,6 +16,26 @@ from secrets_kit.cli import cmd_export, cmd_get, cmd_import_env, cmd_set
 from secrets_kit.keychain_backend import delete_keychain, keychain_path, lock_keychain, make_temp_keychain
 
 
+def _pythonpath_for_subprocess_hijacked_home(*, src_relative_to_repo: Path) -> str:
+    """Build PYTHONPATH when env HOME is replaced so child Python still finds deps.
+
+    Apple ``python3`` often loads PyPI wheels from ``~/Library/Python/...``.
+    A temp ``HOME`` makes that path points at an empty tree, so ``import yaml``
+    fails unless we add the real user-site dir explicitly.
+    """
+    import site
+
+    src_path = str(src_relative_to_repo)
+    parts = [src_path]
+    try:
+        user_site = site.getusersitepackages()
+    except Exception:
+        user_site = ""
+    if user_site and Path(user_site).is_dir():
+        parts.append(user_site)
+    return os.pathsep.join(parts)
+
+
 def _locked_keychain_tests_enabled() -> bool:
     return os.environ.get("SECKIT_RUN_LOCKED_KEYCHAIN_TESTS") == "1"
 
@@ -219,7 +239,10 @@ class DisposableKeychainFlowTest(unittest.TestCase):
                 )
                 env = os.environ.copy()
                 env["HOME"] = str(home)
-                env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1] / "src")
+                repo_root = Path(__file__).resolve().parents[1]
+                env["PYTHONPATH"] = _pythonpath_for_subprocess_hijacked_home(
+                    src_relative_to_repo=repo_root / "src"
+                )
                 proc = subprocess.run(
                     [
                         sys.executable,

@@ -1,6 +1,6 @@
 # File created using '.gitignore Generator' for Visual Studio Code: https://bit.ly/vscode-gig
-# Created by https://www.toptal.com/developers/gitignore/api/zsh,visualstudiocode,virtualenv,vim,ssh,python,macos,less,flask,dotfilessh,c++,c,backup,archives,archive,xcode
-# Edit at https://www.toptal.com/developers/gitignore?templates=zsh,visualstudiocode,virtualenv,vim,ssh,python,macos,less,flask,dotfilessh,c++,c,backup,archives,archive,xcode
+# Created by https://www.toptal.com/developers/gitignore/api/zsh,xcode,visualstudiocode,virtualenv,vim,ssh,python,macos,less,flask,dotfilessh,c++,c,backup,archives,archive,swift
+# Edit at https://www.toptal.com/developers/gitignore?templates=zsh,xcode,visualstudiocode,virtualenv,vim,ssh,python,macos,less,flask,dotfilessh,c++,c,backup,archives,archive,swift
 
 ### Archive ###
 
@@ -446,6 +446,89 @@ pyrightconfig.json
 **/.ssh/*_id_*
 **/.ssh/known_hosts
 
+### Swift ###
+# Xcode
+#
+# gitignore contributors: remember to update Global/Xcode.gitignore, Objective-C.gitignore & Swift.gitignore
+
+## User settings
+xcuserdata/
+
+## compatibility with Xcode 8 and earlier (ignoring not required starting Xcode 9)
+*.xcscmblueprint
+*.xccheckout
+
+## compatibility with Xcode 3 and earlier (ignoring not required starting Xcode 4)
+DerivedData/
+*.moved-aside
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+
+## Obj-C/Swift specific
+*.hmap
+
+## App packaging
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+## Playgrounds
+timeline.xctimeline
+playground.xcworkspace
+
+# Swift Package Manager
+# Add this line if you want to avoid checking in source code from Swift Package Manager dependencies.
+# Packages/
+# Package.pins
+# Package.resolved
+# *.xcodeproj
+# Xcode automatically generates this directory with a .xcworkspacedata file and xcuserdata
+# hence it is not needed unless you have added a package configuration file to your project
+# .swiftpm
+
+.build/
+
+# CocoaPods
+# We recommend against adding the Pods directory to your .gitignore. However
+# you should judge for yourself, the pros and cons are mentioned at:
+# https://guides.cocoapods.org/using/using-cocoapods.html#should-i-check-the-pods-directory-into-source-control
+# Pods/
+# Add this line if you want to avoid checking in source code from the Xcode workspace
+# *.xcworkspace
+
+# Carthage
+# Add this line if you want to avoid checking in source code from Carthage dependencies.
+# Carthage/Checkouts
+
+Carthage/Build/
+
+# Accio dependency management
+Dependencies/
+.accio/
+
+# fastlane
+# It is recommended to not store the screenshots in the git repo.
+# Instead, use fastlane to re-generate the screenshots whenever they are needed.
+# For more information about the recommended setup visit:
+# https://docs.fastlane.tools/best-practices/source-control/#source-control
+
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
+
+# Code Injection
+# After new code Injection tools there's a generated folder /iOSInjectionProject
+# https://github.com/johnno1962/injectionforxcode
+
+iOSInjectionProject/
+
 ### Vim ###
 # Swap
 [._]*.s[a-v][a-z]
@@ -476,9 +559,9 @@ tags
 [Ll]ib64
 [Ll]ocal
 [Ss]cripts
+# Un-ignore this repo's maintainer scripts (pattern above matches `scripts/`).
 !scripts/
-!scripts/*.sh
-!scripts/*.py
+!scripts/**
 pyvenv.cfg
 pip-selfcheck.json
 
@@ -502,12 +585,8 @@ pip-selfcheck.json
 .ionide
 
 ### Xcode ###
-## User settings
-xcuserdata/
 
 ## Xcode 8 and earlier
-*.xcscmblueprint
-*.xccheckout
 
 ### Xcode Patch ###
 *.xcodeproj/*
@@ -553,7 +632,7 @@ zsdoc/data
 /tests/_output/*
 !/tests/_output/.gitkeep
 
-# End of https://www.toptal.com/developers/gitignore/api/zsh,visualstudiocode,virtualenv,vim,ssh,python,macos,less,flask,dotfilessh,c++,c,backup,archives,archive,xcode
+# End of https://www.toptal.com/developers/gitignore/api/zsh,xcode,visualstudiocode,virtualenv,vim,ssh,python,macos,less,flask,dotfilessh,c++,c,backup,archives,archive,swift
 
 # Custom rules (everything added below won't be overriden by 'Generate .gitignore File' if you use 'Update' option)
 
@@ -593,3 +672,4 @@ docs/archive/
 src/secrets_kit/native_helper_bundled/seckit-keychain-helper
 docs/plans/*
 !docs/plans/icloud-two-host-checklist.md
+.gitignore

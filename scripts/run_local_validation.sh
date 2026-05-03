@@ -17,6 +17,9 @@ Runs the CI-safe local validation sequence:
   - Swift native helper compile check when Swift is available
   - Python unittest suite
   - optional localhost transport validation when ssh localhost works
+
+Environment:
+  PYTHON   interpreter to use (default: python3). Must have project deps (pip install -e .).
 EOF
 }
 
@@ -31,6 +34,13 @@ done
 
 cd "$REPO_ROOT"
 
+PYTHON_BIN="${PYTHON:-python3}"
+if ! "$PYTHON_BIN" -c "import yaml" 2>/dev/null; then
+  echo "ERROR: $PYTHON_BIN cannot import PyYAML (required by seckit). From repo root: $PYTHON_BIN -m pip install -e ." >&2
+  echo "Or set PYTHON to a venv interpreter: PYTHON=/path/to/venv/bin/python $0" >&2
+  exit 1
+fi
+
 echo "== syntax checks =="
 bash -n \
   scripts/build_bundled_helper_for_wheel.sh \
@@ -43,7 +53,7 @@ bash -n \
 
 echo
 echo "== python compile check =="
-python3 -m py_compile src/secrets_kit/*.py scripts/seckit_launchd_agent_simulator.py
+"$PYTHON_BIN" -m py_compile src/secrets_kit/*.py scripts/seckit_launchd_agent_simulator.py
 
 echo
 echo "== swift helper build =="
@@ -55,7 +65,7 @@ fi
 
 echo
 echo "== python tests =="
-PYTHONPATH=src python3 -m unittest discover -s tests -v
+PYTHONPATH=src "$PYTHON_BIN" -m unittest discover -s tests -v
 
 should_run_transport="no"
 if [[ "$run_localhost_transport" == "yes" ]]; then

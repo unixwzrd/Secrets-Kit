@@ -66,7 +66,7 @@ Issues and PRs welcome (CLI UX, backends, docs, import/export edge cases). Local
 bash ./scripts/run_local_validation.sh
 ```
 
-**Updated:** 2026-05-02
+**Updated:** 2026-05-03
 
 ---
 

@@ -1,11 +1,15 @@
 # Cross-Host Validation
 
+**Updated:** 2026-05-03
+
 Use this guide to validate Secrets-Kit in two separate tracks:
 
 1. automated transfer validation with disposable keychain files
 2. manual login-keychain and iCloud validation
 
 The disposable-keychain track is the regression target. The login-keychain track stays manual because macOS keychain access depends on GUI session state, not just CLI correctness.
+
+**iCloud Drive vs iCloud Keychain:** iCloud Drive syncs **files**, not a second system Keychain. Secrets-Kit does not add an “iCloud Drive keychain” backend. If **`--backend icloud`** (the synchronizable Keychain helper) is unavailable on a Mac, use **`seckit export`** (for example **`--format encrypted-json`**) and move the **artifact** over Drive, AirDrop, or another channel, then **`seckit import`** on the other host. See [Examples](EXAMPLES.md) and [Security model](SECURITY_MODEL.md).
 
 ## Validation Order
 
