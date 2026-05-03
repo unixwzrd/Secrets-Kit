@@ -1,19 +1,26 @@
 """Native helper discovery and request plumbing for Secrets-Kit.
 
-The helper is optional. The normal local backend can use the macOS ``security``
-CLI, while iCloud/synchronizable Keychain access requires a native Security
-framework path.
+**Fully local Keychain** (``--backend secure``, alias ``local``) uses the macOS ``security`` CLI only.
+
+The bundled **``seckit-keychain-helper``** is for **`--backend icloud-helper`** (alias ``icloud``):
+synchronizable Keychain items use Security.framework from the entitled binary.
+It is **not** used for the secure/local CLI path.
+
+The helper Mach-O is **built in release automation** (``scripts/build_bundled_helper_for_wheel.sh``,
+``docs/GITHUB_RELEASE_BUILD.md``). Wheels ship it; this module does not compile Swift on end-user machines.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import plistlib
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 
 class NativeHelperError(RuntimeError):
@@ -23,8 +30,15 @@ class NativeHelperError(RuntimeError):
 HELPER_NAME = "seckit-keychain-helper"
 
 
-def helper_source_dir() -> Path:
-    return Path(__file__).resolve().parent / "native_helper_src"
+def _returncode_message(*, returncode: int) -> str:
+    if returncode < 0:
+        signum = -returncode
+        try:
+            signal_name = signal.Signals(signum).name
+        except ValueError:
+            signal_name = f"signal {signum}"
+        return f"helper was terminated by {signal_name} ({returncode})"
+    return f"helper failed with exit code {returncode}"
 
 
 def helper_install_dir() -> Path:
@@ -35,70 +49,88 @@ def helper_install_path() -> Path:
     return helper_install_dir() / HELPER_NAME
 
 
-def swift_binary_path() -> str | None:
-    return shutil.which("swift")
-
-
-def lipo_binary_path() -> str | None:
-    return shutil.which("lipo")
-
-
-def local_helper_binary_path() -> Path | None:
-    candidates = [
-        Path(os.environ["SECKIT_HELPER_PATH"]).expanduser()
-        for key in ("SECKIT_HELPER_PATH",)
-        if os.environ.get(key)
-    ]
-    candidates.append(helper_install_path())
-    path_candidate = shutil.which(HELPER_NAME)
-    if path_candidate:
-        candidates.append(Path(path_candidate))
-    for candidate in candidates:
-        if candidate.exists() and os.access(candidate, os.X_OK):
-            return candidate
+def bundled_helper_path() -> Path | None:
+    """Path to the wheel-shipped helper next to this package, if present (macOS only)."""
+    if sys.platform != "darwin":
+        return None
+    candidate = Path(__file__).resolve().parent / "native_helper_bundled" / HELPER_NAME
+    if candidate.is_file() and os.access(candidate, os.X_OK):
+        return candidate
     return None
 
 
-def helper_installed() -> bool:
-    return local_helper_binary_path() is not None
+def _ordered_helper_candidates() -> List[Path]:
+    """Search order: ``SECKIT_HELPER_PATH``, wheel bundle, venv ``bin``, ``PATH``."""
+    candidates: List[Path] = []
+    env_raw = os.environ.get("SECKIT_HELPER_PATH")
+    if env_raw:
+        candidates.append(Path(env_raw).expanduser())
+
+    bundled = bundled_helper_path()
+    install = helper_install_path()
+    path_candidate = shutil.which(HELPER_NAME)
+    path_path = Path(path_candidate) if path_candidate else None
+
+    for p in (bundled, install, path_path):
+        if p is not None and p not in candidates:
+            candidates.append(p)
+    return candidates
+
+
+def icloud_helper_binary_path() -> Path | None:
+    """First helper executable in search order that carries iCloud Keychain entitlements."""
+    for candidate in _ordered_helper_candidates():
+        if candidate.exists() and os.access(candidate, os.X_OK):
+            if helper_has_icloud_entitlements(path=candidate):
+                return candidate
+    return None
 
 
 def icloud_backend_available() -> bool:
-    return helper_installed()
+    return icloud_helper_binary_path() is not None
 
 
 def icloud_backend_error() -> str:
     return (
-        "iCloud backend requires the native helper. "
-        "Run `seckit helper install-local` first."
+        "iCloud backend requires the native helper signed with synchronizable Keychain entitlements. "
+        "Install a macOS wheel that bundles seckit-keychain-helper, or set SECKIT_HELPER_PATH to a "
+        "suitably entitled binary (see docs/ICLOUD_SYNC_VALIDATION.md)."
     )
 
 
 def helper_status() -> Dict[str, Any]:
-    helper_path = local_helper_binary_path()
-    source_dir = helper_source_dir()
-    swift_path = swift_binary_path()
-    lipo_path = lipo_binary_path()
+    """Summarize iCloud helper resolution for ``seckit helper status``.
+
+    ``helper.installed`` / ``helper.path`` refer to the entitled Mach-O used for
+    ``--backend icloud-helper`` only. ``--backend secure`` does not use this binary.
+    """
+    bundled = bundled_helper_path()
+    path = icloud_helper_binary_path()
+    icloud_ready = path is not None
+    helper_block: Dict[str, Any] = {
+        "installed": icloud_ready,
+        "path": str(path) if path else None,
+        "bundled_path": str(bundled) if bundled else None,
+    }
     return {
         "backend_availability": {
+            "secure": True,
+            "icloud-helper": icloud_ready,
             "local": True,
-            "icloud": helper_path is not None,
+            "icloud": icloud_ready,
         },
-        "helper": {
-            "helper_installed": helper_path is not None,
-            "path": str(helper_path) if helper_path else None,
-            "source_dir": str(source_dir),
-            "source_available": source_dir.exists(),
-        },
-        "swift_available": swift_path is not None,
-        "swift_path": swift_path,
-        "lipo_available": lipo_path is not None,
-        "lipo_path": lipo_path,
+        "helper": helper_block,
     }
 
 
 def run_helper_request(*, payload: Dict[str, Any]) -> Dict[str, Any]:
-    helper = local_helper_binary_path()
+    backend = str(payload.get("backend", "local"))
+    if backend not in {"icloud", "icloud-helper"}:
+        raise NativeHelperError(
+            "internal error: native helper expects synchronizable-backend payload (wire backend icloud); "
+            "secure/local uses the security CLI only"
+        )
+    helper = icloud_helper_binary_path()
     if helper is None:
         raise NativeHelperError(icloud_backend_error())
     proc = subprocess.run(
@@ -108,57 +140,84 @@ def run_helper_request(*, payload: Dict[str, Any]) -> Dict[str, Any]:
         text=True,
         check=False,
     )
-    if proc.returncode != 0:
-        stderr = (proc.stderr or "").strip()
-        raise NativeHelperError(stderr or f"helper failed with exit code {proc.returncode}")
     raw = (proc.stdout or "").strip()
     if not raw:
+        if proc.returncode != 0:
+            stderr = (proc.stderr or "").strip()
+            raise NativeHelperError(stderr or _returncode_message(returncode=proc.returncode))
         return {}
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise NativeHelperError(f"helper returned invalid json: {exc}") from exc
+        stderr = (proc.stderr or "").strip()
+        detail = f"helper returned invalid json: {exc}"
+        if proc.returncode != 0:
+            detail = f"{_returncode_message(returncode=proc.returncode)}; {detail}"
+        if stderr:
+            detail = f"{detail}; stderr: {stderr}"
+        raise NativeHelperError(detail) from exc
     if not isinstance(data, dict):
         raise NativeHelperError("helper returned non-object json")
     if data.get("ok") is False:
         raise NativeHelperError(str(data.get("error", "helper request failed")))
+    if proc.returncode != 0:
+        stderr = (proc.stderr or "").strip()
+        raise NativeHelperError(stderr or _returncode_message(returncode=proc.returncode))
     return data
 
 
-def _run_checked(cmd: list[str]) -> None:
-    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    if proc.returncode != 0:
-        stderr = (proc.stderr or "").strip()
-        raise NativeHelperError(stderr or f"command failed: {' '.join(cmd)}")
+def helper_entitlements(*, path: Path) -> Dict[str, Any]:
+    codesign = shutil.which("codesign")
+    if not codesign:
+        return {}
+    proc = subprocess.run(
+        [codesign, "-d", "--entitlements", "-", str(path)],
+        capture_output=True,
+        check=False,
+    )
+    if proc.returncode != 0 or not proc.stdout:
+        return {}
+    try:
+        data = plistlib.loads(proc.stdout)
+    except Exception:
+        return _parse_codesign_entitlements_text(raw=proc.stdout)
+    return data if isinstance(data, dict) else {}
 
 
-def build_and_install_helper() -> Path:
-    if sys.platform != "darwin":
-        raise NativeHelperError("native helper can only be built on macOS")
-    source_dir = helper_source_dir()
-    if not source_dir.exists():
-        raise NativeHelperError(f"native helper source not found: {source_dir}")
-    swift = swift_binary_path()
-    if not swift:
-        raise NativeHelperError("Swift toolchain not found")
-    lipo = lipo_binary_path()
-    if not lipo:
-        raise NativeHelperError("lipo tool not found")
+def _parse_codesign_entitlements_text(*, raw: bytes) -> Dict[str, Any]:
+    text = raw.decode("utf-8", errors="replace")
+    result: Dict[str, Any] = {}
+    current_key: str | None = None
+    collecting_array = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[Key] "):
+            current_key = stripped.split("] ", 1)[1]
+            collecting_array = False
+            continue
+        if current_key is None:
+            continue
+        if stripped == "[Array]":
+            result[current_key] = []
+            collecting_array = True
+            continue
+        if stripped.startswith("[String] "):
+            value = stripped.split("] ", 1)[1]
+            if collecting_array:
+                values = result.setdefault(current_key, [])
+                if isinstance(values, list):
+                    values.append(value)
+            else:
+                result[current_key] = value
+    return result
 
-    _run_checked([swift, "build", "--package-path", str(source_dir), "-c", "release", "--arch", "arm64"])
-    _run_checked([swift, "build", "--package-path", str(source_dir), "-c", "release", "--arch", "x86_64"])
 
-    arm64_binary = source_dir / ".build" / "arm64-apple-macosx" / "release" / HELPER_NAME
-    x86_binary = source_dir / ".build" / "x86_64-apple-macosx" / "release" / HELPER_NAME
-    universal_binary = source_dir / ".build" / f"{HELPER_NAME}-universal"
-    _run_checked([lipo, "-create", str(arm64_binary), str(x86_binary), "-output", str(universal_binary)])
-
-    target = helper_install_path()
-    target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(universal_binary, target)
-    target.chmod(0o755)
-    return target
-
-
-def build_and_install_local_helper() -> Path:
-    return build_and_install_helper()
+def helper_has_icloud_entitlements(*, path: Path) -> bool:
+    entitlements = helper_entitlements(path=path)
+    access_groups = entitlements.get("keychain-access-groups")
+    return bool(
+        entitlements.get("com.apple.application-identifier")
+        and entitlements.get("com.apple.developer.team-identifier")
+        and isinstance(access_groups, list)
+        and access_groups
+    )

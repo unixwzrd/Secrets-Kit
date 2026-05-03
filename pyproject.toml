@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "seckit"
-version = "1.1.0"
+version = "1.2.0"
 description = "Local macOS CLI for handling secrets and PII without leaving them scattered in plain-text files"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -12,10 +12,6 @@ license = "MIT"
 authors = [{ name = "unixwzrd", email = "unixwzrd@unixwzrd.ai" }]
 dependencies = [
   "cryptography>=42.0.0",
-]
-
-[project.optional-dependencies]
-yaml = [
   "PyYAML>=6.0",
 ]
 
@@ -31,6 +27,7 @@ secrets_kit = [
   "native_helper_src/Package.swift",
   "native_helper_src/Sources/**/*.swift",
   "native_helper_src/Tests/**/*.swift",
+  "native_helper_bundled/*",
 ]
 
 [tool.setuptools.packages.find]

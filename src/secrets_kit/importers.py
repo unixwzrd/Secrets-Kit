@@ -6,6 +6,8 @@ from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
+
+import yaml
 from typing import Dict, List, Optional
 
 from secrets_kit.models import (
@@ -133,10 +135,6 @@ def candidates_from_file(
     if chosen == "json":
         payload = json.loads(text)
     else:
-        try:
-            import yaml  # type: ignore
-        except ModuleNotFoundError as exc:
-            raise ValueError("YAML support requires PyYAML (pip install pyyaml)") from exc
         payload = yaml.safe_load(text)
     if not isinstance(payload, list):
         raise ValueError("input file must contain a list of objects")

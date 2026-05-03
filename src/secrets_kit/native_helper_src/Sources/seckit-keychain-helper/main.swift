@@ -47,6 +47,23 @@ func serviceName(_ payload: [String: Any]) throws -> String {
     return "\(service):\(name)"
 }
 
+/// First Keychain access group from this binary's code signature (matches embedded entitlements).
+func keychainAccessGroupFromSelf() -> String? {
+    guard let task = SecTaskCreateFromSelf(nil) else {
+        return nil
+    }
+    guard let raw = SecTaskCopyValueForEntitlement(task, "keychain-access-groups" as CFString, nil) else {
+        return nil
+    }
+    if let arr = raw as? [Any], let first = arr.first as? String, !first.isEmpty {
+        return first
+    }
+    if let single = raw as? String, !single.isEmpty {
+        return single
+    }
+    return nil
+}
+
 func baseQuery(_ payload: [String: Any]) throws -> [String: Any] {
     let backend = (payload["backend"] as? String) ?? "local"
     var query: [String: Any] = [
@@ -54,8 +71,11 @@ func baseQuery(_ payload: [String: Any]) throws -> [String: Any] {
         kSecAttrService as String: try serviceName(payload),
         kSecAttrAccount as String: try requiredString(payload, "account")
     ]
-    if backend == "icloud" {
+    if backend == "icloud" || backend == "icloud-helper" {
         query[kSecAttrSynchronizable as String] = kCFBooleanTrue
+        if let group = keychainAccessGroupFromSelf() {
+            query[kSecAttrAccessGroup as String] = group
+        }
     }
     return query
 }
@@ -142,10 +162,26 @@ func deleteSecret(_ payload: [String: Any]) throws -> [String: Any] {
     return ["ok": true]
 }
 
+/// No Keychain I/O: process runs and reads signing entitlements only (diagnostics / AMFI).
+func selftestEntitlements() -> [String: Any] {
+    var payload: [String: Any] = [
+        "ok": true,
+        "selftest": true,
+    ]
+    if let group = keychainAccessGroupFromSelf() {
+        payload["keychain_access_group"] = group
+    } else {
+        payload["keychain_access_group"] = NSNull()
+    }
+    return payload
+}
+
 do {
     let payload = try readPayload()
     let command = try requiredString(payload, "command")
     switch command {
+    case "selftest":
+        emit(selftestEntitlements())
     case "set":
         emit(try setSecret(payload))
     case "get":

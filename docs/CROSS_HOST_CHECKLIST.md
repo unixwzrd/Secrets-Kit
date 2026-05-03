@@ -124,41 +124,33 @@ Use this checklist in two passes:
   bash ./scripts/seckit_cross_host_transport_localhost.sh --service sync-test --account local
   ```
 
-## D. Helper install and backend selection
+## D. Helper status and backend selection
 
-- [ ] Check that `seckit helper status` reports missing helper before install
+- [ ] Check that `seckit helper status` reports the bundled helper when installed from a **macOS wheel**
   ```bash
   cd /path/to/secrets-kit
   seckit helper status
   ```
-- [ ] Check that `seckit helper install-local` detects Swift/Xcode tools and builds the unsigned universal local helper
+  Expect **`helper.bundled_path`** set and **`helper.path`** pointing at an executable when the wheel ships the binary.
+- [ ] If **`backend_availability.icloud`** is false, install a wheel built with **iCloud entitlements** (see [GITHUB_RELEASE_BUILD.md](GITHUB_RELEASE_BUILD.md)) or set **`SECKIT_HELPER_PATH`** to an entitled `seckit-keychain-helper`.
+- [ ] Maintainer-only: build the bundled Mach-O before packaging
   ```bash
   cd /path/to/secrets-kit
-  seckit helper install-local
-  ```
-- [ ] Check that the local helper builds into the active Python environment
-  ```bash
-  cd /path/to/secrets-kit
-  seckit helper status
-  ```
-- [ ] Optionally confirm the compatibility alias `seckit helper install-icloud` still routes to the standard helper install flow
-  ```bash
-  cd /path/to/secrets-kit
-  seckit helper install-icloud
+  bash scripts/build_bundled_helper_for_wheel.sh
   ```
 - [ ] Check that `seckit helper status` reports helper state and backend availability
   ```bash
   cd /path/to/secrets-kit
   seckit helper status
   ```
-- [ ] Check that `seckit set/get/explain --backend local` still work after helper install
+- [ ] Check that `seckit set/get/explain --backend local` still work (disposable keychain or login keychain per your checklist section)
   ```bash
   cd /path/to/secrets-kit
   printf 'alpha-1\n' | seckit set --backend local --keychain /tmp/seckit-sync-source.keychain-db --name SECKIT_TEST_ALPHA --stdin --service sync-test --account local --kind generic --comment "local backend helper check"
   seckit get --backend local --keychain /tmp/seckit-sync-source.keychain-db --name SECKIT_TEST_ALPHA --service sync-test --account local --raw
   seckit explain --backend local --keychain /tmp/seckit-sync-source.keychain-db --name SECKIT_TEST_ALPHA --service sync-test --account local
   ```
-- [ ] Check that `seckit set/get/explain --backend icloud` use the installed helper
+- [ ] Check that `seckit set/get/explain --backend icloud` use the entitled helper
   ```bash
   cd /path/to/secrets-kit
   printf 'alpha-icloud\n' | seckit set --backend icloud --name SECKIT_TEST_ALPHA --stdin --service sync-test --account local --kind generic --comment "icloud backend helper check"

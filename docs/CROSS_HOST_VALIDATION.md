@@ -12,7 +12,7 @@ The disposable-keychain track is the regression target. The login-keychain track
 1. run local regression tests
 2. run direct disposable-keychain import/export
 3. optionally run the same disposable-keychain flow through `ssh localhost`
-4. once available, run helper install and backend-selection checks
+4. once available, run helper status and backend-selection checks
 5. only then run manual login-keychain and iCloud checks
 
 ## Preconditions

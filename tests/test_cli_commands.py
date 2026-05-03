@@ -9,14 +9,49 @@ import unittest
 from unittest import mock
 from contextlib import redirect_stdout, redirect_stderr
 
-from secrets_kit.cli import _apply_defaults, _read_password, build_parser, cmd_delete, cmd_doctor, cmd_get, cmd_helper_install_icloud, cmd_helper_install_local, cmd_helper_status, cmd_import_env, cmd_lock, cmd_run, cmd_service_copy, cmd_set
+from secrets_kit.cli import (
+    _apply_defaults,
+    _read_password,
+    build_parser,
+    cmd_config_path,
+    cmd_config_set,
+    cmd_config_show,
+    cmd_config_unset,
+    cmd_delete,
+    cmd_doctor,
+    cmd_get,
+    cmd_helper_status,
+    cmd_import_env,
+    cmd_lock,
+    cmd_run,
+    cmd_service_copy,
+    cmd_set,
+)
 
 
 class CliCommandsTest(unittest.TestCase):
     def test_parser_has_expected_commands(self) -> None:
         parser = build_parser()
         commands = parser._subparsers._group_actions[0].choices.keys()  # type: ignore[attr-defined]
-        for expected in {"set", "get", "list", "explain", "delete", "import", "export", "run", "service", "doctor", "migrate", "lock", "unlock", "keychain-status", "helper"}:
+        for expected in {
+            "set",
+            "get",
+            "list",
+            "explain",
+            "delete",
+            "import",
+            "export",
+            "run",
+            "service",
+            "doctor",
+            "migrate",
+            "lock",
+            "unlock",
+            "keychain-status",
+            "helper",
+            "config",
+            "version",
+        }:
             self.assertIn(expected, commands)
 
     def test_run_parser_preserves_separator_and_command(self) -> None:
@@ -54,6 +89,49 @@ class CliCommandsTest(unittest.TestCase):
         self.assertEqual(args.from_service, "OpenClaw")
         self.assertEqual(args.to_service, "Hermes")
 
+    def test_config_parser_routes_subcommands(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["config", "set", "backend", "icloud"])
+        self.assertEqual(args.command, "config")
+        self.assertEqual(args.config_command, "set")
+        self.assertEqual(args.key, "backend")
+        self.assertEqual(args.value, "icloud")
+
+    def test_config_set_writes_defaults_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            with mock.patch.object(Path, "home", return_value=home):
+                code = cmd_config_set(args=argparse.Namespace(key="backend", value="icloud"))
+                self.assertEqual(code, 0)
+                dpath = home / ".config" / "seckit" / "defaults.json"
+                payload = json.loads(dpath.read_text(encoding="utf-8"))
+                self.assertEqual(payload.get("backend"), "icloud-helper")
+
+    def test_config_set_rejects_invalid_backend(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(Path, "home", return_value=Path(tmp)):
+                code = cmd_config_set(args=argparse.Namespace(key="backend", value="nosuch"))
+        self.assertEqual(code, 1)
+
+    def test_config_unset_removes_key(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            with mock.patch.object(Path, "home", return_value=home):
+                self.assertEqual(cmd_config_set(args=argparse.Namespace(key="service", value="my-svc")), 0)
+                self.assertEqual(cmd_config_unset(args=argparse.Namespace(key="service")), 0)
+                dpath = home / ".config" / "seckit" / "defaults.json"
+                payload = json.loads(dpath.read_text(encoding="utf-8"))
+                self.assertNotIn("service", payload)
+
+    def test_config_path_prints_file(self) -> None:
+        out = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            with mock.patch.object(Path, "home", return_value=home), redirect_stdout(out):
+                code = cmd_config_path(args=argparse.Namespace())
+        self.assertEqual(code, 0)
+        self.assertIn(str(home), out.getvalue())
+
     def test_kind_flags_parse(self) -> None:
         parser = build_parser()
         args = parser.parse_args(["set", "--name", "OPENAI_API_KEY", "--value", "x", "--kind", "token"])
@@ -85,7 +163,8 @@ class CliCommandsTest(unittest.TestCase):
 
             out = io.StringIO()
             err = io.StringIO()
-            with mock.patch("secrets_kit.cli.check_security_cli", return_value=True), \
+            with mock.patch.object(Path, "home", return_value=Path(tmp)), \
+                mock.patch("secrets_kit.cli.check_security_cli", return_value=True), \
                 mock.patch("secrets_kit.cli.ensure_registry_storage", return_value=f"{tmp}/registry.json"), \
                 mock.patch("secrets_kit.cli.doctor_roundtrip", return_value=None), \
                 mock.patch("secrets_kit.cli.load_registry") as load_registry_mock, \
@@ -176,7 +255,7 @@ class CliCommandsTest(unittest.TestCase):
             self.assertEqual(args.kind, "api_key")
             self.assertEqual(args.rotation_days, 90)
             self.assertEqual(args.rotation_warn_days, 14)
-            self.assertEqual(args.backend, "icloud")
+            self.assertEqual(args.backend, "icloud-helper")
 
     def test_apply_defaults_rejects_icloud_with_keychain(self) -> None:
         args = argparse.Namespace(
@@ -192,8 +271,10 @@ class CliCommandsTest(unittest.TestCase):
             backend="icloud",
             keychain="/tmp/test.keychain-db",
         )
-        with self.assertRaisesRegex(Exception, "--keychain is only supported with --backend local"):
-            _apply_defaults(args=args)
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(Path, "home", return_value=Path(tmp)):
+                with self.assertRaisesRegex(Exception, "--keychain is only supported with --backend secure"):
+                    _apply_defaults(args=args)
 
     def test_apply_defaults_rejects_icloud_without_helper(self) -> None:
         args = argparse.Namespace(
@@ -209,10 +290,12 @@ class CliCommandsTest(unittest.TestCase):
             backend="icloud",
             keychain=None,
         )
-        with mock.patch("secrets_kit.cli.icloud_backend_available", return_value=False), \
-            mock.patch("secrets_kit.cli.icloud_backend_error", return_value="Run `seckit helper install-local`"):
-            with self.assertRaisesRegex(Exception, "install-local"):
-                _apply_defaults(args=args)
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(Path, "home", return_value=Path(tmp)), \
+                mock.patch("secrets_kit.cli.icloud_backend_available", return_value=False), \
+                mock.patch("secrets_kit.cli.icloud_backend_error", return_value="Use a macOS wheel with the bundled helper"):
+                with self.assertRaisesRegex(Exception, "macOS wheel"):
+                    _apply_defaults(args=args)
 
     def test_account_defaults_to_current_user(self) -> None:
         args = argparse.Namespace(
@@ -228,8 +311,10 @@ class CliCommandsTest(unittest.TestCase):
             backend="local",
             keychain=None,
         )
-        with mock.patch("getpass.getuser", return_value="miafour"):
-            _apply_defaults(args=args)
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(Path, "home", return_value=Path(tmp)), \
+                mock.patch("getpass.getuser", return_value="miafour"):
+                _apply_defaults(args=args)
         self.assertEqual(args.account, "miafour")
 
     def test_read_password_uses_custom_prompt(self) -> None:
@@ -585,25 +670,6 @@ class CliCommandsTest(unittest.TestCase):
             code = cmd_helper_status(args=argparse.Namespace())
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(out.getvalue()), payload)
-
-    def test_helper_install_local_reports_install(self) -> None:
-        out = io.StringIO()
-        with mock.patch("secrets_kit.cli.build_and_install_local_helper", return_value=Path("/tmp/seckit-keychain-helper")), \
-            mock.patch("secrets_kit.cli.helper_status", return_value={"backend_availability": {"local": True, "icloud": True}}), \
-            redirect_stdout(out):
-            code = cmd_helper_install_local(args=argparse.Namespace())
-        self.assertEqual(code, 0)
-        self.assertIn("installed local helper: /tmp/seckit-keychain-helper", out.getvalue())
-
-    def test_helper_install_icloud_aliases_standard_install(self) -> None:
-        out = io.StringIO()
-        with mock.patch("secrets_kit.cli.build_and_install_local_helper", return_value=Path("/tmp/seckit-keychain-helper")), \
-            mock.patch("secrets_kit.cli.helper_status", return_value={"backend_availability": {"local": True, "icloud": True}}), \
-            redirect_stdout(out):
-            code = cmd_helper_install_icloud(args=argparse.Namespace())
-        self.assertEqual(code, 0)
-        self.assertIn("alias for the standard helper install", out.getvalue())
-        self.assertIn("installed local helper: /tmp/seckit-keychain-helper", out.getvalue())
 
 
 if __name__ == "__main__":

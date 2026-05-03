@@ -135,24 +135,24 @@ SecretStore
 
 Initial backends:
 
-- `SecurityCliStore`: wraps the macOS `security` command for local keychain access and disposable test keychains.
-- `NativeKeychainStore`: calls the native helper for local and iCloud/synchronizable Keychain items.
+- `SecurityCliStore`: wraps the macOS `security` command for local keychain access and disposable test keychains (**`--backend secure`**, alias **`local`**).
+- `NativeKeychainStore`: native helper JSON IPC for **`--backend icloud-helper`** (alias **`icloud`**) only; **`--backend secure`** uses `SecurityCliStore` (`security` CLI).
 - Future `PgpStore` or similar: can implement the same interface without changing `seckit run`.
 
 Backend selection should remain:
 
 ```bash
---backend local
---backend icloud
+--backend secure        # alias: local — fully local Keychain via `security`
+--backend icloud-helper # alias: icloud — synchronizable items via entitled helper
 --keychain /tmp/test.keychain-db
 ```
 
 Rules:
 
-- `--backend local` can use `security` CLI by default.
-- `--backend local --keychain <path>` must continue to use disposable keychain files for tests.
-- `--backend icloud` must require the native helper.
-- `--backend icloud --keychain <path>` must fail clearly because custom keychain files are local-only.
+- `--backend secure` uses `security` CLI by default (alias: `local`).
+- `--backend secure --keychain <path>` must continue to use disposable keychain files for tests.
+- `--backend icloud-helper` must require the native helper (alias: `icloud`).
+- `--backend icloud-helper --keychain <path>` must fail clearly because custom keychain files are local-only.
 
 ## iCloud Keychain Notes
 

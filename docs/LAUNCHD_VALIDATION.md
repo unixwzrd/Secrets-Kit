@@ -59,6 +59,19 @@ This mode proves the LaunchAgent runs in `gui/$UID` and reads:
 
 This is not the right model for unattended post-logout or post-reboot services.
 
+### launchd with iCloud Keychain (`--backend icloud-helper`)
+
+When the entitled helper is installed (`seckit helper status` → `backend_availability.icloud-helper: true`), you can prove `seckit run` under launchd loads synchronizable items the same way as in an interactive shell. **Only `login-agent` mode is supported** (user must be logged in with iCloud Keychain available).
+
+```bash
+./scripts/seckit_launchd_smoke.sh --mode login-agent --backend icloud-helper
+# or: SECKIT_LAUNCHD_BACKEND=icloud-helper ./scripts/seckit_launchd_smoke.sh --mode login-agent
+```
+
+Canonical CLI names are **`secure`** (local `security` CLI; alias `local`) and **`icloud-helper`** (alias `icloud`). The smoke script accepts both.
+
+Automated coverage (macOS only): set `SECKIT_RUN_LAUNCHD_TESTS=1` and `SECKIT_RUN_LAUNCHD_ICLOUD_TESTS=1` and run `tests.test_launchd_run_flow` (skips if the helper is missing).
+
 ## Mode 2: Dedicated Service Keychain LaunchAgent
 
 Use this when a user installs a service while logged in and the service may need to keep running after logout during the same boot.

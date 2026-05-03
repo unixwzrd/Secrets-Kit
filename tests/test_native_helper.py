@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,66 +7,149 @@ from unittest import mock
 
 from secrets_kit.native_helper import (
     NativeHelperError,
-    build_and_install_helper,
+    bundled_helper_path,
+    helper_has_icloud_entitlements,
     helper_status,
     icloud_backend_available,
+    icloud_helper_binary_path,
     run_helper_request,
 )
 
 
 class NativeHelperTest(unittest.TestCase):
     def test_helper_status_reports_missing_helper(self) -> None:
-        with mock.patch("secrets_kit.native_helper.local_helper_binary_path", return_value=None), \
-            mock.patch("secrets_kit.native_helper.swift_binary_path", return_value=None):
+        with mock.patch("secrets_kit.native_helper.icloud_helper_binary_path", return_value=None), \
+            mock.patch("secrets_kit.native_helper.bundled_helper_path", return_value=None):
             status = helper_status()
-        self.assertFalse(status["helper"]["helper_installed"])
+        self.assertFalse(status["helper"]["installed"])
+        self.assertIsNone(status["helper"]["bundled_path"])
+        self.assertTrue(status["backend_availability"]["secure"])
+        self.assertFalse(status["backend_availability"]["icloud-helper"])
         self.assertFalse(status["backend_availability"]["icloud"])
-        self.assertFalse(status["swift_available"])
+        self.assertTrue(status["backend_availability"]["local"])
+
+    def test_bundled_helper_path_is_none_off_darwin(self) -> None:
+        with mock.patch("sys.platform", "linux"):
+            self.assertIsNone(bundled_helper_path())
+
+    def test_icloud_resolution_prefers_bundled_over_venv_bin(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            install = Path(tmp) / "bin" / "seckit-keychain-helper"
+            bundled = Path(tmp) / "bundled" / "seckit-keychain-helper"
+            install.parent.mkdir(parents=True)
+            bundled.parent.mkdir(parents=True)
+            install.write_bytes(b"\n")
+            bundled.write_bytes(b"\n")
+            install.chmod(0o755)
+            bundled.chmod(0o755)
+            with mock.patch("secrets_kit.native_helper.helper_install_path", return_value=install), \
+                mock.patch("secrets_kit.native_helper.bundled_helper_path", return_value=bundled), \
+                mock.patch("secrets_kit.native_helper.helper_has_icloud_entitlements", return_value=True), \
+                mock.patch("secrets_kit.native_helper.shutil.which", return_value=None):
+                resolved = icloud_helper_binary_path()
+        self.assertEqual(resolved, bundled)
+
+    def test_helper_status_includes_bundled_path_when_present(self) -> None:
+        fake = Path("/tmp/bundled/seckit-keychain-helper")
+        with mock.patch("secrets_kit.native_helper.bundled_helper_path", return_value=fake), \
+            mock.patch("secrets_kit.native_helper.icloud_helper_binary_path", return_value=fake):
+            status = helper_status()
+        self.assertEqual(status["helper"]["bundled_path"], str(fake))
+        self.assertTrue(status["helper"]["installed"])
+        self.assertEqual(status["helper"]["path"], str(fake))
 
     def test_icloud_backend_available_false_without_helper(self) -> None:
-        with mock.patch("secrets_kit.native_helper.local_helper_binary_path", return_value=None):
+        with mock.patch("secrets_kit.native_helper.icloud_helper_binary_path", return_value=None):
             self.assertFalse(icloud_backend_available())
 
-    def test_icloud_backend_available_true_with_helper(self) -> None:
-        with mock.patch("secrets_kit.native_helper.local_helper_binary_path", return_value=Path("/tmp/seckit-keychain-helper")):
+    def test_icloud_backend_available_true_with_entitled_helper(self) -> None:
+        with mock.patch(
+            "secrets_kit.native_helper.icloud_helper_binary_path",
+            return_value=Path("/tmp/seckit-keychain-helper"),
+        ):
             self.assertTrue(icloud_backend_available())
 
+    def test_helper_has_icloud_entitlements_requires_keychain_group(self) -> None:
+        with mock.patch(
+            "secrets_kit.native_helper.helper_entitlements",
+            return_value={
+                "com.apple.application-identifier": "TEAMID.com.unixwzrd.seckit.keychain-helper",
+                "com.apple.developer.team-identifier": "TEAMID",
+                "keychain-access-groups": ["TEAMID.com.unixwzrd.seckit.keychain-helper"],
+            },
+        ):
+            self.assertTrue(helper_has_icloud_entitlements(path=Path("/tmp/helper")))
+
+    def test_helper_entitlement_inspection_uses_non_deprecated_codesign_output_path(self) -> None:
+        proc = mock.Mock(
+            returncode=0,
+            stdout=b'<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict></dict></plist>',
+        )
+        with mock.patch("secrets_kit.native_helper.shutil.which", return_value="/usr/bin/codesign"), \
+            mock.patch("subprocess.run", return_value=proc) as run_mock:
+            from secrets_kit.native_helper import helper_entitlements
+
+            helper_entitlements(path=Path("/tmp/helper"))
+        self.assertEqual(run_mock.call_args.args[0], ["/usr/bin/codesign", "-d", "--entitlements", "-", "/tmp/helper"])
+
+    def test_helper_entitlement_inspection_parses_codesign_text_output(self) -> None:
+        proc = mock.Mock(
+            returncode=0,
+            stdout=(
+                b"[Dict]\n"
+                b"        [Key] com.apple.application-identifier\n"
+                b"        [Value]\n"
+                b"                [String] SECKITSELF.com.unixwzrd.seckit.keychain-helper\n"
+                b"        [Key] com.apple.developer.team-identifier\n"
+                b"        [Value]\n"
+                b"                [String] SECKITSELF\n"
+                b"        [Key] keychain-access-groups\n"
+                b"        [Value]\n"
+                b"                [Array]\n"
+                b"                        [String] SECKITSELF.com.unixwzrd.seckit.keychain-helper\n"
+            ),
+        )
+        with mock.patch("secrets_kit.native_helper.shutil.which", return_value="/usr/bin/codesign"), \
+            mock.patch("subprocess.run", return_value=proc):
+            from secrets_kit.native_helper import helper_entitlements
+
+            entitlements = helper_entitlements(path=Path("/tmp/helper"))
+        self.assertEqual(entitlements["com.apple.developer.team-identifier"], "SECKITSELF")
+        self.assertEqual(entitlements["keychain-access-groups"], ["SECKITSELF.com.unixwzrd.seckit.keychain-helper"])
+
     def test_run_helper_request_requires_installed_helper(self) -> None:
-        with mock.patch("secrets_kit.native_helper.local_helper_binary_path", return_value=None):
-            with self.assertRaisesRegex(NativeHelperError, "install-local"):
-                run_helper_request(payload={"command": "exists"})
+        with mock.patch("secrets_kit.native_helper.icloud_helper_binary_path", return_value=None):
+            with self.assertRaisesRegex(NativeHelperError, "iCloud backend requires"):
+                run_helper_request(payload={"command": "exists", "backend": "icloud"})
 
-    def test_build_and_install_helper_copies_binary(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            source_dir = root / "src"
-            arm64_dir = source_dir / ".build" / "arm64-apple-macosx" / "release"
-            x86_dir = source_dir / ".build" / "x86_64-apple-macosx" / "release"
-            arm64_dir.mkdir(parents=True, exist_ok=True)
-            x86_dir.mkdir(parents=True, exist_ok=True)
-            (arm64_dir / "seckit-keychain-helper").write_text("arm64-binary", encoding="utf-8")
-            (x86_dir / "seckit-keychain-helper").write_text("x86-binary", encoding="utf-8")
-            universal_binary = source_dir / ".build" / "seckit-keychain-helper-universal"
-            install_dir = root / "bin"
-            install_dir.mkdir(parents=True, exist_ok=True)
-            with mock.patch("sys.platform", "darwin"), \
-                mock.patch("secrets_kit.native_helper.helper_source_dir", return_value=source_dir), \
-                mock.patch("secrets_kit.native_helper.swift_binary_path", return_value="/usr/bin/swift"), \
-                mock.patch("secrets_kit.native_helper.lipo_binary_path", return_value="/usr/bin/lipo"), \
-                mock.patch("secrets_kit.native_helper.helper_install_path", return_value=install_dir / "seckit-keychain-helper"), \
-                mock.patch("subprocess.run") as run_mock:
-                def fake_run(cmd, capture_output=True, text=True, check=False):
-                    if cmd[:2] == ["/usr/bin/swift", "build"]:
-                        return mock.Mock(returncode=0, stderr="", stdout="")
-                    if cmd[:2] == ["/usr/bin/lipo", "-create"]:
-                        universal_binary.write_text("universal-binary", encoding="utf-8")
-                        return mock.Mock(returncode=0, stderr="", stdout="")
-                    return mock.Mock(returncode=0, stderr="", stdout="")
+    def test_run_helper_request_rejects_local_backend_payload(self) -> None:
+        with self.assertRaisesRegex(NativeHelperError, "security CLI only"):
+            run_helper_request(payload={"command": "exists", "backend": "local"})
 
-                run_mock.side_effect = fake_run
-                target = build_and_install_helper()
-            self.assertTrue(target.exists())
-            self.assertEqual(target.read_text(encoding="utf-8"), "universal-binary")
+    def test_run_helper_request_reports_json_error_on_nonzero_exit(self) -> None:
+        proc = mock.Mock(
+            returncode=1,
+            stdout='{"ok":false,"error":"set failed: Missing entitlement (-34018)"}\n',
+            stderr="",
+        )
+        with mock.patch("secrets_kit.native_helper.icloud_helper_binary_path", return_value=Path("/tmp/helper")), \
+            mock.patch("subprocess.run", return_value=proc):
+            with self.assertRaisesRegex(NativeHelperError, "Missing entitlement"):
+                run_helper_request(payload={"command": "set", "backend": "icloud"})
+
+    def test_run_helper_request_reports_stderr_on_nonzero_without_json(self) -> None:
+        proc = mock.Mock(returncode=1, stdout="", stderr="boom")
+        with mock.patch("secrets_kit.native_helper.icloud_helper_binary_path", return_value=Path("/tmp/helper")), \
+            mock.patch("subprocess.run", return_value=proc):
+            with self.assertRaisesRegex(NativeHelperError, "boom"):
+                run_helper_request(payload={"command": "set", "backend": "icloud"})
+
+    def test_run_helper_request_reports_signal_termination(self) -> None:
+        proc = mock.Mock(returncode=-9, stdout="", stderr="")
+        with mock.patch("secrets_kit.native_helper.icloud_helper_binary_path", return_value=Path("/tmp/helper")), \
+            mock.patch("subprocess.run", return_value=proc):
+            with self.assertRaisesRegex(NativeHelperError, "SIGKILL"):
+                run_helper_request(payload={"command": "set", "backend": "icloud"})
 
 
 if __name__ == "__main__":

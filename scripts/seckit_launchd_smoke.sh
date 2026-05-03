@@ -5,9 +5,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 MODE="login-agent"
+BACKEND="${SECKIT_LAUNCHD_BACKEND:-secure}"
 CURRENT_USER="$(id -un)"
 CURRENT_UID="$(id -u)"
-USER_HOME="$(dscl . -read "/Users/${CURRENT_USER}" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
+USER_HOME="$( (dscl . -read "/Users/${CURRENT_USER}" NFSHomeDirectory 2>/dev/null || true) | awk '{print $2}' )"
 USER_HOME="${USER_HOME:-$HOME}"
 
 SERVICE="launchd-smoke"
@@ -27,7 +28,7 @@ EXPECTED_VALUE=""
 usage() {
   cat <<'EOF'
 Usage:
-  seckit_launchd_smoke.sh [--mode MODE] [--setup-only] [--cleanup] [--keep] [--unlock]
+  seckit_launchd_smoke.sh [--mode MODE] [--backend ID] [--setup-only] [--cleanup] [--keep] [--unlock]
                            [--use-existing] [--service SERVICE] [--account ACCOUNT]
                            [--name NAME] [--expected VALUE]
 
@@ -49,6 +50,8 @@ environment variable and writes proof JSON.
 Options:
   --mode MODE    login-agent, service-agent, or service-daemon (default: login-agent)
   --use-existing use an existing Secrets-Kit item instead of creating a test item
+  --backend ID    secure|icloud-helper (aliases: local|icloud); default: secure or SECKIT_LAUNCHD_BACKEND.
+                  icloud-helper only with --mode login-agent (user GUI session + entitled helper).
   --service NAME service scope for the test item (default: launchd-smoke)
   --account NAME account scope for the test item (default: current user)
   --name NAME    secret/env name to inject (default: SECKIT_TEST_ENV)
@@ -62,6 +65,7 @@ Options:
 Environment overrides:
   SECKIT_BIN=/path/to/seckit
   PYTHON_BIN=/path/to/python
+  SECKIT_LAUNCHD_BACKEND=secure|icloud-helper|local|icloud
 
 Existing login-keychain item example:
   ./scripts/seckit_launchd_smoke.sh --use-existing --service hermes --name TELEGRAM_BOT_TOKEN
@@ -80,10 +84,22 @@ while [[ $# -gt 0 ]]; do
     --account) ACCOUNT="${2:-}"; shift 2 ;;
     --name) NAME="${2:-}"; shift 2 ;;
     --expected) EXPECTED_VALUE="${2:-}"; shift 2 ;;
+    --backend) BACKEND="${2:-}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown argument: $1" >&2; usage; exit 2 ;;
   esac
 done
+
+case "$BACKEND" in
+  local|secure) BACKEND="secure" ;;
+  icloud|icloud-helper) BACKEND="icloud-helper" ;;
+  *) echo "unsupported --backend: $BACKEND (use secure, icloud-helper, local, or icloud)" >&2; exit 2 ;;
+esac
+
+if [[ "$BACKEND" == "icloud-helper" && "$MODE" != "login-agent" ]]; then
+  echo "ERROR: --backend icloud-helper is only valid with --mode login-agent (iCloud Keychain needs a user GUI session)." >&2
+  exit 2
+fi
 
 case "$MODE" in
   login-agent|service-agent|service-daemon) ;;
@@ -92,7 +108,7 @@ esac
 
 VALUE="${EXPECTED_VALUE:-expected-${MODE}-${ACCOUNT}}"
 OUT_DIR="${TMPDIR:-/tmp}/seckit-launchd-smoke-${ACCOUNT}"
-LABEL="ai.unixwzrd.seckit.launchd-smoke.${MODE}.${ACCOUNT}"
+LABEL="ai.unixwzrd.seckit.launchd-smoke.${MODE}.${ACCOUNT}.${BACKEND//[- ]/_}"
 OUTPUT_FILE="${OUT_DIR}/${MODE}-result.txt"
 STDOUT_FILE="${OUT_DIR}/${MODE}-stdout.log"
 STDERR_FILE="${OUT_DIR}/${MODE}-stderr.log"
@@ -214,12 +230,21 @@ EOF
 
 delete_test_secret() {
   [[ "$USE_EXISTING" == "1" ]] && return 0
-  "$SECKIT_BIN" delete \
-    --keychain "$KEYCHAIN_PATH" \
-    --service "$SERVICE" \
-    --account "$ACCOUNT" \
-    --name "$NAME" \
-    --yes >/dev/null 2>&1 || true
+  if [[ "$BACKEND" == "icloud-helper" ]]; then
+    "$SECKIT_BIN" delete \
+      --backend icloud-helper \
+      --service "$SERVICE" \
+      --account "$ACCOUNT" \
+      --name "$NAME" \
+      --yes >/dev/null 2>&1 || true
+  else
+    "$SECKIT_BIN" delete \
+      --keychain "$KEYCHAIN_PATH" \
+      --service "$SERVICE" \
+      --account "$ACCOUNT" \
+      --name "$NAME" \
+      --yes >/dev/null 2>&1 || true
+  fi
 }
 
 cleanup() {
@@ -249,7 +274,60 @@ verify_cleanup() {
 }
 
 write_agent_plist() {
-  cat > "$PLIST_PATH" <<EOF
+  if [[ "$BACKEND" == "icloud-helper" ]]; then
+    cat > "$PLIST_PATH" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>${LABEL}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${SECKIT_BIN}</string>
+    <string>run</string>
+    <string>--backend</string>
+    <string>icloud-helper</string>
+    <string>--service</string>
+    <string>${SERVICE}</string>
+    <string>--account</string>
+    <string>${ACCOUNT}</string>
+    <string>--names</string>
+    <string>${NAME}</string>
+    <string>--</string>
+    <string>${PYTHON_BIN}</string>
+    <string>${CHILD_SCRIPT}</string>
+    <string>${OUTPUT_FILE}</string>
+    <string>${KEYCHAIN_PATH}</string>
+    <string>${MODE}</string>
+    <string>${SERVICE_TARGET}</string>
+    <string>${NAME}</string>
+    <string>${SECKIT_BIN}</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>${USER_HOME}</string>
+    <key>USER</key>
+    <string>${ACCOUNT}</string>
+    <key>LOGNAME</key>
+    <string>${ACCOUNT}</string>
+    <key>PATH</key>
+    <string>$(dirname "$SECKIT_BIN"):$(dirname "$PYTHON_BIN"):/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>WorkingDirectory</key>
+  <string>${REPO_ROOT}</string>
+  <key>RunAtLoad</key>
+  <false/>
+  <key>StandardOutPath</key>
+  <string>${STDOUT_FILE}</string>
+  <key>StandardErrorPath</key>
+  <string>${STDERR_FILE}</string>
+</dict>
+</plist>
+EOF
+  else
+    cat > "$PLIST_PATH" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -300,6 +378,7 @@ write_agent_plist() {
 </dict>
 </plist>
 EOF
+  fi
 }
 
 write_daemon_wrapper_and_plist() {
@@ -346,14 +425,25 @@ EOF
 
 seed_secret() {
   [[ "$USE_EXISTING" == "1" ]] && return 0
-  "$SECKIT_BIN" set \
-    --keychain "$KEYCHAIN_PATH" \
-    --service "$SERVICE" \
-    --account "$ACCOUNT" \
-    --name "$NAME" \
-    --value "$VALUE" \
-    --kind generic \
-    --comment "launchd ${MODE} smoke test"
+  if [[ "$BACKEND" == "icloud-helper" ]]; then
+    printf '%s' "$VALUE" | "$SECKIT_BIN" set \
+      --backend icloud-helper \
+      --stdin \
+      --service "$SERVICE" \
+      --account "$ACCOUNT" \
+      --name "$NAME" \
+      --kind generic \
+      --comment "launchd ${MODE} smoke test (icloud-helper)"
+  else
+    "$SECKIT_BIN" set \
+      --keychain "$KEYCHAIN_PATH" \
+      --service "$SERVICE" \
+      --account "$ACCOUNT" \
+      --name "$NAME" \
+      --value "$VALUE" \
+      --kind generic \
+      --comment "launchd ${MODE} smoke test"
+  fi
 }
 
 run_launchd_job() {
@@ -405,6 +495,7 @@ if [[ "$CLEANUP_ONLY" == "1" ]]; then
 fi
 
 echo "mode: $MODE"
+echo "backend: $BACKEND"
 echo "kind: $LAUNCH_KIND"
 echo "user: $ACCOUNT"
 echo "uid: $CURRENT_UID"

@@ -16,23 +16,109 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  validate:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install build tooling
+      - name: Install for tests
         run: |
-          python -m pip install -U pip setuptools wheel build
+          python -m pip install -U pip setuptools wheel
           python -m pip install -e .
       - name: Validate
         run: |
           bash ./scripts/run_local_validation.sh --without-localhost-transport
-      - name: Build distributions
+
+  bundled-helper:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build universal helper (ad-hoc if signing secrets unset)
+        run: bash ./scripts/build_bundled_helper_for_wheel.sh
+        env:
+          SECKIT_RELEASE_SIGNING_IDENTITY: ${{ secrets.SECKIT_RELEASE_SIGNING_IDENTITY }}
+          SECKIT_RELEASE_TEAM_ID: ${{ secrets.SECKIT_RELEASE_TEAM_ID }}
+          SECKIT_RELEASE_BUNDLE_ID: ${{ secrets.SECKIT_RELEASE_BUNDLE_ID }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: seckit-keychain-helper-bin
+          path: src/secrets_kit/native_helper_bundled/seckit-keychain-helper
+
+  wheel:
+    needs: [validate, bundled-helper]
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: seckit-keychain-helper-bin
+          path: dl-helper
+      - name: Place bundled helper for wheel build
         run: |
-          python -m build
+          mkdir -p src/secrets_kit/native_helper_bundled
+          cp dl-helper/seckit-keychain-helper src/secrets_kit/native_helper_bundled/seckit-keychain-helper
+          chmod +x src/secrets_kit/native_helper_bundled/seckit-keychain-helper
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Build wheel
+        run: |
+          python -m pip install -U pip setuptools wheel build
+          python -m build -w -n
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-py${{ matrix.python-version }}
+          path: dist/*.whl
+
+  sdist:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build sdist
+        run: |
+          python -m pip install -U build
+          python -m build -s -n
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
+  collect-dist:
+    needs: [wheel, sdist]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheel-py3.9
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheel-py3.10
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheel-py3.11
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheel-py3.12
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: sdist
+          path: dist
+      - name: List dist
+        run: ls -la dist
       - uses: actions/upload-artifact@v4
         with:
           name: seckit-dist
@@ -40,7 +126,7 @@ jobs:
 
   publish-pypi:
     if: github.event_name == 'workflow_dispatch' && inputs.publish_pypi
-    needs: build
+    needs: collect-dist
     runs-on: ubuntu-latest
     permissions:
       id-token: write

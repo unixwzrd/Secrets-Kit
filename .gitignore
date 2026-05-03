@@ -588,4 +588,8 @@ docs/reports/
 *.local.md
 docs/internal/
 docs/archive/
-.gitignore
+
+### Secrets-Kit: bundled Keychain helper (built at wheel time; see scripts/build_bundled_helper_for_wheel.sh)
+src/secrets_kit/native_helper_bundled/seckit-keychain-helper
+docs/plans/*
+!docs/plans/icloud-two-host-checklist.md

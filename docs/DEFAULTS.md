@@ -19,7 +19,7 @@ export SECKIT_DEFAULT_KIND=api_key
 export SECKIT_DEFAULT_TAGS=primary
 export SECKIT_DEFAULT_ROTATION_DAYS=90
 export SECKIT_DEFAULT_ROTATION_WARN_DAYS=14
-export SECKIT_DEFAULT_BACKEND=local
+export SECKIT_DEFAULT_BACKEND=secure
 ```
 
 Then:
@@ -44,11 +44,31 @@ Create `~/.config/seckit/defaults.json`:
   "tags": "primary",
   "default_rotation_days": 90,
   "rotation_warn_days": 14,
-  "backend": "local"
+  "backend": "secure"
 }
 ```
 
 That is the better choice when you want stable defaults across shells and reboots.
+
+## CLI: `seckit config`
+
+Write the same keys without editing JSON by hand:
+
+```bash
+seckit config path
+seckit config show
+seckit config set backend icloud-helper
+seckit config set service my-stack
+seckit config unset backend
+```
+
+Merged view (defaults file + legacy `config.json` + `SECKIT_DEFAULT_*` env):
+
+```bash
+seckit config show --effective
+```
+
+Allowed keys: `service`, `account`, `backend`, `type`, `kind`, `tags`, `default_rotation_days`, `rotation_warn_days`. See `seckit config set -h`.
 
 ## Notes
 
@@ -56,12 +76,11 @@ That is the better choice when you want stable defaults across shells and reboot
 - Secrets never belong in the config file.
 - `service` must be explicit or configured when a command needs a service scope.
 - `account` falls back to the current OS user when it is not explicit or configured.
-- `backend` selects the active secret backend. Use `local` for the normal macOS keychain path.
-- `icloud` uses the native Swift helper and synchronizable Keychain item APIs.
-- `seckit helper install-local` builds the universal helper for both Apple Silicon and Intel macOS.
-- `seckit helper install-icloud` remains as a compatibility alias, but `install-local` is the canonical helper install command.
+- `backend` selects the secret backend. **`secure`** (alias **`local`**) uses the macOS **`security`** CLI (including custom `--keychain` paths). **`icloud-helper`** (alias **`icloud`**) uses the entitled native helper for synchronizable Keychain items.
+- The **`seckit`** CLI does not compile the helper; release builds use **`scripts/build_bundled_helper_for_wheel.sh`** (see [GITHUB_RELEASE_BUILD.md](GITHUB_RELEASE_BUILD.md)).
+- Ad-hoc or wrongly signed binaries that carry `keychain-access-groups` may be killed by macOS; use published wheels or a maintainer-signed helper.
 - Use defaults for repeated scope information, not for raw secret values.
 
 [Back to README](../README.md)
 
-**Updated**: 2026-04-28
+**Updated**: 2026-05-02

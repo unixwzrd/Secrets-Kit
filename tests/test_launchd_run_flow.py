@@ -14,6 +14,7 @@ from unittest import mock
 
 from secrets_kit.cli import cmd_set
 from secrets_kit.keychain_backend import delete_keychain, delete_secret, harden_keychain, keychain_path, make_temp_keychain
+from secrets_kit.native_helper import icloud_backend_available
 
 
 class LaunchdSmokeScriptInterfaceTest(unittest.TestCase):
@@ -30,7 +31,7 @@ class LaunchdSmokeScriptInterfaceTest(unittest.TestCase):
         self.assertIn("login-agent", proc.stdout)
         self.assertIn("service-agent", proc.stdout)
         self.assertIn("service-daemon", proc.stdout)
-        self.assertIn("--use-existing", proc.stdout)
+        self.assertIn("--backend", proc.stdout)
         self.assertIn("seckit_launchd_agent_simulator.py", proc.stdout)
 
 
@@ -48,6 +49,38 @@ def _service_keychain_launchd_tests_enabled() -> bool:
 
 def _daemon_launchd_tests_enabled() -> bool:
     return os.environ.get("SECKIT_RUN_LAUNCHD_DAEMON_TESTS") == "1"
+
+
+def _icloud_launchd_tests_enabled() -> bool:
+    return os.environ.get("SECKIT_RUN_LAUNCHD_ICLOUD_TESTS") == "1"
+
+
+@unittest.skipUnless(sys.platform == "darwin", "macOS-only launchd integration test")
+@unittest.skipUnless(_launchd_tests_enabled(), "set SECKIT_RUN_LAUNCHD_TESTS=1 to run launchd integration tests")
+@unittest.skipUnless(_icloud_launchd_tests_enabled(), "set SECKIT_RUN_LAUNCHD_ICLOUD_TESTS=1 for iCloud-keychain launchd test")
+@unittest.skipUnless(icloud_backend_available(), "requires entitled seckit-keychain-helper for --backend icloud-helper")
+class LaunchdIcloudHelperRunFlowTest(unittest.TestCase):
+    def test_smoke_script_login_agent_icloud_backend(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        proc = subprocess.run(
+            [
+                "bash",
+                "scripts/seckit_launchd_smoke.sh",
+                "--mode",
+                "login-agent",
+                "--backend",
+                "icloud-helper",
+                "--service",
+                f"launchd-icloud-{os.getpid()}",
+            ],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("backend: icloud-helper", proc.stdout)
+        self.assertIn("launchd smoke test passed", proc.stdout)
 
 
 @unittest.skipUnless(sys.platform == "darwin", "macOS-only launchd integration test")

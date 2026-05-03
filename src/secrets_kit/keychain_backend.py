@@ -1,4 +1,18 @@
-"""macOS Keychain backend for seckit."""
+"""Keychain and secret-store backends for seckit.
+
+There are two Keychain-related implementations today, selected by
+``resolve_secret_store``:
+
+* **Fully local Keychain** → ``SecurityCliStore`` uses the macOS ``security``
+  CLI. Canonical id: ``secure`` (alias: ``local``).
+* **Synchronizable / iCloud Keychain** → ``NativeKeychainStore`` uses the
+  entitled helper only. Canonical id: ``icloud-helper`` (alias: ``icloud``).
+  The helper JSON payload still uses ``backend: "icloud"`` for the Swift tool.
+
+Additional backends (PGP, vault, broker) should implement :class:`SecretStore`,
+extend :func:`normalize_backend` / validation, and register in
+:func:`resolve_secret_store` and ``secrets_kit.cli``.
+"""
 
 from __future__ import annotations
 
@@ -8,11 +22,11 @@ from pathlib import Path
 import re
 import subprocess
 import tempfile
-from typing import Any, Dict, Optional, Protocol
+from typing import Any, Dict, FrozenSet, Optional, Protocol
 
 from secrets_kit.native_helper import (
     NativeHelperError,
-    helper_installed,
+    icloud_backend_available,
     icloud_backend_error,
     run_helper_request,
 )
@@ -20,6 +34,44 @@ from secrets_kit.native_helper import (
 
 class BackendError(RuntimeError):
     """Keychain backend error."""
+
+
+BACKEND_SECURE = "secure"
+"""Local Keychain only: ``security`` CLI (alias: ``local``)."""
+
+BACKEND_ICLOUD_HELPER = "icloud-helper"
+"""Synchronizable Keychain via native helper (alias: ``icloud``)."""
+
+# Payload field sent to Swift ``seckit-keychain-helper`` (must match ``main.swift``).
+HELPER_WIRE_BACKEND_ICLOUD = "icloud"
+
+_BACKEND_ALIASES: Dict[str, str] = {
+    "local": BACKEND_SECURE,
+    "icloud": BACKEND_ICLOUD_HELPER,
+}
+
+# Accepted on CLI / env / defaults.json (includes legacy aliases).
+BACKEND_CHOICES: tuple[str, ...] = (
+    BACKEND_SECURE,
+    BACKEND_ICLOUD_HELPER,
+    "local",
+    "icloud",
+)
+
+_KNOWN_NORMALIZED: FrozenSet[str] = frozenset({BACKEND_SECURE, BACKEND_ICLOUD_HELPER})
+
+
+def normalize_backend(backend: str) -> str:
+    """Return canonical backend id (``secure`` or ``icloud-helper``)."""
+    return _BACKEND_ALIASES.get(backend.strip().lower(), backend.strip().lower())
+
+
+def is_secure_backend(backend: str) -> bool:
+    return normalize_backend(backend) == BACKEND_SECURE
+
+
+def is_icloud_helper_backend(backend: str) -> bool:
+    return normalize_backend(backend) == BACKEND_ICLOUD_HELPER
 
 
 DEFAULT_KEYCHAIN_PATH = os.path.expanduser("~/Library/Keychains/login.keychain-db")
@@ -31,22 +83,15 @@ def backend_service_name(*, service: str, name: str) -> str:
     return f"{service}:{name}"
 
 
-def _validate_backend(*, backend: str, path: Optional[str]) -> None:
-    if backend not in {"local", "icloud"}:
-        raise BackendError(f"unsupported backend: {backend}")
-    if backend == "icloud" and path is not None:
-        raise BackendError("--keychain is only supported with backend=local")
-
-
-def _use_native_helper(*, backend: str, path: Optional[str]) -> bool:
-    if backend == "icloud":
-        return False
-    return (
-        backend == "local"
-        and path is None
-        and os.environ.get("SECKIT_USE_LOCAL_HELPER") == "1"
-        and helper_installed()
-    )
+def _validate_backend(*, backend: str, path: Optional[str]) -> str:
+    normalized = normalize_backend(backend)
+    if normalized not in _KNOWN_NORMALIZED:
+        raise BackendError(
+            f"unsupported backend: {backend!r} (expected {BACKEND_SECURE}, {BACKEND_ICLOUD_HELPER}, or aliases local, icloud)"
+        )
+    if normalized == BACKEND_ICLOUD_HELPER and path is not None:
+        raise BackendError("--keychain is only supported with --backend secure (alias: local)")
+    return normalized
 
 
 def _helper_service_metadata(*, service: str, account: str, name: str, backend: str, value: Optional[str] = None, comment: Optional[str] = None, label: Optional[str] = None) -> Dict[str, object]:
@@ -67,7 +112,7 @@ def _helper_service_metadata(*, service: str, account: str, name: str, backend: 
 
 
 class SecretStore(Protocol):
-    """Storage backend contract used by the CLI-facing keychain functions."""
+    """Contract for any secret backend (Keychain, vault, PGP, etc.) used by the CLI."""
 
     def set(self, *, service: str, account: str, name: str, value: str, comment: str = "", label: Optional[str] = None) -> None:
         ...
@@ -131,17 +176,14 @@ class SecurityCliStore:
 
 
 class NativeKeychainStore:
-    """Native helper backend for local helper mode and iCloud synchronizable items."""
-
-    def __init__(self, *, backend: str) -> None:
-        self.backend = backend
+    """Synchronizable Keychain via the native helper (``--backend icloud-helper`` only)."""
 
     def _request(self, *, command: str, service: str, account: str, name: str, value: Optional[str] = None, comment: Optional[str] = None, label: Optional[str] = None) -> Dict[str, Any]:
         payload = _helper_service_metadata(
             service=service,
             account=account,
             name=name,
-            backend=self.backend,
+            backend=HELPER_WIRE_BACKEND_ICLOUD,
             value=value,
             comment=comment,
             label=label,
@@ -180,15 +222,18 @@ class NativeKeychainStore:
         self._request(command="delete", service=service, account=account, name=name)
 
 
-def resolve_secret_store(*, backend: str = "local", path: Optional[str] = None) -> SecretStore:
-    """Resolve the concrete store for a backend/path pair."""
-    _validate_backend(backend=backend, path=path)
-    if backend == "icloud":
-        if not helper_installed():
+def resolve_secret_store(*, backend: str = "secure", path: Optional[str] = None) -> SecretStore:
+    """Resolve the concrete :class:`SecretStore` for ``backend`` (and optional keychain ``path``).
+
+    ``backend`` may be canonical (``secure``, ``icloud-helper``) or legacy alias
+    (``local``, ``icloud``). To add a backend, extend :func:`normalize_backend`,
+    :func:`_validate_backend`, and this function; align ``secrets_kit.cli``.
+    """
+    normalized = _validate_backend(backend=backend, path=path)
+    if normalized == BACKEND_ICLOUD_HELPER:
+        if not icloud_backend_available():
             raise BackendError(icloud_backend_error())
-        return NativeKeychainStore(backend=backend)
-    if _use_native_helper(backend=backend, path=path):
-        return NativeKeychainStore(backend=backend)
+        return NativeKeychainStore()
     return SecurityCliStore(path=path)
 
 
@@ -299,32 +344,32 @@ def set_secret(
     comment: str = "",
     label: Optional[str] = None,
     path: Optional[str] = None,
-    backend: str = "local",
+    backend: str = "secure",
 ) -> None:
     """Create or update a keychain secret entry."""
     store = resolve_secret_store(backend=backend, path=path)
     store.set(service=service, account=account, name=name, value=value, comment=comment, label=label)
 
 
-def get_secret(*, service: str, account: str, name: str, path: Optional[str] = None, backend: str = "local") -> str:
+def get_secret(*, service: str, account: str, name: str, path: Optional[str] = None, backend: str = "secure") -> str:
     """Read secret value from keychain."""
     store = resolve_secret_store(backend=backend, path=path)
     return store.get(service=service, account=account, name=name)
 
 
-def get_secret_metadata(*, service: str, account: str, name: str, path: Optional[str] = None, backend: str = "local") -> Dict[str, Any]:
+def get_secret_metadata(*, service: str, account: str, name: str, path: Optional[str] = None, backend: str = "secure") -> Dict[str, Any]:
     """Read keychain metadata attributes for one secret."""
     store = resolve_secret_store(backend=backend, path=path)
     return store.metadata(service=service, account=account, name=name)
 
 
-def secret_exists(*, service: str, account: str, name: str, path: Optional[str] = None, backend: str = "local") -> bool:
+def secret_exists(*, service: str, account: str, name: str, path: Optional[str] = None, backend: str = "secure") -> bool:
     """Return whether a keychain item exists for one logical secret."""
     store = resolve_secret_store(backend=backend, path=path)
     return store.exists(service=service, account=account, name=name)
 
 
-def delete_secret(*, service: str, account: str, name: str, path: Optional[str] = None, backend: str = "local") -> None:
+def delete_secret(*, service: str, account: str, name: str, path: Optional[str] = None, backend: str = "secure") -> None:
     """Delete secret from keychain."""
     store = resolve_secret_store(backend=backend, path=path)
     store.delete(service=service, account=account, name=name)
@@ -336,7 +381,7 @@ def check_security_cli() -> bool:
     return proc.returncode == 0
 
 
-def doctor_roundtrip(*, service: str = "seckit-doctor", account: str = "doctor", path: Optional[str] = None, backend: str = "local") -> None:
+def doctor_roundtrip(*, service: str = "seckit-doctor", account: str = "doctor", path: Optional[str] = None, backend: str = "secure") -> None:
     """Run a backend write/read/delete smoke test."""
     test_name = "DOCTOR_TEST_KEY"
     value = "doctor_ok"

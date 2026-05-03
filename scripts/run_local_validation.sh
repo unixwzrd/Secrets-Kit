@@ -33,6 +33,8 @@ cd "$REPO_ROOT"
 
 echo "== syntax checks =="
 bash -n \
+  scripts/build_bundled_helper_for_wheel.sh \
+  scripts/package_release_wheels.sh \
   scripts/seckit_cross_host_prepare.sh \
   scripts/seckit_cross_host_verify.sh \
   scripts/seckit_cross_host_transport_localhost.sh \

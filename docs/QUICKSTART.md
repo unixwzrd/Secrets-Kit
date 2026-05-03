@@ -18,7 +18,7 @@ This is the shortest practical path to using Secrets Kit on a local macOS machin
 Preferred path, install the tagged release directly from GitHub:
 
 ```bash
-pip install "git+https://github.com/unixwzrd/Secrets-Kit.git@v1.1.0"
+pip install "git+https://github.com/unixwzrd/Secrets-Kit.git@v1.2.0"
 ```
 
 If you explicitly want the current branch tip instead of the tagged release:
@@ -38,10 +38,10 @@ pip install -e .
 
 If `pip` is not installed or is not on your `PATH`, use `python3 -m pip` instead.
 
-Optional extras from the tagged release:
+Tagged release (PyPI/git URL; includes PyYAML for JSON/YAML imports):
 
 ```bash
-pip install "git+https://github.com/unixwzrd/Secrets-Kit.git@v1.1.0#egg=seckit[yaml]"
+pip install "git+https://github.com/unixwzrd/Secrets-Kit.git@v1.2.0#egg=seckit"
 ```
 
 Check the installed version:

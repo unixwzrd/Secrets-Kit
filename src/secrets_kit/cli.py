@@ -16,8 +16,6 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
 from secrets_kit.native_helper import (
-    NativeHelperError,
-    build_and_install_local_helper,
     helper_status,
     icloud_backend_available,
     icloud_backend_error,
@@ -32,6 +30,9 @@ from secrets_kit.importers import (
     read_dotenv,
 )
 from secrets_kit.keychain_backend import (
+    BACKEND_CHOICES,
+    BACKEND_ICLOUD_HELPER,
+    BACKEND_SECURE,
     BackendError,
     check_security_cli,
     create_keychain,
@@ -41,11 +42,13 @@ from secrets_kit.keychain_backend import (
     get_secret,
     get_secret_metadata,
     harden_keychain,
+    is_secure_backend,
     keychain_accessible,
     keychain_policy,
     keychain_path,
     lock_keychain,
     make_temp_keychain,
+    normalize_backend,
     secret_exists,
     set_secret,
     unlock_keychain,
@@ -62,6 +65,19 @@ from secrets_kit.models import (
     validate_entry_kind,
     validate_entry_type,
     validate_key_name,
+)
+
+_CONFIG_STORABLE_KEYS: frozenset[str] = frozenset(
+    {
+        "service",
+        "account",
+        "type",
+        "kind",
+        "tags",
+        "backend",
+        "default_rotation_days",
+        "rotation_warn_days",
+    }
 )
 from secrets_kit.registry import (
     RegistryError,
@@ -190,7 +206,8 @@ def _current_os_account() -> str:
 def _apply_defaults(*, args: argparse.Namespace) -> None:
     defaults = _load_defaults()
     if hasattr(args, "backend") and not getattr(args, "backend", None):
-        args.backend = defaults.get("backend") or "local"
+        raw_backend = defaults.get("backend")
+        args.backend = normalize_backend(str(raw_backend)) if raw_backend else BACKEND_SECURE
     if hasattr(args, "service") and not args.service:
         args.service = defaults.get("service")
     if hasattr(args, "account") and not args.account:
@@ -230,12 +247,136 @@ def _apply_defaults(*, args: argparse.Namespace) -> None:
     if hasattr(args, "to_account") and not getattr(args, "to_account", None):
         args.to_account = args.from_account or args.account or _current_os_account()
     if hasattr(args, "backend") and getattr(args, "backend", None):
-        if args.backend not in {"local", "icloud"}:
-            raise ValidationError("backend must be one of: local, icloud")
-        if hasattr(args, "keychain") and getattr(args, "keychain", None) and args.backend == "icloud":
-            raise ValidationError("--keychain is only supported with --backend local")
-        if args.backend == "icloud" and not icloud_backend_available():
+        normalized = normalize_backend(args.backend)
+        if normalized not in {BACKEND_SECURE, BACKEND_ICLOUD_HELPER}:
+            raise ValidationError(
+                f"backend must be one of: {BACKEND_SECURE}, {BACKEND_ICLOUD_HELPER} (aliases: local, icloud)"
+            )
+        if hasattr(args, "keychain") and getattr(args, "keychain", None) and normalized == BACKEND_ICLOUD_HELPER:
+            raise ValidationError(
+                "--keychain is only supported with --backend secure (alias: local)"
+            )
+        if normalized == BACKEND_ICLOUD_HELPER and not icloud_backend_available():
             raise ValidationError(icloud_backend_error())
+        args.backend = normalized
+
+
+def _validate_config_entry(*, key: str, value: str) -> object:
+    """Coerce CLI string value for a defaults.json key."""
+    v = value.strip()
+    if key == "backend":
+        normalized = normalize_backend(v)
+        if normalized not in {BACKEND_SECURE, BACKEND_ICLOUD_HELPER}:
+            raise ValidationError(
+                f"backend must be one of: {BACKEND_SECURE}, {BACKEND_ICLOUD_HELPER} (aliases: local, icloud)"
+            )
+        return normalized
+    if key == "type":
+        if v not in {"secret", "pii"}:
+            raise ValidationError("type must be secret or pii")
+        return v
+    if key == "kind":
+        if v not in ENTRY_KIND_VALUES and v != "auto":
+            raise ValidationError(f"invalid kind {v!r}")
+        return v
+    if key in {"default_rotation_days", "rotation_warn_days"}:
+        try:
+            n = int(v, 10)
+        except ValueError as exc:
+            raise ValidationError(f"{key} must be an integer") from exc
+        if n < 0:
+            raise ValidationError(f"{key} must be non-negative")
+        return n
+    return v
+
+
+def cmd_config_show(*, args: argparse.Namespace) -> int:
+    """Print defaults.json or effective defaults (file + legacy + env)."""
+    try:
+        if getattr(args, "effective", False):
+            merged = _load_defaults()
+            print(
+                json.dumps(
+                    {
+                        "source": "effective",
+                        "defaults_path": str(defaults_path()),
+                        "config": merged,
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+            return 0
+        ensure_defaults_storage()
+        on_disk = dict(load_defaults())
+        print(
+            json.dumps(
+                {
+                    "source": "file",
+                    "defaults_path": str(defaults_path()),
+                    "config": on_disk,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return 0
+    except (ValidationError, RegistryError) as exc:
+        return _fatal(message=str(exc), code=1)
+
+
+def cmd_config_set(*, args: argparse.Namespace) -> int:
+    """Persist one key to defaults.json."""
+    try:
+        key = str(args.key)
+        if key not in _CONFIG_STORABLE_KEYS:
+            allowed = ", ".join(sorted(_CONFIG_STORABLE_KEYS))
+            raise ValidationError(f"unknown key {key!r}; allowed: {allowed}")
+        coerced = _validate_config_entry(key=key, value=str(args.value))
+        ensure_defaults_storage()
+        data = dict(load_defaults())
+        data[key] = coerced
+        save_defaults(payload=data)
+        print(
+            json.dumps(
+                {"saved": True, "key": key, "value": data[key], "defaults_path": str(defaults_path())},
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return 0
+    except (ValidationError, RegistryError) as exc:
+        return _fatal(message=str(exc), code=1)
+
+
+def cmd_config_unset(*, args: argparse.Namespace) -> int:
+    """Remove one key from defaults.json."""
+    try:
+        key = str(args.key)
+        if key not in _CONFIG_STORABLE_KEYS:
+            allowed = ", ".join(sorted(_CONFIG_STORABLE_KEYS))
+            raise ValidationError(f"unknown key {key!r}; allowed: {allowed}")
+        ensure_defaults_storage()
+        data = dict(load_defaults())
+        if key not in data:
+            print(f"key {key!r} not present in {defaults_path()}", file=sys.stderr)
+            return 0
+        del data[key]
+        save_defaults(payload=data)
+        print(json.dumps({"saved": True, "removed": key, "defaults_path": str(defaults_path())}, indent=2, sort_keys=True))
+        return 0
+    except (ValidationError, RegistryError) as exc:
+        return _fatal(message=str(exc), code=1)
+
+
+def cmd_config_path(*, args: argparse.Namespace) -> int:
+    """Print path to defaults.json."""
+    try:
+        ensure_defaults_storage()
+        print(defaults_path())
+        return 0
+    except RegistryError as exc:
+        return _fatal(message=str(exc), code=1)
 
 
 def _keychain_arg(args: argparse.Namespace) -> Optional[str]:
@@ -243,7 +384,7 @@ def _keychain_arg(args: argparse.Namespace) -> Optional[str]:
 
 
 def _backend_arg(args: argparse.Namespace) -> str:
-    return getattr(args, "backend", "local")
+    return getattr(args, "backend", BACKEND_SECURE)
 
 
 def _parse_meta_pairs(items: Optional[List[str]]) -> Dict[str, str]:
@@ -433,7 +574,7 @@ def _read_metadata(
     name: str,
     registry: Optional[Dict[str, EntryMetadata]] = None,
     path: Optional[str] = None,
-    backend: str = "local",
+    backend: str = "secure",
 ) -> Optional[Dict[str, object]]:
     key = f"{service}::{account}::{name}"
     registry = registry if registry is not None else load_registry()
@@ -491,7 +632,7 @@ def _read_metadata(
             "keychain_fields": keychain_fields,
             "registry_fallback_used": False,
         }
-    if registry_meta and path is None and backend == "local":
+    if registry_meta and path is None and is_secure_backend(backend):
         return {
             "metadata": registry_meta,
             "metadata_source": "registry-only",
@@ -516,7 +657,7 @@ def _apply_candidates(
     dry_run: bool,
     allow_empty: bool,
     path: Optional[str] = None,
-    backend: str = "local",
+    backend: str = "secure",
 ) -> Dict[str, int]:
     registry = load_registry()
     stats = {"created": 0, "updated": 0, "skipped": 0, "unchanged": 0}
@@ -1250,53 +1391,6 @@ def cmd_helper_status(*, args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_helper_install_local(*, args: argparse.Namespace) -> int:
-    del args
-    print("")
-    print("********************************************************************************")
-    print("")
-    print("About to build and install the local native Secrets-Kit helper.")
-    print("")
-    print("This helper provides native backend support for the local and iCloud Keychain backends.")
-    print("The build uses SwiftPM to produce a universal macOS binary")
-    print("for both Apple Silicon and Intel, then installs it into the active Python environment.")
-    print("")
-    print("Planned steps:")
-    print("")
-    print("  1. Check for macOS and Swift/Xcode Command Line Tools")
-    print("  2. Build the helper for arm64 and x86_64")
-    print("  3. Combine both slices into one universal binary")
-    print("  4. Copy the helper into the active environment scripts directory")
-    print("")
-    print("********************************************************************************")
-    print("")
-    try:
-        target = build_and_install_local_helper()
-        print(f"installed local helper: {target}")
-        print(json.dumps(helper_status(), indent=2, sort_keys=True))
-        return 0
-    except NativeHelperError as exc:
-        return _fatal(message=str(exc), code=1)
-
-
-def cmd_helper_install_icloud(*, args: argparse.Namespace) -> int:
-    print("")
-    print("********************************************************************************")
-    print("")
-    print("`seckit helper install-icloud` is now an alias for the standard helper install.")
-    print("")
-    print("The same Swift helper supports both:")
-    print("")
-    print("  - backend=local")
-    print("  - backend=icloud")
-    print("")
-    print("Proceeding with the standard helper install flow.")
-    print("")
-    print("********************************************************************************")
-    print("")
-    return cmd_helper_install_local(args=args)
-
-
 def cmd_migrate_dotenv(*, args: argparse.Namespace) -> int:
     dotenv = Path(args.dotenv)
     if not dotenv.exists():
@@ -1427,7 +1521,7 @@ def build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--account")
     common.add_argument("--service")
-    common.add_argument("--backend", choices=["local", "icloud"])
+    common.add_argument("--backend", choices=list(BACKEND_CHOICES))
     common.add_argument("--keychain", help="Override keychain path (default: login.keychain-db)")
 
     p_set = sub.add_parser("set", parents=[common], help="Store or update one secret value")
@@ -1462,13 +1556,36 @@ def build_parser() -> argparse.ArgumentParser:
     p_list.add_argument("--tag")
     p_list.add_argument("--stale", type=int, help="Filter entries older than N days")
     p_list.add_argument("--format", choices=["table", "json"], default="table")
-    p_list.add_argument("--backend", choices=["local", "icloud"])
+    p_list.add_argument("--backend", choices=list(BACKEND_CHOICES))
     p_list.add_argument("--keychain", help="Override keychain path (default: login.keychain-db)")
     p_list.set_defaults(func=cmd_list)
 
     p_explain = sub.add_parser("explain", parents=[common], help="Show resolved metadata for a stored entry")
     p_explain.add_argument("--name", required=True)
     p_explain.set_defaults(func=cmd_explain)
+
+    cfg_keys = sorted(_CONFIG_STORABLE_KEYS)
+    p_config = sub.add_parser("config", help="View or edit ~/.config/seckit/defaults.json")
+    config_sub = p_config.add_subparsers(dest="config_command", required=True)
+    p_config_show = config_sub.add_parser(
+        "show",
+        help="Print defaults from defaults.json; add --effective for merged file + legacy config + env",
+    )
+    p_config_show.add_argument(
+        "--effective",
+        action="store_true",
+        help="Merge defaults.json, legacy ~/.config/seckit/config.json, and SECKIT_* env overrides",
+    )
+    p_config_show.set_defaults(func=cmd_config_show)
+    p_config_set = config_sub.add_parser("set", help="Set one key in defaults.json")
+    p_config_set.add_argument("key", choices=cfg_keys, metavar="KEY")
+    p_config_set.add_argument("value", help="Value (use quotes if it contains spaces)")
+    p_config_set.set_defaults(func=cmd_config_set)
+    p_config_unset = config_sub.add_parser("unset", help="Remove one key from defaults.json")
+    p_config_unset.add_argument("key", choices=cfg_keys, metavar="KEY")
+    p_config_unset.set_defaults(func=cmd_config_unset)
+    p_config_path = config_sub.add_parser("path", help="Print path to defaults.json")
+    p_config_path.set_defaults(func=cmd_config_path)
 
     p_delete = sub.add_parser("delete", parents=[common], help="Delete one stored secret and its metadata")
     p_delete.add_argument("--name", required=True)
@@ -1496,7 +1613,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_import_file.add_argument("--format", choices=["json", "yaml", "yml"])
     p_import_file.add_argument("--type", choices=["secret", "pii"])
     p_import_file.add_argument("--kind", choices=[*ENTRY_KIND_VALUES, "auto"])
-    p_import_file.add_argument("--backend", choices=["local", "icloud"])
+    p_import_file.add_argument("--backend", choices=list(BACKEND_CHOICES))
     p_import_file.add_argument("--keychain", help="Override keychain path (default: login.keychain-db)")
     p_import_file.add_argument("--dry-run", action="store_true")
     p_import_file.add_argument("--allow-overwrite", action="store_true")
@@ -1506,7 +1623,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_import_encrypted = import_sub.add_parser("encrypted-json", help="Import secrets from encrypted JSON export")
     p_import_encrypted.add_argument("--file", required=True)
-    p_import_encrypted.add_argument("--backend", choices=["local", "icloud"])
+    p_import_encrypted.add_argument("--backend", choices=list(BACKEND_CHOICES))
     p_import_encrypted.add_argument("--keychain", help="Override keychain path (default: login.keychain-db)")
     p_import_encrypted.add_argument("--password")
     p_import_encrypted.add_argument("--password-stdin", action="store_true")
@@ -1544,7 +1661,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_service_copy.add_argument("--to-service", required=True)
     p_service_copy.add_argument("--from-account")
     p_service_copy.add_argument("--to-account")
-    p_service_copy.add_argument("--backend", choices=["local", "icloud"])
+    p_service_copy.add_argument("--backend", choices=list(BACKEND_CHOICES))
     p_service_copy.add_argument("--keychain", help="Override keychain path (default: login.keychain-db)")
     p_service_copy.add_argument("--names")
     p_service_copy.add_argument("--tag")
@@ -1555,7 +1672,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_service_copy.set_defaults(func=cmd_service_copy)
 
     p_doctor = sub.add_parser("doctor", help="Run backend, defaults, and metadata drift diagnostics")
-    p_doctor.add_argument("--backend", choices=["local", "icloud"])
+    p_doctor.add_argument("--backend", choices=list(BACKEND_CHOICES))
     p_doctor.add_argument("--keychain", help="Override keychain path (default: login.keychain-db)")
     p_doctor.set_defaults(func=cmd_doctor)
 
@@ -1580,14 +1697,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_version = sub.add_parser("version", help="Print the installed seckit version")
     p_version.set_defaults(func=cmd_version)
 
-    p_helper = sub.add_parser("helper", help="Manage the optional native helper backend")
+    p_helper = sub.add_parser("helper", help="Inspect the native Keychain helper shipped with the package")
     helper_sub = p_helper.add_subparsers(dest="helper_command", required=True)
-    p_helper_status = helper_sub.add_parser("status", help="Show native helper discovery and toolchain status")
+    p_helper_status = helper_sub.add_parser(
+        "status",
+        help="Show resolved helper path, bundled binary, and backend availability",
+    )
     p_helper_status.set_defaults(func=cmd_helper_status)
-    p_helper_install_local = helper_sub.add_parser("install-local", help="Build and install the native helper into the active Python environment")
-    p_helper_install_local.set_defaults(func=cmd_helper_install_local)
-    p_helper_install = helper_sub.add_parser("install-icloud", help="Alias for the standard native helper install flow")
-    p_helper_install.set_defaults(func=cmd_helper_install_icloud)
 
     p_migrate = sub.add_parser("migrate", help="Migrate existing secret files into seckit")
     migrate_sub = p_migrate.add_subparsers(dest="migrate_command", required=True)
@@ -1618,7 +1734,8 @@ def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
     try:
-        _apply_defaults(args=args)
+        if getattr(args, "command", None) != "config":
+            _apply_defaults(args=args)
     except ValidationError as exc:
         return _fatal(message=str(exc), code=1)
     return args.func(args=args)
