@@ -1,4 +1,4 @@
-# Secrets Kit
+# Secrets Kit - "stop painting API keys on argv" release
 
 ![Secrets Kit](./docs/images/Secrets-Kit-Banner.png)
 
