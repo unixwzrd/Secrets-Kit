@@ -1,7 +1,7 @@
 # AGENTS.md — Secrets-Kit
 
 **Created**: 2026-05-02  
-**Updated**: 2026-05-02
+**Updated**: 2026-05-07
 
 Guidance for humans and coding agents working in this repository.
 
@@ -13,7 +13,7 @@ Guidance for humans and coding agents working in this repository.
 ## Scope
 
 - Prefer changes that stay aligned with [docs/SECKIT_RUN_AND_BACKEND_REWORK_PLAN.md](docs/SECKIT_RUN_AND_BACKEND_REWORK_PLAN.md) and [CHANGELOG.md](CHANGELOG.md).
-- macOS Keychain / iCloud validation remains partly manual; see [docs/ICLOUD_SYNC_VALIDATION.md](docs/ICLOUD_SYNC_VALIDATION.md) and [docs/LAUNCHD_VALIDATION.md](docs/LAUNCHD_VALIDATION.md).
+- macOS **launchd** and login-keychain checks remain partly manual; see [docs/LAUNCHD_VALIDATION.md](docs/LAUNCHD_VALIDATION.md).
 
 ## Tests
 

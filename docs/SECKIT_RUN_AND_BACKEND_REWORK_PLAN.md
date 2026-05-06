@@ -4,6 +4,10 @@
 
 Back: [README](../README.md)
 
+## Status (2026-05)
+
+**Obsolete in this repo:** native synchronizable-Keychain / **`icloud`** backend work. Supported storage: **`--backend secure`** (`security` CLI) and **`--backend sqlite`**. Cross-host: **encrypted export/import** and **peer bundles** ([PEER_SYNC.md](PEER_SYNC.md)). Bullets below that still mention **`icloud`** or a Swift helper are **historical**; see [CHANGELOG.md](../CHANGELOG.md).
+
 ## Summary
 
 Rework Secrets-Kit around a safer runtime-launch workflow:
@@ -11,7 +15,7 @@ Rework Secrets-Kit around a safer runtime-launch workflow:
 1. resolve selected secrets in the parent `seckit` process
 2. inject those values into the child process environment
 3. launch the child without putting secrets on the command line
-4. keep storage backends behind a clean interface so macOS `security`, native Keychain/iCloud, and future stores can be swapped without changing CLI behavior
+4. keep storage backends behind a clean interface so the macOS `security` CLI, SQLite, and future stores can be swapped without changing CLI behavior
 
 The desired operator workflow is:
 
@@ -19,7 +23,7 @@ The desired operator workflow is:
 seckit run --service <service> --account <account> -- command --with --args
 ```
 
-`seckit run` already exists, and the immediate runtime-launch behavior has been tightened. The remaining larger work is the storage backend refactor and deeper native iCloud implementation.
+`seckit run` already exists, and the immediate runtime-launch behavior has been tightened. Remaining work is incremental backend and UX polish (`sqlite`, metadata, docs).
 
 ## Current Findings
 
@@ -28,7 +32,6 @@ seckit run --service <service> --account <account> -- command --with --args
 - Tests already cover basic env injection, missing command handling, and explicit error messages when a selected secret cannot be read.
 - `src/secrets_kit/native_helper.py` has been restored so CLI/backend/helper tests import cleanly.
 - The macOS `security` CLI is currently mixed directly into `keychain_backend.py`.
-- iCloud Keychain support should use native Security framework APIs with synchronizable Keychain items, not the `security` CLI alone.
 - Documentation still emphasizes `export` in several places where `run` should become the safer recommendation for launching a process.
 - Service-level secret injection should be easy: `--names` should be optional, and by default `run` should inject the selected service/account scope.
 - Operators need a way to duplicate one service scope into another, then override the values that should differ.
@@ -44,7 +47,6 @@ seckit run --service <service> --account <account> -- command --with --args
 - Make failures name the specific secret that could not be read.
 - Make the CLI independent from the storage backend implementation.
 - Keep automated tests isolated from the login keychain by using disposable keychains.
-- Keep real iCloud sync validation manual because it depends on Apple ID, iCloud Keychain state, and multiple hosts.
 
 ## Proposed CLI Behavior
 
@@ -136,36 +138,21 @@ SecretStore
 Initial backends:
 
 - `SecurityCliStore`: wraps the macOS `security` command for local keychain access and disposable test keychains (**`--backend secure`**, alias **`local`**).
-- `NativeKeychainStore`: native helper JSON IPC for **`--backend icloud-helper`** (alias **`icloud`**) only; **`--backend secure`** uses `SecurityCliStore` (`security` CLI).
-- Future `PgpStore` or similar: can implement the same interface without changing `seckit run`.
+- `SqliteSecretStore`: encrypted SQLite (**`--backend sqlite`**).
+- Future stores can implement the same `SecretStore` interface without changing `seckit run`.
 
-Backend selection should remain:
+Backend selection today:
 
 ```bash
---backend secure        # alias: local — fully local Keychain via `security`
---backend icloud-helper # alias: icloud — synchronizable items via entitled helper
---keychain /tmp/test.keychain-db
+--backend secure   # alias: local — Keychain via `security`
+--backend sqlite   # portable DB; see docs
+--keychain /tmp/test.keychain-db   # secure backend only
 ```
 
 Rules:
 
 - `--backend secure` uses `security` CLI by default (alias: `local`).
-- `--backend secure --keychain <path>` must continue to use disposable keychain files for tests.
-- `--backend icloud-helper` must require the native helper (alias: `icloud`).
-- `--backend icloud-helper --keychain <path>` must fail clearly because custom keychain files are local-only.
-
-## iCloud Keychain Notes
-
-The `security` command is not the right abstraction for reliable iCloud Keychain behavior.
-
-The native helper should use Apple Security framework APIs and synchronizable item attributes. In Apple’s Security framework this is represented through synchronizable Keychain item attributes, commonly exposed as `kSecAttrSynchronizable`.
-
-Important constraints:
-
-- iCloud sync is Apple-managed, not Secrets-Kit-managed.
-- Sync availability depends on Apple ID, iCloud Keychain settings, local trust state, and device policy.
-- Automated tests should mock the helper protocol.
-- Real iCloud validation should remain a manual checklist across two Macs.
+- `--backend secure --keychain <path>` uses disposable keychain files for tests.
 
 ## Implementation Checklist
 
@@ -181,11 +168,11 @@ Important constraints:
 
 - [x] Define a `SecretStore` protocol or abstract base class.
 - [x] Move direct `security` subprocess calls into a `SecurityCliStore` implementation.
-- [x] Move native helper request handling into a `NativeKeychainStore` implementation.
+- [x] Add `SqliteSecretStore` for **`--backend sqlite`**.
 - [x] Keep public backend functions as compatibility wrappers during the transition.
 - [x] Preserve current metadata behavior, including keychain comment JSON.
 - [x] Preserve disposable keychain support through `--keychain`.
-- [x] Add backend-resolution tests for local, local-with-keychain, local-helper, and iCloud-helper paths.
+- [x] Add backend-resolution tests for **secure**, **secure+keychain**, and **sqlite** paths.
 
 ### Phase 3: Harden `seckit run`
 
@@ -250,15 +237,9 @@ Important constraints:
 - [x] Document that login-keychain LaunchAgent mode is user-session only.
 - [x] Document that LaunchDaemon mode uses a root-owned service-keychain password file.
 
-### Phase 7: Native iCloud Backend
+### Phase 7: Native synchronizable Keychain (obsolete)
 
-- [x] Confirm or restore native helper source layout.
-- [x] Define helper JSON request and response schema.
-- [x] Implement helper operations for `set`, `get`, `exists`, `metadata`, and `delete`.
-- [x] Use synchronizable Keychain item attributes for `--backend icloud`.
-- [x] Keep `seckit helper status` reporting local helper and iCloud backend availability.
-- [x] Add mocked helper tests for iCloud operations.
-- [ ] Keep real iCloud sync validation manual.
+**Cancelled.** No **`icloud`** / helper backend. Product direction: **`secure`**, **`sqlite`**, export/import, peer bundles.
 
 ### Phase 8: Documentation Cleanup
 
@@ -271,8 +252,7 @@ Important constraints:
 - [x] Document dotenv update/upsert behavior.
 - [x] Update `docs/SECURITY_MODEL.md` to describe process inheritance risks clearly.
 - [x] Update `docs/DEFAULTS.md` to clarify backend selection and helper requirements.
-- [x] Update `docs/ICLOUD_SYNC_VALIDATION.md` to distinguish helper support from actual Apple-managed sync.
-- [x] Review `docs/CROSS_HOST_CHECKLIST.md` and `docs/CROSS_HOST_VALIDATION.md` for stale helper/TODO language.
+- [x] Review cross-host docs for stale helper language.
 - [x] Move obsolete planning notes from `docs/internal/` to `docs/archive/` or remove them.
 - [x] Move or delete `tmp/Swift-helper.md` after extracting any still-useful helper design details.
 
@@ -294,7 +274,6 @@ PYTHONPATH=src python3 -m unittest discover
 - [x] Run launchd integration validation before release, either through `SECKIT_RUN_LAUNCHD_TESTS=1` or the documented manual release check.
 - [ ] Run service-keychain LaunchAgent validation with `SECKIT_RUN_LAUNCHD_SERVICE_KEYCHAIN_TESTS=1`.
 - [ ] Run LaunchDaemon service-keychain validation with `SECKIT_RUN_LAUNCHD_DAEMON_TESTS=1`.
-- [ ] Run manual iCloud validation on two Apple ID/iCloud-enabled macOS hosts.
 - [x] Confirm docs no longer recommend `export` where `run` is safer.
 - [x] Confirm service copy and dotenv upsert tests cover OpenClaw/Hermes-style service separation.
 
@@ -302,7 +281,7 @@ PYTHONPATH=src python3 -m unittest discover
 
 - [x] Keep pull request and push CI on supported macOS/Python combinations.
 - [x] Ensure CI invokes the same local validation script used by maintainers.
-- [x] Ensure validation builds the Swift native helper when Swift is available.
+- [x] Wheels ship Python-only (no Swift helper in release artifacts).
 - [x] Unignore project scripts required by CI so fresh checkouts include them.
 - [x] Add release workflow for tag/manual distribution builds.
 - [x] Keep PyPI publishing explicit through manual workflow dispatch and trusted publishing.
@@ -320,8 +299,8 @@ PYTHONPATH=src python3 -m unittest discover
 - `seckit run` works from a LaunchDaemon using a dedicated service keychain and root-owned unlock file for after-reboot operation.
 - A service can be copied to a new service name and then independently modified.
 - Dotenv import can add new keys and update existing service values intentionally.
-- The storage backend is abstracted enough to swap `security` CLI for native Keychain or future stores.
+- The storage backend is abstracted enough to add future `SecretStore` implementations (e.g. more vault types).
 - `--backend local --keychain <path>` remains usable for isolated tests.
-- `--backend icloud` uses the native helper and fails clearly when unavailable.
+- Unknown backend ids (including legacy `icloud`) fail with **`unsupported backend`**.
 - Test suite imports cleanly and passes.
 - Docs clearly explain the safer `run` workflow and backend limitations.

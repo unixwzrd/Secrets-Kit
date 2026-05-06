@@ -20,7 +20,7 @@ It can **inject** selected secrets into child processes via `seckit run` and **e
 | Python 3.9+; **Keychain** on macOS (`security`) | Hosted vault, HSM, zero-knowledge guarantees |
 | **`--backend sqlite`**: local encrypted DB file (no sync, no daemon) | Live multi-master sync; **SQLite store** is **not** replicated by this tool |
 | **Primary cross-host:** `seckit export` / **`import`** (e.g. **encrypted JSON**) + you move the file | Phone home; your Keychain password is never read by the tool |
-| `seckit run`, import/export, encrypted cross-host backup | Deprecated **`icloud`** backends (removed); **iCloud Drive does not replace Keychain** (see docs); protection on an already-compromised machine/session |
+| `seckit run`, import/export, encrypted cross-host backup | Live multi-master Keychain sync; protection on an already-compromised machine/session |
 
 If that trust model is unclear, use something else until it is.
 
@@ -32,7 +32,7 @@ pip install "git+https://github.com/unixwzrd/Secrets-Kit.git@v1.2.0#egg=seckit"
 
 Development checkout: `pip install -e .` in a venv. **Dependencies** include **cryptography**, **PyYAML**, and **PyNaCl** (libsodium bindings) for the SQLite backend and encrypted export.
 
-**Keychain (macOS):** `--backend secure` (alias `local`) uses the `security` CLI only—no Swift helper. **Reliable host-to-host transfer:** [Cross-Host Validation](docs/CROSS_HOST_VALIDATION.md) (encrypted export).
+**Keychain (macOS):** `--backend secure` (alias `local`) uses the macOS `security` CLI. **Reliable host-to-host transfer:** [Cross-Host Validation](docs/CROSS_HOST_VALIDATION.md) (encrypted export).
 
 **SQLite (portable):** default unlock is **passphrase + Argon2id** (`SECKIT_SQLITE_PASSPHRASE`, or interactive). On macOS you can set **`SECKIT_SQLITE_UNLOCK=keychain`** so new vaults store a **DEK wrapped with a KEK** in the Keychain (`security` CLI); use **`SECKIT_SQLITE_KEK_KEYCHAIN`** or **`--keychain`** (with `--backend sqlite`) to choose the keychain file. Existing passphrase-only vaults stay readable with **`SECKIT_SQLITE_UNLOCK=passphrase`**. Also: **`SECKIT_SQLITE_DB`** / **`--db`** / `sqlite_db` in defaults; default DB `~/.config/seckit/secrets.db`. **No** sync/daemon—back up the file yourself.
 
@@ -74,8 +74,7 @@ Avoid repeating `--service` / `--account` via `~/.config/seckit/defaults.json` o
 | Day-to-day use | [Quickstart](docs/QUICKSTART.md) · [Usage](docs/USAGE.md) · [Defaults](docs/DEFAULTS.md) |
 | Security posture | [Security model](docs/SECURITY_MODEL.md) |
 | Agents / apps | [Integrations](docs/INTEGRATIONS.md) · [Examples](docs/EXAMPLES.md) |
-| iCloud / signing | [iCloud Sync Validation](docs/ICLOUD_SYNC_VALIDATION.md) · [Two-host manual checklist](docs/plans/icloud-two-host-checklist.md) |
-| Wheels / release | [GitHub release build](docs/GITHUB_RELEASE_BUILD.md) |
+| Release signing / wheels | [GitHub release build](docs/GITHUB_RELEASE_BUILD.md) |
 | Deep dives | [Metadata registry](docs/METADATA_REGISTRY.md) · [Cross-host validation](docs/CROSS_HOST_VALIDATION.md) · [Peer sync bundles](docs/PEER_SYNC.md) |
 
 ## Contributing
@@ -86,7 +85,7 @@ Issues and PRs welcome (CLI UX, backends, docs, import/export edge cases). Local
 bash ./scripts/run_local_validation.sh
 ```
 
-**Updated:** 2026-05-06
+**Updated:** 2026-05-07
 
 ---
 

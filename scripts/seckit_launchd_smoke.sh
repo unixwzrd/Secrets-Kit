@@ -51,7 +51,6 @@ Options:
   --mode MODE    login-agent, service-agent, or service-daemon (default: login-agent)
   --use-existing use an existing Secrets-Kit item instead of creating a test item
   --backend ID    secure only (alias: local); default: secure or SECKIT_LAUNCHD_BACKEND.
-                  The former icloud-helper path was removed from seckit.
   --service NAME service scope for the test item (default: launchd-smoke)
   --account NAME account scope for the test item (default: current user)
   --name NAME    secret/env name to inject (default: SECKIT_TEST_ENV)
@@ -92,10 +91,6 @@ done
 
 case "$BACKEND" in
   local|secure) BACKEND="secure" ;;
-  icloud|icloud-helper)
-    echo "ERROR: icloud-helper was removed from seckit; use --backend secure (or local)." >&2
-    exit 2
-    ;;
   *) echo "unsupported --backend: $BACKEND (use secure or local)" >&2; exit 2 ;;
 esac
 

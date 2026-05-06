@@ -9,7 +9,6 @@ from unittest import mock
 from secrets_kit.keychain_backend import (
     BackendError,
     BACKEND_SECURE,
-    ICLOUD_BACKEND_REMOVED_MESSAGE,
     get_secret,
     normalize_backend,
     set_secret,
@@ -24,11 +23,8 @@ class BackendResolutionTest(unittest.TestCase):
     def test_normalize_backend_rejects_icloud(self) -> None:
         for bad in ("icloud", "iCloud", "icloud-helper", "iCloud-Helper"):
             with self.subTest(bad=bad):
-                with self.assertRaisesRegex(BackendError, "icloud / icloud-helper backend was removed"):
+                with self.assertRaisesRegex(BackendError, "unsupported backend"):
                     normalize_backend(bad)
-
-    def test_icloud_removed_message_constant(self) -> None:
-        self.assertIn("removed", ICLOUD_BACKEND_REMOVED_MESSAGE)
 
     def test_normalize_backend_sqlite(self) -> None:
         from secrets_kit.keychain_backend import BACKEND_SQLITE

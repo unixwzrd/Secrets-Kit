@@ -2230,11 +2230,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_version.set_defaults(func=cmd_version, version_info=False, version_json=False)
 
-    p_helper = sub.add_parser("helper", help="Show status of the removed native helper (compatibility JSON)")
+    p_helper = sub.add_parser("helper", help="Show backend availability and helper metadata (JSON, no secrets)")
     helper_sub = p_helper.add_subparsers(dest="helper_command", required=True)
     p_helper_status = helper_sub.add_parser(
         "status",
-        help="JSON: secure backend only; Swift helper removed",
+        help="Print JSON: backend_availability and helper fields (no bundled Mach-O)",
     )
     p_helper_status.set_defaults(func=cmd_helper_status)
 

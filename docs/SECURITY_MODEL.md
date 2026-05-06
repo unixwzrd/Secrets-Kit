@@ -20,12 +20,9 @@ If you understand that up front, the tool makes more sense and is easier to use 
 
 - secret values are stored in macOS Keychain generic-password items
 - the default local backend uses the login Keychain, while `--keychain PATH` targets a specific local keychain file
-- **`--backend icloud` / `icloud-helper` is legacy and not supported**—it relied on a native helper and Apple policy that routinely blocks that binary; use **`--backend secure`** and export/import for cross-host work ([ICLOUD_SYNC_VALIDATION.md](ICLOUD_SYNC_VALIDATION.md))
 - authoritative managed metadata is stored in the keychain item comment as structured JSON
 - `~/.config/seckit/registry.json` remains a local index and recovery aid
 - operator defaults live in `~/.config/seckit/defaults.json`
-
-**Do not rely on `--backend icloud` for sync.** Prefer **`--backend secure`** and encrypted **export/import** between machines. Any description below of iCloud helper behavior is historical context only.
 
 The registry exists so the tool can track inventory locally without becoming the source of truth for metadata across hosts.
 
@@ -113,13 +110,7 @@ The practical size limit for comment JSON is determined by what macOS will store
 
 **Optional — peer identity bundles:** **`seckit identity`**, **`peer`**, and **`sync`** implement **signed, encrypted JSON files** for targeted exchange with pre-registered public keys ([PEER_SYNC.md](PEER_SYNC.md)). This is **not** a live multi-master sync; transport is manual file copy.
 
-iCloud-helper / synchronizable Keychain items are **not a supported Secrets-Kit feature** ([ICLOUD_SYNC_VALIDATION.md](ICLOUD_SYNC_VALIDATION.md)). Remaining notes are for maintainers:
-
-- Local backend items are local Keychain items unless your environment syncs them independently.
-- Legacy iCloud-helper code depended on macOS executing an entitled helper; typical outcomes are failure at launch, not reliable sync.
-- Any manual second-host checklist for iCloud was experimental only.
-
-That helps keep local metadata sane, but it is still operational hygiene, not a hard security boundary.
+Secrets-Kit does **not** implement Apple-managed Keychain replication. Cross-host work is **your** artifact (export, import, or peer bundle)—not OS sync of Keychain items.
 
 ## Practical takeaway
 
@@ -128,4 +119,4 @@ Use Secrets Kit when you want a more disciplined local workflow for tokens, pass
 ## [Back to README](../README.md)
 
 **Created**: 2026-03-01  
-**Updated**: 2026-05-05
+**Updated**: 2026-05-07

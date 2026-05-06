@@ -1,11 +1,8 @@
-"""Stub status for the removed Swift Keychain helper.
+"""Compatibility JSON for ``seckit helper status`` / ``seckit version --json``.
 
-The **``seckit-keychain-helper``** synchronizable Keychain backend was removed: macOS routinely
-**SIGKILL**s that binary at launch. **`--backend secure`** (``security`` CLI) and **export/import**
-are the only supported storage paths.
-
-``seckit helper status`` still emits JSON so older automation keeps parsing; **icloud** entries
-are always **false**. **sqlite** reflects whether PyNaCl (libsodium) is importable.
+No separate native binary is shipped; macOS Keychain access uses the ``security`` CLI
+(``--backend secure``). This module reports ``backend_availability`` and whether **sqlite**
+is available (PyNaCl import). Portable cross-host transfer uses export/import or peer bundles.
 """
 
 from __future__ import annotations
@@ -27,14 +24,11 @@ def helper_status() -> Dict[str, Any]:
             "secure": True,
             "local": True,
             "sqlite": sqlite_ok,
-            "icloud-helper": False,
-            "icloud": False,
         },
         "helper": {
             "installed": False,
             "path": None,
             "bundled_path": None,
-            "removed": True,
-            "note": "Swift seckit-keychain-helper was removed; use --backend secure and export/import.",
+            "note": "No bundled native helper binary; use --backend secure and export/import.",
         },
     }

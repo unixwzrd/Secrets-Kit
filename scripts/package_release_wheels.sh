@@ -1,20 +1,12 @@
 #!/usr/bin/env bash
-# Build signed universal helper + Python wheels for release (local maintainer Mac).
+# Build Python wheels + sdist for release (local maintainer Mac). Wheels are Python-only.
 #
-# Prereqs: macOS, Xcode CLT (swift, lipo, codesign), Python 3.9+ with pip.
+# Prereqs: macOS, Python 3.9+ with pip.
 #
-# 1) Sign for real distribution (Developer ID + Team ID → Keychain entitlements; iCloud-capable):
-#    export SECKIT_RELEASE_SIGNING_IDENTITY='Developer ID Application: Your Name (…)'
-#    export SECKIT_RELEASE_TEAM_ID='XXXXXXXXXX'
-#    optional: export SECKIT_RELEASE_BUNDLE_ID='com.unixwzrd.seckit.keychain-helper'
-#
-# 2) Ad-hoc only (local testing):
-#    unset SECKIT_RELEASE_SIGNING_IDENTITY
-#
-# 3) Optional: build several interpreters on your machine (comma-separated; must exist on PATH):
+# Optional: build several interpreters on your machine (comma-separated; must exist on PATH):
 #    export PY_VERSIONS='3.9,3.10,3.11,3.12,3.13'
 #
-# 4) Optional: notarize + staple before wheels — set ONE of: SECKIT_NOTARY_KEYCHAIN_PROFILE,
+# Optional: notarize + staple before wheels — set ONE of: SECKIT_NOTARY_KEYCHAIN_PROFILE,
 #    or SECKIT_NOTARY_KEY_PATH + KEY_ID + ISSUER_ID, or SECKIT_NOTARY_APPLE_ID (see notarize_bundled_helper.sh).
 #
 # Wheel platform tag is fixed in repo setup.cfg (macosx_13_0_universal2). To change it, edit setup.cfg.
@@ -30,7 +22,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
-  echo "Release wheels must be built on macOS (universal helper + platform tag)." >&2
+  echo "Release wheels must be built on macOS (platform tag in setup.cfg)." >&2
   exit 1
 fi
 
@@ -41,7 +33,7 @@ if [[ ! -f "$ROOT/setup.cfg" ]] || ! grep -q 'plat_name' "$ROOT/setup.cfg"; then
   exit 1
 fi
 
-echo "==> Skip Swift helper (removed); building wheels with security-cli backend only"
+echo "==> Building Python-only wheels (security CLI / sqlite backends; no bundled Mach-O)"
 
 python3 -m pip install -U pip setuptools wheel build
 

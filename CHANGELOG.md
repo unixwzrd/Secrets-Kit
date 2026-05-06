@@ -1,10 +1,20 @@
 # Secrets-Kit Changelog
 
 **Created**: 2026-03-10  
-**Updated**: 2026-05-06
+**Updated**: 2026-05-08
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+### 2026-05-08 — Helper status: drop `helper.removed`; neutral CLI and packaging copy
+
+- **Scope:** `src/secrets_kit/native_helper.py`, `src/secrets_kit/cli.py`, `tests/test_native_helper.py`, `src/secrets_kit/native_helper_bundled/README.md`, `README.md`, `docs/CROSS_HOST_CHECKLIST.md`, `scripts/package_release_wheels.sh`, `CHANGELOG.md`.
+- **What changed:** **`seckit helper status`** / **`version --json`** no longer include **`helper.removed`**. Rely on **`helper.installed`** (false for wheels) plus **`path`** / **`bundled_path`**. Argparse help for **`seckit helper`** and the bundled layout README describe the current model without “removed Swift helper” framing. **Breaking** for JSON consumers that read **`helper.removed`**.
+
+### 2026-05-07 — Remove iCloud-helper docs and unified unsupported-backend errors
+
+- **Scope:** `src/secrets_kit/keychain_backend.py`, `src/secrets_kit/native_helper.py`, `tests/test_backend_resolution.py`, `tests/test_cli_commands.py`, `tests/test_native_helper.py`, `scripts/build_bundled_helper_for_wheel.sh`, `scripts/package_release_wheels.sh`, `scripts/seckit_launchd_smoke.sh`, `README.md`, `AGENTS.md`, `docs/*` (index, defaults, security model, cross-host, checklists, launchd, usage, rework plan, plans), deleted `docs/ICLOUD_SYNC_VALIDATION.md`, deleted `docs/plans/icloud-two-host-checklist.md`, `CHANGELOG.md`.
+- **What changed:** Legacy **`icloud` / `icloud-helper`** ids are rejected like any unknown backend (**`unsupported backend`**)—no dedicated long removal string or doc link. **`seckit helper status`** `backend_availability` now lists only **`secure`**, **`local`**, and **`sqlite`** (breaking change for JSON clients that expected **`icloud`** keys). Removed iCloud-helper validation docs and rewired remaining docs to **secure/sqlite**, export/import, and **peer sync** only.
 
 ### 2026-05-06 — Phase 1B: peer identities and signed encrypted sync bundles
 

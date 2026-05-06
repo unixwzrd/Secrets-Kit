@@ -4,9 +4,6 @@
 the login keychain or ``--keychain`` path) or :class:`SqliteSecretStore` (encrypted SQLite via
 PyNaCl). Canonical backend ids: ``secure`` (alias: ``local``) and ``sqlite``.
 
-The former synchronizable / iCloud Keychain helper (``icloud``, ``icloud-helper``) was **removed** —
-macOS kills that helper at launch in typical configurations. Use **export/import** for cross-host transfer.
-
 Additional backends (PGP, vault, broker) should implement :class:`SecretStore`,
 extend :func:`normalize_backend` / validation, and register in :func:`resolve_secret_store`
 and ``secrets_kit.cli``.
@@ -33,12 +30,6 @@ BACKEND_SECURE = "secure"
 BACKEND_SQLITE = "sqlite"
 """Portable encrypted SQLite store (PyNaCl)."""
 
-ICLOUD_BACKEND_REMOVED_MESSAGE = (
-    "The icloud / icloud-helper backend was removed: the synchronizable Keychain helper is killed by "
-    "macOS (SIGKILL / entitlements) and is not usable. Use --backend secure (or local) and "
-    "seckit export / import for cross-host transfer. See docs/ICLOUD_SYNC_VALIDATION.md."
-)
-
 _BACKEND_ALIASES: Dict[str, str] = {
     "local": BACKEND_SECURE,
 }
@@ -56,8 +47,6 @@ _KNOWN_NORMALIZED: FrozenSet[str] = frozenset({BACKEND_SECURE, BACKEND_SQLITE})
 def normalize_backend(backend: str) -> str:
     """Return canonical backend id (``secure``, ``sqlite``; ``local`` aliases ``secure``)."""
     raw = backend.strip().lower()
-    if raw in {"icloud", "icloud-helper"}:
-        raise BackendError(ICLOUD_BACKEND_REMOVED_MESSAGE)
     normalized = _BACKEND_ALIASES.get(raw, raw)
     if normalized not in _KNOWN_NORMALIZED:
         raise BackendError(

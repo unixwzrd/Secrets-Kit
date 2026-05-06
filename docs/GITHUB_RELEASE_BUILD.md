@@ -1,7 +1,7 @@
 # GitHub Actions release: macOS wheels (Python only)
 
 **Created**: 2026-05-02  
-**Updated**: 2026-05-05
+**Updated**: 2026-05-07
 
 Secrets-Kit wheels ship **Python + package data** only. The former Swift **`seckit-keychain-helper`** was **removed** (macOS killed it at launch). The CLI uses the macOS **`security`** binary for **`--backend secure`**.
 
@@ -36,4 +36,4 @@ Then tag `vX.Y.Z`, push, or upload `dist/*` to PyPI / GitHub Release.
 
 ## References
 
-- [iCloud / removal background](ICLOUD_SYNC_VALIDATION.md)
+- [Security model](SECURITY_MODEL.md)

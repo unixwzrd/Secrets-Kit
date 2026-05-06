@@ -106,9 +106,9 @@ Passphrases and raw secrets **must not** be stored in `defaults.json`; use `SECK
 - Secrets never belong in the config file.
 - `service` must be explicit or configured when a command needs a service scope.
 - `account` falls back to the current OS user when it is not explicit or configured.
-- `backend` selects the storage backend: **`secure`** (alias **`local`**, macOS **`security`** CLI) or **`sqlite`** (encrypted local file). **`icloud`** / **`icloud-helper`** were **removed** ([ICLOUD_SYNC_VALIDATION.md](ICLOUD_SYNC_VALIDATION.md)); use **`secure`** or **`sqlite`** and export/import for cross-host moves.
+- `backend` selects the storage backend: **`secure`** (alias **`local`**, macOS **`security`** CLI) or **`sqlite`** (encrypted local file). For cross-host moves use **`secure`** or **`sqlite`** plus **export/import** or [PEER_SYNC.md](PEER_SYNC.md) bundles—not live Keychain replication.
 - Use defaults for repeated scope information, not for raw secret values.
 
 [Back to README](../README.md)
 
-**Updated**: 2026-05-06
+**Updated**: 2026-05-07

@@ -217,7 +217,7 @@ To validate the pipe transport layer too:
 ./scripts/seckit_cross_host_transport_localhost.sh --service sync-test --account local
 ```
 
-Use the login keychain and VM only for the later manual iCloud validation pass.
+Use the login keychain and a VM only for the manual login-keychain validation pass.
 
 ## A simple everyday pattern
 

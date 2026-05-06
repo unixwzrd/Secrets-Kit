@@ -1,9 +1,7 @@
-# Native helper directory (removed)
+# Native helper package layout (no binary)
 
-The Swift **`seckit-keychain-helper`** binary is **no longer built or shipped**. macOS killed that
-process at launch on typical configurations (SIGKILL), so Secrets-Kit only supports
-**`--backend secure`** with the **`security`** CLI plus **export/import** for cross-host work.
+Wheels ship Python only. Keychain access uses the macOS **`security`** CLI under **`--backend secure`**.
 
-This directory may be empty in wheels; **`README.md`** is tracked for packaging layout.
+This directory may be empty; **`README.md`** is tracked so setuptools can include the path in wheels.
 
-**Updated**: 2026-05-04
+**Updated**: 2026-05-08

@@ -1,6 +1,6 @@
 # Secrets Kit documentation
 
-**Updated:** 2026-05-05
+**Updated:** 2026-05-07
 
 Use this page as the map. The root [README](../README.md) stays short; detail lives here.
 
@@ -20,8 +20,6 @@ Use this page as the map. The root [README](../README.md) stays short; detail li
 
 | Doc | Purpose |
 |-----|---------|
-| [ICLOUD_SYNC_VALIDATION.md](ICLOUD_SYNC_VALIDATION.md) | **Legacy:** iCloud helper path (unsupported); use **secure** + export/import for real workflows |
-| [plans/icloud-two-host-checklist.md](plans/icloud-two-host-checklist.md) | **Historical** two-Mac checklist (experimental iCloud helper only) |
 | [PEER_SYNC.md](PEER_SYNC.md) | Signed encrypted **peer bundles** (`identity` / `peer` / `sync` CLI); manual transport only |
 | [CROSS_HOST_VALIDATION.md](CROSS_HOST_VALIDATION.md) | Disposable-keychain transfer tests |
 | [CROSS_HOST_CHECKLIST.md](CROSS_HOST_CHECKLIST.md) | Operational checklist |
@@ -40,4 +38,4 @@ Use this page as the map. The root [README](../README.md) stays short; detail li
 | [SECKIT_RUN_AND_BACKEND_REWORK_PLAN.md](SECKIT_RUN_AND_BACKEND_REWORK_PLAN.md) | Historical/rework notes |
 | [METADATA_REGISTRY.md](METADATA_REGISTRY.md) | Registry schema |
 
-Checklists shipped with the repo: **`docs/plans/icloud-two-host-checklist.md`** (other files under **`docs/plans/`** are gitignored for local notes).
+Other files under **`docs/plans/`** may be gitignored local notes.

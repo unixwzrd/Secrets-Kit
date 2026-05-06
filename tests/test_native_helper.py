@@ -6,13 +6,12 @@ from secrets_kit.native_helper import helper_status
 
 
 class NativeHelperStubTest(unittest.TestCase):
-    def test_helper_status_shows_helper_removed(self) -> None:
+    def test_helper_status_shows_no_bundled_binary(self) -> None:
         status = helper_status()
         self.assertFalse(status["helper"]["installed"])
-        self.assertTrue(status["helper"].get("removed"))
-        self.assertFalse(status["backend_availability"]["icloud"])
-        self.assertFalse(status["backend_availability"]["icloud-helper"])
+        self.assertNotIn("removed", status["helper"])
         self.assertTrue(status["backend_availability"]["secure"])
+        self.assertTrue(status["backend_availability"]["local"])
         try:
             import nacl.secret  # noqa: F401
         except ImportError:

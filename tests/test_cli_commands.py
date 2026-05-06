@@ -111,13 +111,13 @@ class CliCommandsTest(unittest.TestCase):
 
     def test_config_set_rejects_icloud_backend(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            with mock.patch.object(Path, "home", return_value=Path(tmp)):
+            with mock.patch.object(Path, "home", return_value=Path(tmp)), redirect_stderr(io.StringIO()):
                 code = cmd_config_set(args=argparse.Namespace(key="backend", value="icloud"))
         self.assertEqual(code, 1)
 
     def test_config_set_rejects_invalid_backend(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            with mock.patch.object(Path, "home", return_value=Path(tmp)):
+            with mock.patch.object(Path, "home", return_value=Path(tmp)), redirect_stderr(io.StringIO()):
                 code = cmd_config_set(args=argparse.Namespace(key="backend", value="nosuch"))
         self.assertEqual(code, 1)
 
@@ -287,7 +287,7 @@ class CliCommandsTest(unittest.TestCase):
                 keychain=None,
             )
             with mock.patch("pathlib.Path.home", return_value=home):
-                with self.assertRaisesRegex(Exception, "icloud / icloud-helper backend was removed"):
+                with self.assertRaisesRegex(Exception, "unsupported backend"):
                     _apply_defaults(args=args)
 
     def test_apply_defaults_rejects_icloud_explicit_backend(self) -> None:
@@ -306,7 +306,7 @@ class CliCommandsTest(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as tmp:
             with mock.patch.object(Path, "home", return_value=Path(tmp)):
-                with self.assertRaisesRegex(Exception, "icloud / icloud-helper backend was removed"):
+                with self.assertRaisesRegex(Exception, "unsupported backend"):
                     _apply_defaults(args=args)
 
     def test_account_defaults_to_current_user(self) -> None:
@@ -677,7 +677,7 @@ class CliCommandsTest(unittest.TestCase):
 
     def test_helper_status_command_prints_json(self) -> None:
         out = io.StringIO()
-        payload = {"backend_availability": {"local": True, "icloud": False}}
+        payload = {"backend_availability": {"local": True, "secure": True, "sqlite": False}}
         with mock.patch("secrets_kit.cli.helper_status", return_value=payload), redirect_stdout(out):
             code = cmd_helper_status(args=argparse.Namespace())
         self.assertEqual(code, 0)
@@ -697,7 +697,7 @@ class CliCommandsTest(unittest.TestCase):
             "python": "3.12.0",
             "defaults_path": "/x/defaults.json",
             "defaults": {"backend": "secure"},
-            "backend_availability": {"secure": True, "icloud": False, "local": True, "icloud-helper": False},
+            "backend_availability": {"secure": True, "local": True, "sqlite": True},
             "helper": {"installed": False, "path": None, "bundled_path": None},
         }
         out = io.StringIO()
@@ -716,7 +716,7 @@ class CliCommandsTest(unittest.TestCase):
             "python": "3.12.0",
             "defaults_path": None,
             "defaults": {},
-            "backend_availability": {"secure": True, "icloud": False},
+            "backend_availability": {"secure": True, "local": True, "sqlite": False},
             "helper": {"installed": False, "path": None, "bundled_path": None},
         }
         out = io.StringIO()

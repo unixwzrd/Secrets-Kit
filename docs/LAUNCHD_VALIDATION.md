@@ -61,7 +61,7 @@ This is not the right model for unattended post-logout or post-reboot services.
 
 ### `secure` backend and automated tests
 
-The **`icloud-helper`** / synchronizable Keychain path was **removed** from Secrets-Kit. **`scripts/seckit_launchd_smoke.sh`** uses **`--backend secure`** (alias `local`) and the **`security`** CLI only.
+The **`security`** CLI is the only Keychain integration for **`--backend secure`**. **`scripts/seckit_launchd_smoke.sh`** uses **`--backend secure`** (alias `local`) only.
 
 Automated coverage (macOS, opt-in):
 

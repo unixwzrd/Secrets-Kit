@@ -1,9 +1,11 @@
-# Cross-Host and iCloud Validation Checklist
+# Cross-Host Validation Checklist
+
+**Updated:** 2026-05-08
 
 Use this checklist in two passes:
 
 - automated validation that is safe for CI and local scripted runs
-- manual validation that depends on the user login keychain or real iCloud sync
+- manual validation that depends on the user login keychain
 
 ## A. Automated local and CI-safe validation
 
@@ -126,22 +128,16 @@ Use this checklist in two passes:
 
 ## D. Helper status and backend selection
 
-- [ ] Check that `seckit helper status` reports the bundled helper when installed from a **macOS wheel**
+- [ ] Check that `seckit helper status` reports Python-only wheels (`helper.installed` false; `helper.path` null; no bundled Mach-O)
   ```bash
   cd /path/to/secrets-kit
   seckit helper status
   ```
-  Expect **`helper.bundled_path`** set and **`helper.path`** pointing at an executable when the wheel ships the binary.
-- [ ] If **`backend_availability.icloud`** is false, install a wheel built with **iCloud entitlements** (see [GITHUB_RELEASE_BUILD.md](GITHUB_RELEASE_BUILD.md)) or set **`SECKIT_HELPER_PATH`** to an entitled `seckit-keychain-helper`.
-- [ ] Maintainer-only: build the bundled Mach-O before packaging
+  Expect **`backend_availability`** with **`secure`**, **`local`**, and **`sqlite`** only.
+- [ ] `scripts/build_bundled_helper_for_wheel.sh` exits non-zero (stub; historical)
   ```bash
   cd /path/to/secrets-kit
   bash scripts/build_bundled_helper_for_wheel.sh
-  ```
-- [ ] Check that `seckit helper status` reports helper state and backend availability
-  ```bash
-  cd /path/to/secrets-kit
-  seckit helper status
   ```
 - [ ] Check that `seckit set/get/explain --backend local` still work (disposable keychain or login keychain per your checklist section)
   ```bash
@@ -150,17 +146,10 @@ Use this checklist in two passes:
   seckit get --backend local --keychain /tmp/seckit-sync-source.keychain-db --name SECKIT_TEST_ALPHA --service sync-test --account local --raw
   seckit explain --backend local --keychain /tmp/seckit-sync-source.keychain-db --name SECKIT_TEST_ALPHA --service sync-test --account local
   ```
-- [ ] Check that `seckit set/get/explain --backend icloud` use the entitled helper
+- [ ] Unsupported backends are rejected (`unsupported backend` / exit 1), e.g. **`seckit explain --backend nosuch ...`**
   ```bash
   cd /path/to/secrets-kit
-  printf 'alpha-icloud\n' | seckit set --backend icloud --name SECKIT_TEST_ALPHA --stdin --service sync-test --account local --kind generic --comment "icloud backend helper check"
-  seckit get --backend icloud --name SECKIT_TEST_ALPHA --service sync-test --account local --raw
-  seckit explain --backend icloud --name SECKIT_TEST_ALPHA --service sync-test --account local
-  ```
-- [ ] Check that `--backend icloud --keychain ...` fails with a clear error
-  ```bash
-  cd /path/to/secrets-kit
-  seckit explain --backend icloud --keychain /tmp/seckit-sync-source.keychain-db --name SECKIT_TEST_ALPHA --service sync-test --account local
+  seckit explain --backend nosuch --name SECKIT_TEST_ALPHA --service sync-test --account local
   ```
 
 ## E. Manual login-keychain baseline
@@ -205,47 +194,21 @@ Use this checklist in two passes:
   seckit doctor
   ```
 
-## F. Manual iCloud validation
+## F. Manual second-host spot check (export/import or peer bundles)
 
-- [ ] Confirm test entries appear in Keychain Access on the second host
-- [ ] Confirm `seckit explain` on the second host resolves metadata from `keychain`
-  ```bash
-  seckit explain --name SECKIT_TEST_ALPHA --service sync-test --account local
-  ```
-- [ ] Record first-sync latency
-- [ ] Modify `SECKIT_TEST_ALPHA` on the second host
-  ```bash
-  printf 'alpha-2\n' | seckit set --name SECKIT_TEST_ALPHA --stdin --service sync-test --account local --kind generic --comment "updated on vm"
-  ```
-- [ ] Add `SECKIT_TEST_GAMMA` on the second host
-  ```bash
-  printf 'gamma-1\n' | seckit set --name SECKIT_TEST_GAMMA --stdin --service sync-test --account local --kind generic --comment "created on vm"
-  ```
-- [ ] Delete `SECKIT_TEST_DELETE_ME` on the second host
-  ```bash
-  seckit delete --name SECKIT_TEST_DELETE_ME --service sync-test --account local --yes
-  ```
-- [ ] Verify update/add/delete propagation back on the primary host
-  ```bash
-  seckit explain --name SECKIT_TEST_ALPHA --service sync-test --account local
-  seckit explain --name SECKIT_TEST_GAMMA --service sync-test --account local
-  seckit explain --name SECKIT_TEST_DELETE_ME --service sync-test --account local
-  ```
-- [ ] Confirm comment JSON survives intact
-- [ ] Repeat one verification cycle after logout or restart on one side
+Use [CROSS_HOST_VALIDATION.md](CROSS_HOST_VALIDATION.md) or [PEER_SYNC.md](PEER_SYNC.md)—not OS Keychain replication.
+
+- [ ] Encrypted export on host A and import on host B **or** peer bundle exchange
+- [ ] Confirm values and metadata on host B match expectations
 
 ## G. Result classification
 
 - [ ] Disposable-keychain direct import/export passes
 - [ ] Disposable-keychain locked-destination failure passes
 - [ ] Optional `ssh localhost` transport pass succeeds
-- [ ] Helper install pass
-- [ ] Helper local backend pass
-- [ ] Helper iCloud backend pass
+- [ ] Helper status / backend selection sanity check passes
 - [ ] Login-keychain manual baseline succeeds
-- [ ] Values sync and metadata sync
-- [ ] Values sync but metadata does not sync
-- [ ] Neither values nor metadata sync
+- [ ] Second-host export/import or peer-bundle check passes (if exercised)
 - [ ] Record the observed result and update docs accordingly
 
 ## H. Test notes
@@ -258,7 +221,7 @@ Use this checklist in two passes:
 - [ ] Observed first-sync latency:
 - [ ] Metadata source after disposable direct import:
 - [ ] Metadata source after localhost transport:
-- [ ] Metadata source on remote after iCloud sync:
+- [ ] Metadata source on remote after manual transfer:
 - [ ] Add/change/delete propagation result:
 - [ ] Unexpected failures or oddities:
 
