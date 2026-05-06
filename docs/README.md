@@ -1,6 +1,6 @@
 # Secrets Kit documentation
 
-**Updated:** 2026-05-04
+**Updated:** 2026-05-05
 
 Use this page as the map. The root [README](../README.md) stays short; detail lives here.
 
@@ -22,6 +22,7 @@ Use this page as the map. The root [README](../README.md) stays short; detail li
 |-----|---------|
 | [ICLOUD_SYNC_VALIDATION.md](ICLOUD_SYNC_VALIDATION.md) | **Legacy:** iCloud helper path (unsupported); use **secure** + export/import for real workflows |
 | [plans/icloud-two-host-checklist.md](plans/icloud-two-host-checklist.md) | **Historical** two-Mac checklist (experimental iCloud helper only) |
+| [PEER_SYNC.md](PEER_SYNC.md) | Signed encrypted **peer bundles** (`identity` / `peer` / `sync` CLI); manual transport only |
 | [CROSS_HOST_VALIDATION.md](CROSS_HOST_VALIDATION.md) | Disposable-keychain transfer tests |
 | [CROSS_HOST_CHECKLIST.md](CROSS_HOST_CHECKLIST.md) | Operational checklist |
 | [LAUNCHD_VALIDATION.md](LAUNCHD_VALIDATION.md) | LaunchAgent/Daemon notes |

@@ -31,6 +31,33 @@ seckit run -- python3 app.py
 
 That is usually the best fit for an interactive shell session or a one-off runtime launch.
 
+### SQLite backend environment (`--backend sqlite`)
+
+Secret **values** are encrypted with **PyNaCl** (libsodium). Set a **passphrase** (non-interactive automation):
+
+```bash
+export SECKIT_SQLITE_PASSPHRASE='your-strong-passphrase'
+```
+
+Optional **database path** (default `~/.config/seckit/secrets.db` if unset):
+
+```bash
+export SECKIT_SQLITE_DB=/path/to/secrets.db
+```
+
+**Unlock mode** (how the SQLite master key is obtained):
+
+- **`SECKIT_SQLITE_UNLOCK=passphrase`** (default): Argon2id KDF from `SECKIT_SQLITE_PASSPHRASE` (classic vault rows with no wrapped DEK).
+- **`SECKIT_SQLITE_UNLOCK=keychain`** (macOS): KEK stored as a generic password in the Keychain; vault metadata holds a wrapped DEK. Set **`SECKIT_SQLITE_KEK_KEYCHAIN`** to a keychain file, or use **`seckit ... --backend sqlite --keychain /path/to.keychain-db`** (same flag as secure, different meaning: KEK keychain, not the DB path).
+
+Optional **origin host** stored on each write (default: machine hostname):
+
+```bash
+export SECKIT_ORIGIN_HOST=my-laptop
+```
+
+The SQLite file is **local only**—no sync, daemon, or relay is provided by this tool.
+
 ## Config file defaults
 
 Create `~/.config/seckit/defaults.json`:
@@ -44,7 +71,8 @@ Create `~/.config/seckit/defaults.json`:
   "tags": "primary",
   "default_rotation_days": 90,
   "rotation_warn_days": 14,
-  "backend": "secure"
+  "backend": "secure",
+  "sqlite_db": "/path/to/secrets.db"
 }
 ```
 
@@ -68,7 +96,9 @@ Merged view (defaults file + legacy `config.json` + `SECKIT_DEFAULT_*` env):
 seckit config show --effective
 ```
 
-Allowed keys: `service`, `account`, `backend`, `type`, `kind`, `tags`, `default_rotation_days`, `rotation_warn_days`. See `seckit config set -h`.
+Allowed keys: `service`, `account`, `backend`, `sqlite_db`, `type`, `kind`, `tags`, `default_rotation_days`, `rotation_warn_days`. See `seckit config set -h`.
+
+Passphrases and raw secrets **must not** be stored in `defaults.json`; use `SECKIT_SQLITE_PASSPHRASE` or an interactive prompt for the SQLite backend.
 
 ## Notes
 
@@ -76,9 +106,9 @@ Allowed keys: `service`, `account`, `backend`, `type`, `kind`, `tags`, `default_
 - Secrets never belong in the config file.
 - `service` must be explicit or configured when a command needs a service scope.
 - `account` falls back to the current OS user when it is not explicit or configured.
-- `backend` selects the secret backend. **`secure`** (alias **`local`**) only — macOS **`security`** CLI. **`icloud`** / **`icloud-helper`** were **removed** ([ICLOUD_SYNC_VALIDATION.md](ICLOUD_SYNC_VALIDATION.md)); use **`secure`** and export/import.
+- `backend` selects the storage backend: **`secure`** (alias **`local`**, macOS **`security`** CLI) or **`sqlite`** (encrypted local file). **`icloud`** / **`icloud-helper`** were **removed** ([ICLOUD_SYNC_VALIDATION.md](ICLOUD_SYNC_VALIDATION.md)); use **`secure`** or **`sqlite`** and export/import for cross-host moves.
 - Use defaults for repeated scope information, not for raw secret values.
 
 [Back to README](../README.md)
 
-**Updated**: 2026-05-05
+**Updated**: 2026-05-06

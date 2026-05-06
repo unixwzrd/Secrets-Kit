@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import os
 import plistlib
 import shutil
@@ -48,6 +49,10 @@ def _service_keychain_launchd_tests_enabled() -> bool:
 
 def _daemon_launchd_tests_enabled() -> bool:
     return os.environ.get("SECKIT_RUN_LAUNCHD_DAEMON_TESTS") == "1"
+
+
+def _launchd_sqlite_tests_enabled() -> bool:
+    return os.environ.get("SECKIT_RUN_LAUNCHD_SQLITE_TESTS") == "1"
 
 
 @unittest.skipUnless(sys.platform == "darwin", "macOS-only launchd integration test")
@@ -164,6 +169,244 @@ class LaunchdRunFlowTest(unittest.TestCase):
                 delete_keychain(path=fixture["path"])
             finally:
                 shutil.rmtree(fixture["directory"], ignore_errors=True)
+
+    def test_launch_agent_backend_secure_explicit_uses_temp_keychain(self) -> None:
+        """Same as the default temp-keychain test but passes ``--backend secure`` (security CLI path)."""
+        fixture = make_temp_keychain(password="launchd-pass-secure")
+        label = f"ai.unixwzrd.seckit.launchd-secure-explicit.{os.getpid()}"
+        service_target = f"gui/{os.getuid()}/{label}"
+        try:
+            harden_keychain(path=fixture["path"], timeout_seconds=3600)
+            with tempfile.TemporaryDirectory() as home_dir:
+                home = Path(home_dir)
+                output_file = home / "launchd-secure-env.txt"
+                stdout_file = home / "launchd-secure.stdout"
+                stderr_file = home / "launchd-secure.stderr"
+                plist_file = home / f"{label}.plist"
+                repo_root = Path(__file__).resolve().parents[1]
+
+                with mock.patch("pathlib.Path.home", return_value=home):
+                    set_args = argparse.Namespace(
+                        name="SECKIT_TEST_ENV",
+                        value="expected-secure",
+                        stdin=False,
+                        allow_empty=False,
+                        type="secret",
+                        kind="generic",
+                        tags=None,
+                        comment="launchd secure explicit backend",
+                        service="launchd-secure-test",
+                        account="local",
+                        source_url="",
+                        source_label="",
+                        rotation_days=None,
+                        rotation_warn_days=None,
+                        expires_at="",
+                        domain=None,
+                        domains=None,
+                        meta=None,
+                        keychain=fixture["path"],
+                        backend="secure",
+                    )
+                    self.assertEqual(cmd_set(args=set_args), 0)
+
+                child_code = (
+                    "import os, pathlib, sys; "
+                    "pathlib.Path(sys.argv[1]).write_text(os.environ.get('SECKIT_TEST_ENV', ''), encoding='utf-8')"
+                )
+                plist = {
+                    "Label": label,
+                    "ProgramArguments": [
+                        sys.executable,
+                        "-m",
+                        "secrets_kit.cli",
+                        "run",
+                        "--backend",
+                        "secure",
+                        "--service",
+                        "launchd-secure-test",
+                        "--account",
+                        "local",
+                        "--keychain",
+                        fixture["path"],
+                        "--",
+                        sys.executable,
+                        "-c",
+                        child_code,
+                        str(output_file),
+                    ],
+                    "EnvironmentVariables": {
+                        "HOME": str(home),
+                        "PYTHONPATH": str(repo_root / "src"),
+                    },
+                    "WorkingDirectory": str(repo_root),
+                    "RunAtLoad": False,
+                    "StandardOutPath": str(stdout_file),
+                    "StandardErrorPath": str(stderr_file),
+                }
+                with plist_file.open("wb") as handle:
+                    plistlib.dump(plist, handle)
+
+                bootstrapped = False
+                try:
+                    subprocess.run(
+                        ["launchctl", "bootstrap", f"gui/{os.getuid()}", str(plist_file)],
+                        capture_output=True,
+                        text=True,
+                        check=True,
+                    )
+                    bootstrapped = True
+                    subprocess.run(
+                        ["launchctl", "kickstart", "-k", service_target],
+                        capture_output=True,
+                        text=True,
+                        check=True,
+                    )
+                    deadline = time.monotonic() + 20
+                    while time.monotonic() < deadline:
+                        if output_file.exists():
+                            break
+                        time.sleep(0.2)
+                    stdout = stdout_file.read_text(encoding="utf-8") if stdout_file.exists() else ""
+                    stderr = stderr_file.read_text(encoding="utf-8") if stderr_file.exists() else ""
+                    self.assertTrue(
+                        output_file.exists(),
+                        f"launchd output was not created\nstdout={stdout}\nstderr={stderr}",
+                    )
+                    self.assertEqual(output_file.read_text(encoding="utf-8"), "expected-secure")
+                finally:
+                    if bootstrapped:
+                        subprocess.run(
+                            ["launchctl", "bootout", service_target],
+                            capture_output=True,
+                            text=True,
+                            check=False,
+                        )
+        finally:
+            try:
+                delete_keychain(path=fixture["path"])
+            finally:
+                shutil.rmtree(fixture["directory"], ignore_errors=True)
+
+    @unittest.skipUnless(
+        importlib.util.find_spec("nacl") is not None,
+        "SQLite launchd test requires PyNaCl",
+    )
+    @unittest.skipUnless(_launchd_sqlite_tests_enabled(), "set SECKIT_RUN_LAUNCHD_SQLITE_TESTS=1 for SQLite launchd test")
+    def test_launch_agent_sqlite_backend_injects_env(self) -> None:
+        """launchd + ``--backend sqlite`` with a disposable HOME, DB, and dummy passphrase (opt-in)."""
+        label = f"ai.unixwzrd.seckit.launchd-sqlite.{os.getpid()}"
+        service_target = f"gui/{os.getuid()}/{label}"
+        with tempfile.TemporaryDirectory() as home_dir:
+            home = Path(home_dir)
+            db_file = home / "launchd-sqlite.db"
+            passphrase = "launchd-sqlite-dummy-passphrase!!"
+            output_file = home / "launchd-sqlite-env.txt"
+            stdout_file = home / "launchd-sqlite.stdout"
+            stderr_file = home / "launchd-sqlite.stderr"
+            plist_file = home / f"{label}.plist"
+            repo_root = Path(__file__).resolve().parents[1]
+
+            with mock.patch("pathlib.Path.home", return_value=home):
+                set_args = argparse.Namespace(
+                    name="SECKIT_TEST_ENV",
+                    value="expected-sqlite",
+                    stdin=False,
+                    allow_empty=False,
+                    type="secret",
+                    kind="generic",
+                    tags=None,
+                    comment="launchd sqlite env injection",
+                    service="launchd-sqlite-test",
+                    account="local",
+                    source_url="",
+                    source_label="",
+                    rotation_days=None,
+                    rotation_warn_days=None,
+                    expires_at="",
+                    domain=None,
+                    domains=None,
+                    meta=None,
+                    keychain=None,
+                    backend="sqlite",
+                    db=str(db_file),
+                )
+                self.assertEqual(cmd_set(args=set_args), 0)
+
+            child_code = (
+                "import os, pathlib, sys; "
+                "pathlib.Path(sys.argv[1]).write_text(os.environ.get('SECKIT_TEST_ENV', ''), encoding='utf-8')"
+            )
+            plist = {
+                "Label": label,
+                "ProgramArguments": [
+                    sys.executable,
+                    "-m",
+                    "secrets_kit.cli",
+                    "run",
+                    "--backend",
+                    "sqlite",
+                    "--db",
+                    str(db_file),
+                    "--service",
+                    "launchd-sqlite-test",
+                    "--account",
+                    "local",
+                    "--",
+                    sys.executable,
+                    "-c",
+                    child_code,
+                    str(output_file),
+                ],
+                "EnvironmentVariables": {
+                    "HOME": str(home),
+                    "PYTHONPATH": str(repo_root / "src"),
+                    "SECKIT_SQLITE_PASSPHRASE": passphrase,
+                    "SECKIT_SQLITE_UNLOCK": "passphrase",
+                },
+                "WorkingDirectory": str(repo_root),
+                "RunAtLoad": False,
+                "StandardOutPath": str(stdout_file),
+                "StandardErrorPath": str(stderr_file),
+            }
+            with plist_file.open("wb") as handle:
+                plistlib.dump(plist, handle)
+
+            bootstrapped = False
+            try:
+                subprocess.run(
+                    ["launchctl", "bootstrap", f"gui/{os.getuid()}", str(plist_file)],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                bootstrapped = True
+                subprocess.run(
+                    ["launchctl", "kickstart", "-k", service_target],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                deadline = time.monotonic() + 20
+                while time.monotonic() < deadline:
+                    if output_file.exists():
+                        break
+                    time.sleep(0.2)
+                stdout = stdout_file.read_text(encoding="utf-8") if stdout_file.exists() else ""
+                stderr = stderr_file.read_text(encoding="utf-8") if stderr_file.exists() else ""
+                self.assertTrue(
+                    output_file.exists(),
+                    f"launchd sqlite output was not created\nstdout={stdout}\nstderr={stderr}",
+                )
+                self.assertEqual(output_file.read_text(encoding="utf-8"), "expected-sqlite")
+            finally:
+                if bootstrapped:
+                    subprocess.run(
+                        ["launchctl", "bootout", service_target],
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
 
     @unittest.skipUnless(_login_keychain_launchd_tests_enabled(), "set SECKIT_RUN_LAUNCHD_LOGIN_KEYCHAIN_TESTS=1 to run login-keychain launchd test")
     def test_launch_agent_can_receive_login_keychain_secret_without_keychain_password(self) -> None:

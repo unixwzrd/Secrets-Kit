@@ -13,7 +13,7 @@ from dataclasses import asdict
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as package_version
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 from secrets_kit.native_helper import helper_status
 from secrets_kit.crypto import CryptoUnavailable, build_plain_export, decrypt_payload, encrypt_payload, ensure_crypto_available
@@ -38,6 +38,7 @@ from secrets_kit.keychain_backend import (
     get_secret_metadata,
     harden_keychain,
     is_secure_backend,
+    is_sqlite_backend,
     keychain_accessible,
     keychain_policy,
     keychain_path,
@@ -48,6 +49,7 @@ from secrets_kit.keychain_backend import (
     set_secret,
     unlock_keychain,
 )
+from secrets_kit.sqlite_backend import default_sqlite_db_path
 from secrets_kit.models import (
     ENTRY_KIND_VALUES,
     METADATA_SCHEMA_VERSION,
@@ -70,6 +72,7 @@ _CONFIG_STORABLE_KEYS: frozenset[str] = frozenset(
         "kind",
         "tags",
         "backend",
+        "sqlite_db",
         "default_rotation_days",
         "rotation_warn_days",
     }
@@ -85,6 +88,24 @@ from secrets_kit.registry import (
     save_defaults,
     upsert_metadata,
 )
+from secrets_kit.identity import (
+    IdentityError,
+    export_public_identity,
+    identity_dir,
+    identity_secret_path,
+    init_identity,
+    load_identity,
+)
+from secrets_kit.peers import add_peer_from_file, get_peer, list_peers, remove_peer
+from secrets_kit.sync_bundle import (
+    SyncBundleError,
+    build_bundle,
+    decrypt_bundle_for_recipient,
+    inspect_bundle,
+    parse_bundle_file,
+    verify_bundle_structure,
+)
+from secrets_kit.sync_merge import apply_peer_sync_import, effective_origin_host
 
 
 def _fatal(*, message: str, code: int = 2) -> int:
@@ -207,6 +228,7 @@ def _load_defaults() -> Dict[str, object]:
         "kind": "SECKIT_DEFAULT_KIND",
         "tags": "SECKIT_DEFAULT_TAGS",
         "backend": "SECKIT_DEFAULT_BACKEND",
+        "sqlite_db": "SECKIT_SQLITE_DB",
         "default_rotation_days": "SECKIT_DEFAULT_ROTATION_DAYS",
         "rotation_warn_days": "SECKIT_DEFAULT_ROTATION_WARN_DAYS",
     }
@@ -251,6 +273,11 @@ def _apply_defaults(*, args: argparse.Namespace) -> None:
     if hasattr(args, "rotation_warn_days") and getattr(args, "rotation_warn_days", None) is None and defaults.get("rotation_warn_days"):
         args.rotation_warn_days = int(str(defaults["rotation_warn_days"]))
 
+    if hasattr(args, "db") and not getattr(args, "db", None):
+        raw_db = defaults.get("sqlite_db")
+        if raw_db:
+            args.db = os.path.expanduser(str(raw_db).strip())
+
     if hasattr(args, "type") and not args.type:
         if args.command in {"set", "import", "migrate"}:
             args.type = "secret"
@@ -262,7 +289,8 @@ def _apply_defaults(*, args: argparse.Namespace) -> None:
             args.kind = defaults.get("kind") or "api_key"
 
     if hasattr(args, "service") and not args.service:
-        if args.command in {"set", "get", "delete", "export", "import", "migrate", "run"}:
+        sync_export = args.command == "sync" and getattr(args, "sync_command", None) == "export"
+        if args.command in {"set", "get", "delete", "export", "import", "migrate", "run"} or sync_export:
             raise ValidationError(
                 "service is required. Set --service or define SECKIT_DEFAULT_SERVICE / config.json"
             )
@@ -275,8 +303,11 @@ def _apply_defaults(*, args: argparse.Namespace) -> None:
             normalized = normalize_backend(args.backend)
         except BackendError as exc:
             raise ValidationError(str(exc)) from exc
-        if hasattr(args, "keychain") and getattr(args, "keychain", None) and not is_secure_backend(normalized):
-            raise ValidationError("--keychain is only supported with --backend secure (alias: local)")
+        if hasattr(args, "keychain") and getattr(args, "keychain", None):
+            if not (is_secure_backend(normalized) or is_sqlite_backend(normalized)):
+                raise ValidationError("--keychain is only supported with --backend secure (alias: local) or sqlite")
+        if hasattr(args, "db") and getattr(args, "db", None) and not is_sqlite_backend(normalized):
+            raise ValidationError("--db is only supported with --backend sqlite")
         args.backend = normalized
 
 
@@ -288,6 +319,10 @@ def _validate_config_entry(*, key: str, value: str) -> object:
             return normalize_backend(v)
         except BackendError as exc:
             raise ValidationError(str(exc)) from exc
+    if key == "sqlite_db":
+        if not v:
+            raise ValidationError("sqlite_db cannot be empty")
+        return os.path.expanduser(v)
     if key == "type":
         if v not in {"secret", "pii"}:
             raise ValidationError("type must be secret or pii")
@@ -404,6 +439,46 @@ def _backend_arg(args: argparse.Namespace) -> str:
     return getattr(args, "backend", BACKEND_SECURE)
 
 
+def _store_path(args: argparse.Namespace) -> Optional[str]:
+    """Backend store path: keychain file (secure) or SQLite database path (sqlite)."""
+    backend = _backend_arg(args)
+    if is_sqlite_backend(backend):
+        db = getattr(args, "db", None)
+        if db:
+            return os.path.expanduser(str(db))
+        env_db = os.environ.get("SECKIT_SQLITE_DB", "").strip()
+        if env_db:
+            return os.path.expanduser(env_db)
+        return default_sqlite_db_path()
+    return _keychain_arg(args)
+
+
+def _kek_keychain_arg(args: argparse.Namespace) -> Optional[str]:
+    """When ``backend`` is sqlite, optional keychain file holding the SQLite KEK (not the DB path)."""
+    if not is_sqlite_backend(_backend_arg(args)):
+        return None
+    k = _keychain_arg(args)
+    return os.path.expanduser(str(k)) if k else None
+
+
+def _backend_access_kwargs(args: argparse.Namespace) -> Dict[str, Any]:
+    return {
+        "path": _store_path(args),
+        "backend": _backend_arg(args),
+        "kek_keychain_path": _kek_keychain_arg(args),
+    }
+
+
+def _doctor_skip_missing_secret_scan(args: argparse.Namespace) -> bool:
+    """Match doctor drift rules: skip when custom keychain or explicit --db is set."""
+    backend = _backend_arg(args)
+    if is_secure_backend(backend) and _keychain_arg(args) is not None:
+        return True
+    if is_sqlite_backend(backend) and getattr(args, "db", None):
+        return True
+    return False
+
+
 def _parse_meta_pairs(items: Optional[List[str]]) -> Dict[str, str]:
     out: Dict[str, str] = {}
     for item in items or []:
@@ -426,6 +501,18 @@ def _resolve_domains(*, domain: Optional[List[str]], domains_csv: Optional[str])
     return normalize_domains(items)
 
 
+def _entries_match_domain_filter(*, entries: List[EntryMetadata], domains: List[str]) -> List[EntryMetadata]:
+    """Keep entries whose ``domains`` overlap the filter (any exact match)."""
+    if not domains:
+        return entries
+    dset = set(normalize_domains(domains))
+    out: List[EntryMetadata] = []
+    for meta in entries:
+        if dset & set(normalize_domains(meta.domains)):
+            out.append(meta)
+    return out
+
+
 def _select_entries(
     *,
     args: argparse.Namespace,
@@ -442,8 +529,9 @@ def _select_entries(
                 account=args.account,
                 name=name,
                 registry=entries,
-                path=_keychain_arg(args),
+                path=_store_path(args),
                 backend=_backend_arg(args),
+                kek_keychain_path=_kek_keychain_arg(args),
             )
             if not resolved:
                 continue
@@ -476,8 +564,9 @@ def _select_entries(
             account=indexed.account,
             name=indexed.name,
             registry=entries,
-            path=_keychain_arg(args),
+            path=_store_path(args),
             backend=_backend_arg(args),
+            kek_keychain_path=_kek_keychain_arg(args),
         )
         if not resolved:
             continue
@@ -496,8 +585,7 @@ def _build_env_map(*, entries: List[EntryMetadata], args: argparse.Namespace) ->
                 service=meta.service,
                 account=meta.account,
                 name=meta.name,
-                path=_keychain_arg(args),
-                backend=_backend_arg(args),
+                **_backend_access_kwargs(args),
             )
         except BackendError as exc:
             raise BackendError(
@@ -527,8 +615,9 @@ def _build_metadata(*, args: argparse.Namespace, name: str, source: str) -> Entr
         account=args.account,
         name=name,
         registry=registry,
-        path=_keychain_arg(args),
+        path=_store_path(args),
         backend=_backend_arg(args),
+        kek_keychain_path=_kek_keychain_arg(args),
     )
     created_at = existing["metadata"].created_at if existing else now_utc_iso()
     last_rotated_at = now_utc_iso()
@@ -592,14 +681,29 @@ def _read_metadata(
     registry: Optional[Dict[str, EntryMetadata]] = None,
     path: Optional[str] = None,
     backend: str = "secure",
+    kek_keychain_path: Optional[str] = None,
 ) -> Optional[Dict[str, object]]:
     key = f"{service}::{account}::{name}"
     registry = registry if registry is not None else load_registry()
     registry_meta = registry.get(key)
-    if secret_exists(service=service, account=account, name=name, path=path, backend=backend):
+    if secret_exists(
+        service=service,
+        account=account,
+        name=name,
+        path=path,
+        backend=backend,
+        kek_keychain_path=kek_keychain_path,
+    ):
         keychain_fields: Dict[str, object] = {}
         try:
-            keychain_fields = get_secret_metadata(service=service, account=account, name=name, path=path, backend=backend)
+            keychain_fields = get_secret_metadata(
+                service=service,
+                account=account,
+                name=name,
+                path=path,
+                backend=backend,
+                kek_keychain_path=kek_keychain_path,
+            )
         except BackendError:
             if registry_meta:
                 return {
@@ -617,7 +721,7 @@ def _read_metadata(
             )
             return {
                 "metadata": minimal,
-                "metadata_source": "keychain-minimal",
+                "metadata_source": "sqlite-minimal" if is_sqlite_backend(backend) else "keychain-minimal",
                 "keychain_fields": {},
                 "registry_fallback_used": False,
             }
@@ -625,7 +729,7 @@ def _read_metadata(
         if keychain_meta:
             return {
                 "metadata": keychain_meta,
-                "metadata_source": "keychain",
+                "metadata_source": "sqlite" if is_sqlite_backend(backend) else "keychain",
                 "keychain_fields": keychain_fields,
                 "registry_fallback_used": False,
             }
@@ -645,11 +749,18 @@ def _read_metadata(
         )
         return {
             "metadata": minimal,
-            "metadata_source": "keychain-minimal",
+            "metadata_source": "sqlite-minimal" if is_sqlite_backend(backend) else "keychain-minimal",
             "keychain_fields": keychain_fields,
             "registry_fallback_used": False,
         }
     if registry_meta and path is None and is_secure_backend(backend):
+        return {
+            "metadata": registry_meta,
+            "metadata_source": "registry-only",
+            "keychain_fields": {},
+            "registry_fallback_used": True,
+        }
+    if registry_meta and is_sqlite_backend(backend):
         return {
             "metadata": registry_meta,
             "metadata_source": "registry-only",
@@ -675,6 +786,7 @@ def _apply_candidates(
     allow_empty: bool,
     path: Optional[str] = None,
     backend: str = "secure",
+    kek_keychain_path: Optional[str] = None,
 ) -> Dict[str, int]:
     registry = load_registry()
     stats = {"created": 0, "updated": 0, "skipped": 0, "unchanged": 0}
@@ -687,6 +799,7 @@ def _apply_candidates(
             registry=registry,
             path=path,
             backend=backend,
+            kek_keychain_path=kek_keychain_path,
         )
         exists = resolved is not None and secret_exists(
             service=candidate.metadata.service,
@@ -694,6 +807,7 @@ def _apply_candidates(
             name=candidate.metadata.name,
             path=path,
             backend=backend,
+            kek_keychain_path=kek_keychain_path,
         )
         if exists and not allow_overwrite:
             stats["skipped"] += 1
@@ -713,6 +827,7 @@ def _apply_candidates(
                     name=candidate.metadata.name,
                     path=path,
                     backend=backend,
+                    kek_keychain_path=kek_keychain_path,
                 )
                 if current_value == candidate.value:
                     stats["unchanged"] += 1
@@ -730,6 +845,7 @@ def _apply_candidates(
             comment=candidate.metadata.to_keychain_comment(),
             path=path,
             backend=backend,
+            kek_keychain_path=kek_keychain_path,
         )
         upsert_metadata(metadata=candidate.metadata)
         stats["updated" if exists else "created"] += 1
@@ -764,8 +880,7 @@ def cmd_set(*, args: argparse.Namespace) -> int:
             value=value,
             label=name,
             comment=meta.to_keychain_comment(),
-            path=_keychain_arg(args),
-            backend=_backend_arg(args),
+            **_backend_access_kwargs(args),
         )
         upsert_metadata(metadata=meta)
         print(f"stored: name={name} type={meta.entry_type} kind={meta.entry_kind} service={args.service} account={args.account}")
@@ -777,8 +892,13 @@ def cmd_set(*, args: argparse.Namespace) -> int:
 def cmd_get(*, args: argparse.Namespace) -> int:
     try:
         name = validate_key_name(name=args.name)
-        value = get_secret(service=args.service, account=args.account, name=name, path=_keychain_arg(args), backend=_backend_arg(args))
-        resolved = _read_metadata(service=args.service, account=args.account, name=name, path=_keychain_arg(args), backend=_backend_arg(args))
+        value = get_secret(service=args.service, account=args.account, name=name, **_backend_access_kwargs(args))
+        resolved = _read_metadata(
+            service=args.service,
+            account=args.account,
+            name=name,
+            **_backend_access_kwargs(args),
+        )
         metadata = resolved["metadata"] if resolved else None
         kind = metadata.entry_kind if isinstance(metadata, EntryMetadata) else "unknown"
         entry_type = metadata.entry_type if isinstance(metadata, EntryMetadata) else "unknown"
@@ -818,8 +938,9 @@ def cmd_list(*, args: argparse.Namespace) -> int:
             account=indexed.account,
             name=indexed.name,
             registry=entries,
-            path=_keychain_arg(args),
+            path=_store_path(args),
             backend=_backend_arg(args),
+            kek_keychain_path=_kek_keychain_arg(args),
         )
         if not resolved:
             continue
@@ -876,7 +997,7 @@ def cmd_delete(*, args: argparse.Namespace) -> int:
         if not args.yes and not _confirm(prompt=f"Delete {name} from service={args.service} account={args.account}?"):
             print("aborted")
             return 1
-        delete_secret(service=args.service, account=args.account, name=name, path=_keychain_arg(args), backend=_backend_arg(args))
+        delete_secret(service=args.service, account=args.account, name=name, **_backend_access_kwargs(args))
         delete_metadata(service=args.service, account=args.account, name=name)
         print(f"deleted: name={name} service={args.service} account={args.account}")
         return 0
@@ -887,7 +1008,7 @@ def cmd_delete(*, args: argparse.Namespace) -> int:
 def cmd_explain(*, args: argparse.Namespace) -> int:
     try:
         name = validate_key_name(name=args.name)
-        resolved = _read_metadata(service=args.service, account=args.account, name=name, path=_keychain_arg(args), backend=_backend_arg(args))
+        resolved = _read_metadata(service=args.service, account=args.account, name=name, **_backend_access_kwargs(args))
         if not resolved:
             return _fatal(message=f"entry not found: {args.service}::{args.account}::{name}", code=1)
         entry = resolved["metadata"]
@@ -955,8 +1076,9 @@ def cmd_import_env(*, args: argparse.Namespace) -> int:
             allow_overwrite=args.allow_overwrite or getattr(args, "upsert", False),
             dry_run=args.dry_run,
             allow_empty=args.allow_empty,
-            path=_keychain_arg(args),
+            path=_store_path(args),
             backend=_backend_arg(args),
+            kek_keychain_path=_kek_keychain_arg(args),
         )
         print(json.dumps(stats, indent=2, sort_keys=True))
         return 0
@@ -985,8 +1107,9 @@ def cmd_import_file(*, args: argparse.Namespace) -> int:
             allow_overwrite=args.allow_overwrite,
             dry_run=args.dry_run,
             allow_empty=args.allow_empty,
-            path=_keychain_arg(args),
+            path=_store_path(args),
             backend=_backend_arg(args),
+            kek_keychain_path=_kek_keychain_arg(args),
         )
         print(json.dumps(stats, indent=2, sort_keys=True))
         return 0
@@ -1026,8 +1149,9 @@ def cmd_import_encrypted(*, args: argparse.Namespace) -> int:
             allow_overwrite=args.allow_overwrite,
             dry_run=args.dry_run,
             allow_empty=args.allow_empty,
-            path=_keychain_arg(args),
+            path=_store_path(args),
             backend=_backend_arg(args),
+            kek_keychain_path=_kek_keychain_arg(args),
         )
         print(json.dumps(stats, indent=2, sort_keys=True))
         return 0
@@ -1066,8 +1190,7 @@ def cmd_export(*, args: argparse.Namespace) -> int:
                             service=meta.service,
                             account=meta.account,
                             name=meta.name,
-                            path=_keychain_arg(args),
-                            backend=_backend_arg(args),
+                            **_backend_access_kwargs(args),
                         ),
                     }
                 )
@@ -1082,6 +1205,284 @@ def cmd_export(*, args: argparse.Namespace) -> int:
 
         return _fatal(message=f"unsupported format: {args.format}", code=1)
     except (ValidationError, RegistryError, BackendError, CryptoUnavailable) as exc:
+        return _fatal(message=str(exc), code=1)
+
+
+def cmd_identity_init(*, args: argparse.Namespace) -> int:
+    try:
+        ident = init_identity(force=args.force)
+        if getattr(args, "json", False):
+            print(
+                json.dumps(
+                    {"host_id": ident.host_id, "secret_path": str(identity_secret_path())},
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+        else:
+            print("Host identity initialized.")
+            print(f"host_id: {ident.host_id}")
+            print(f"secret: {identity_secret_path()}")
+        return 0
+    except IdentityError as exc:
+        return _fatal(message=str(exc), code=1)
+
+
+def cmd_identity_show(*, args: argparse.Namespace) -> int:
+    try:
+        ident = load_identity()
+        payload = {
+            "box_public_hex": bytes(ident.box_public).hex(),
+            "host_id": ident.host_id,
+            "identity_dir": str(identity_dir()),
+            "signing_fingerprint": ident.signing_fingerprint_hex(),
+        }
+        if getattr(args, "json", False):
+            print(json.dumps(payload, indent=2, sort_keys=True))
+        else:
+            print(f"host_id: {payload['host_id']}")
+            print(f"signing_fingerprint: {payload['signing_fingerprint']}")
+            print(f"box_public_hex: {payload['box_public_hex']}")
+            print(f"identity_dir: {payload['identity_dir']}")
+        return 0
+    except IdentityError as exc:
+        return _fatal(message=str(exc), code=1)
+
+
+def cmd_identity_export(*, args: argparse.Namespace) -> int:
+    try:
+        out = Path(args.out).expanduser() if getattr(args, "out", None) else None
+        pub = export_public_identity(out=out)
+        if getattr(args, "json", False) or out is None:
+            print(json.dumps(pub, indent=2, sort_keys=True))
+        else:
+            print(f"wrote {out}")
+        return 0
+    except IdentityError as exc:
+        return _fatal(message=str(exc), code=1)
+
+
+def cmd_peer_add(*, args: argparse.Namespace) -> int:
+    try:
+        rec = add_peer_from_file(alias=args.alias, path=Path(args.export_path).expanduser())
+        payload = {
+            "alias": rec.alias,
+            "fingerprint": rec.fingerprint,
+            "host_id": rec.host_id,
+            "trusted_at": rec.trusted_at,
+        }
+        if getattr(args, "json", False):
+            print(json.dumps(payload, indent=2, sort_keys=True))
+        else:
+            print(f"added peer {rec.alias} host_id={rec.host_id} fingerprint={rec.fingerprint[:16]}…")
+        return 0
+    except (IdentityError, RegistryError) as exc:
+        return _fatal(message=str(exc), code=1)
+
+
+def cmd_peer_remove(*, args: argparse.Namespace) -> int:
+    try:
+        ok = remove_peer(alias=args.alias)
+        if not ok:
+            return _fatal(message=f"no peer named {args.alias!r}", code=1)
+        if getattr(args, "json", False):
+            print(json.dumps({"removed": args.alias}, indent=2, sort_keys=True))
+        else:
+            print(f"removed peer {args.alias}")
+        return 0
+    except RegistryError as exc:
+        return _fatal(message=str(exc), code=1)
+
+
+def cmd_peer_list(*, args: argparse.Namespace) -> int:
+    try:
+        rows = list_peers()
+        if getattr(args, "json", False):
+            payload = [
+                {
+                    "alias": p.alias,
+                    "fingerprint": p.fingerprint,
+                    "host_id": p.host_id,
+                    "trusted_at": p.trusted_at,
+                }
+                for p in rows
+            ]
+            print(json.dumps(payload, indent=2, sort_keys=True))
+            return 0
+        if not rows:
+            print("no peers")
+            return 0
+        _print_table(
+            headers=["alias", "fingerprint", "host_id", "trusted_at"],
+            rows=[
+                [p.alias, p.fingerprint[:16] + "…", p.host_id, p.trusted_at]
+                for p in rows
+            ],
+        )
+        return 0
+    except RegistryError as exc:
+        return _fatal(message=str(exc), code=1)
+
+
+def cmd_peer_show(*, args: argparse.Namespace) -> int:
+    try:
+        p = get_peer(alias=args.alias)
+        payload = {
+            "alias": p.alias,
+            "box_public": p.box_public_b64,
+            "fingerprint": p.fingerprint,
+            "host_id": p.host_id,
+            "signing_public": p.signing_public_b64,
+            "trusted_at": p.trusted_at,
+        }
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+    except RegistryError as exc:
+        return _fatal(message=str(exc), code=1)
+
+
+def cmd_sync_export(*, args: argparse.Namespace) -> int:
+    try:
+        ident = load_identity()
+        selected = _select_entries(args=args, require_explicit_selection=True)
+        dfilter = _resolve_domains(domain=getattr(args, "domain", None), domains_csv=getattr(args, "domains", None))
+        selected = _entries_match_domain_filter(entries=selected, domains=dfilter)
+        if not selected:
+            return _fatal(message="no matching entries selected for sync export", code=1)
+        recipients = [(get_peer(alias=a).fingerprint, get_peer(alias=a).box_public()) for a in args.peer]
+        entries: List[Dict[str, object]] = []
+        for meta in sorted(selected, key=lambda item: item.name):
+            value = get_secret(
+                service=meta.service,
+                account=meta.account,
+                name=meta.name,
+                **_backend_access_kwargs(args),
+            )
+            oh = effective_origin_host(meta=meta, default_host_id=ident.host_id)
+            entries.append({"metadata": meta.to_dict(), "origin_host": oh, "value": value})
+        bundle = build_bundle(
+            identity=ident,
+            recipient_records=recipients,
+            entries=entries,
+            domain_filter=dfilter or None,
+        )
+        out_path = Path(args.out).expanduser()
+        out_path.write_text(json.dumps(bundle, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        summary = {
+            "domain_filter": dfilter,
+            "entry_count": len(entries),
+            "out": str(out_path),
+            "peers": list(args.peer),
+            "signer_fingerprint": ident.signing_fingerprint_hex(),
+        }
+        if getattr(args, "json", False):
+            print(json.dumps(summary, indent=2, sort_keys=True))
+        else:
+            print(json.dumps(summary, indent=2, sort_keys=True))
+        return 0
+    except (
+        BackendError,
+        IdentityError,
+        RegistryError,
+        SyncBundleError,
+        ValidationError,
+    ) as exc:
+        return _fatal(message=str(exc), code=1)
+
+
+def cmd_sync_import(*, args: argparse.Namespace) -> int:
+    try:
+        ident = load_identity()
+        text = Path(args.file).expanduser().read_text(encoding="utf-8")
+        payload = parse_bundle_file(text)
+        signer = get_peer(alias=args.signer)
+        inner = decrypt_bundle_for_recipient(
+            payload=payload,
+            identity=ident,
+            trusted_signer=signer.verify_key(),
+        )
+        raw_entries = inner.get("entries", [])
+        if not isinstance(raw_entries, list):
+            return _fatal(message="bundle inner entries must be an array", code=1)
+        dfilter = _resolve_domains(domain=getattr(args, "domain", None), domains_csv=getattr(args, "domains", None))
+        conv_entries = [e for e in raw_entries if isinstance(e, dict)]
+        if len(conv_entries) != len(raw_entries):
+            return _fatal(message="bundle inner entries must be objects", code=1)
+        if not args.dry_run and not args.yes and not _confirm(
+            prompt=f"Import {len(conv_entries)} entries from peer bundle (merge rules apply)?",
+        ):
+            print("aborted")
+            return 1
+        stats = apply_peer_sync_import(
+            inner_entries=conv_entries,
+            local_host_id=ident.host_id,
+            dry_run=args.dry_run,
+            **_backend_access_kwargs(args),
+            domain_filter=dfilter or None,
+        )
+        out = dict(stats)
+        out["bundle_export_id"] = inner.get("export_id", "")
+        out["bundle_origin_host"] = inner.get("origin_host", "")
+        print(json.dumps(out, indent=2, sort_keys=True))
+        return 0
+    except (
+        BackendError,
+        IdentityError,
+        RegistryError,
+        SyncBundleError,
+        ValidationError,
+    ) as exc:
+        return _fatal(message=str(exc), code=1)
+
+
+def cmd_sync_verify(*, args: argparse.Namespace) -> int:
+    try:
+        text = Path(args.file).expanduser().read_text(encoding="utf-8")
+        payload = parse_bundle_file(text)
+        vr = verify_bundle_structure(payload=payload)
+        result: Dict[str, object] = {
+            "entry_count": vr.entry_count,
+            "message": vr.message,
+            "ok": vr.ok,
+            "signer_fingerprint": vr.signer_fingerprint,
+            "signer_host_id": vr.signer_host_id,
+        }
+        if getattr(args, "try_decrypt", False):
+            ident = load_identity()
+            signer_peer = get_peer(alias=args.signer) if getattr(args, "signer", None) else None
+            if signer_peer is None:
+                result["decrypt_error"] = "sync verify --try-decrypt requires --signer"
+            else:
+                try:
+                    inner = decrypt_bundle_for_recipient(
+                        payload=payload,
+                        identity=ident,
+                        trusted_signer=signer_peer.verify_key(),
+                    )
+                    entries = inner.get("entries", [])
+                    result["decrypt_ok"] = True
+                    result["inner_entry_count"] = len(entries) if isinstance(entries, list) else 0
+                except SyncBundleError as exc:
+                    result["decrypt_ok"] = False
+                    result["decrypt_error"] = str(exc)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if vr.ok else 1
+    except SyncBundleError as exc:
+        return _fatal(message=str(exc), code=1)
+    except IdentityError as exc:
+        return _fatal(message=str(exc), code=1)
+    except RegistryError as exc:
+        return _fatal(message=str(exc), code=1)
+
+
+def cmd_sync_inspect(*, args: argparse.Namespace) -> int:
+    try:
+        text = Path(args.file).expanduser().read_text(encoding="utf-8")
+        payload = parse_bundle_file(text)
+        info = inspect_bundle(payload=payload)
+        print(json.dumps(info, indent=2, sort_keys=True))
+        return 0
+    except SyncBundleError as exc:
         return _fatal(message=str(exc), code=1)
 
 
@@ -1119,6 +1520,7 @@ def cmd_service_copy(*, args: argparse.Namespace) -> int:
             kind=args.kind,
             all=True,
             keychain=args.keychain,
+            db=getattr(args, "db", None),
             backend=_backend_arg(args),
         )
         selected = _select_entries(args=selector_args, require_explicit_selection=False)
@@ -1134,8 +1536,7 @@ def cmd_service_copy(*, args: argparse.Namespace) -> int:
                 service=args.to_service,
                 account=to_account,
                 name=source_meta.name,
-                path=_keychain_arg(args),
-                backend=_backend_arg(args),
+                **_backend_access_kwargs(args),
             )
             if dest_exists and not args.overwrite:
                 stats["skipped"] += 1
@@ -1145,8 +1546,7 @@ def cmd_service_copy(*, args: argparse.Namespace) -> int:
                 service=source_meta.service,
                 account=source_meta.account,
                 name=source_meta.name,
-                path=_keychain_arg(args),
-                backend=_backend_arg(args),
+                **_backend_access_kwargs(args),
             )
             dest_meta = EntryMetadata.from_dict(source_meta.to_dict())
             dest_meta.service = args.to_service
@@ -1160,8 +1560,9 @@ def cmd_service_copy(*, args: argparse.Namespace) -> int:
                     service=args.to_service,
                     account=to_account,
                     name=source_meta.name,
-                    path=_keychain_arg(args),
+                    path=_store_path(args),
                     backend=_backend_arg(args),
+                    kek_keychain_path=_kek_keychain_arg(args),
                 )
                 if existing and isinstance(existing.get("metadata"), EntryMetadata):
                     dest_meta.created_at = existing["metadata"].created_at
@@ -1174,8 +1575,7 @@ def cmd_service_copy(*, args: argparse.Namespace) -> int:
                     value=value,
                     label=source_meta.name,
                     comment=dest_meta.to_keychain_comment(),
-                    path=_keychain_arg(args),
-                    backend=_backend_arg(args),
+                    **_backend_access_kwargs(args),
                 )
                 upsert_metadata(metadata=dest_meta)
             stats["updated" if dest_exists else "created"] += 1
@@ -1187,6 +1587,7 @@ def cmd_service_copy(*, args: argparse.Namespace) -> int:
 
 
 def cmd_doctor(*, args: argparse.Namespace) -> int:
+    backend = _backend_arg(args)
     status = {
         "security_cli": False,
         "registry": False,
@@ -1198,11 +1599,14 @@ def cmd_doctor(*, args: argparse.Namespace) -> int:
         "entries_using_registry_fallback": [],
         "rotation_warnings": [],
     }
-    if check_security_cli():
-        status["security_cli"] = True
+    if is_secure_backend(backend):
+        if check_security_cli():
+            status["security_cli"] = True
+        else:
+            print(json.dumps(status, indent=2, sort_keys=True))
+            return _fatal(message="security CLI not found", code=1)
     else:
-        print(json.dumps(status, indent=2, sort_keys=True))
-        return _fatal(message="security CLI not found", code=1)
+        status["security_cli"] = check_security_cli()
 
     try:
         path = ensure_registry_storage()
@@ -1221,7 +1625,7 @@ def cmd_doctor(*, args: argparse.Namespace) -> int:
         return _fatal(message=str(exc), code=1)
 
     try:
-        doctor_roundtrip(path=_keychain_arg(args), backend=_backend_arg(args))
+        doctor_roundtrip(**_backend_access_kwargs(args))
         status["keychain_roundtrip"] = True
     except BackendError as exc:
         print(json.dumps(status, indent=2, sort_keys=True))
@@ -1233,8 +1637,8 @@ def cmd_doctor(*, args: argparse.Namespace) -> int:
         fallback = []
         warnings = []
         for meta in sorted(entries.values(), key=lambda item: (item.service, item.account, item.name)):
-            if not secret_exists(service=meta.service, account=meta.account, name=meta.name, path=_keychain_arg(args), backend=_backend_arg(args)):
-                if _keychain_arg(args) is not None:
+            if not secret_exists(service=meta.service, account=meta.account, name=meta.name, **_backend_access_kwargs(args)):
+                if _doctor_skip_missing_secret_scan(args):
                     continue
                 drift.append(
                     {
@@ -1249,8 +1653,7 @@ def cmd_doctor(*, args: argparse.Namespace) -> int:
                 account=meta.account,
                 name=meta.name,
                 registry=entries,
-                path=_keychain_arg(args),
-                backend=_backend_arg(args),
+                **_backend_access_kwargs(args),
             )
             if resolved and resolved["metadata_source"] == "registry-fallback":
                 fallback.append(
@@ -1506,7 +1909,7 @@ def cmd_migrate_metadata(*, args: argparse.Namespace) -> int:
 
     stats = {"migrated": 0, "skipped": 0, "missing_keychain": 0}
     for meta in sorted(selected, key=lambda item: (item.service, item.account, item.name)):
-        if not secret_exists(service=meta.service, account=meta.account, name=meta.name, path=_keychain_arg(args), backend=_backend_arg(args)):
+        if not secret_exists(service=meta.service, account=meta.account, name=meta.name, **_backend_access_kwargs(args)):
             stats["missing_keychain"] += 1
             continue
         resolved = _read_metadata(
@@ -1514,16 +1917,15 @@ def cmd_migrate_metadata(*, args: argparse.Namespace) -> int:
             account=meta.account,
             name=meta.name,
             registry=registry,
-            path=_keychain_arg(args),
-            backend=_backend_arg(args),
+            **_backend_access_kwargs(args),
         )
-        if resolved and resolved["metadata_source"] == "keychain" and not args.force:
+        if resolved and resolved["metadata_source"] in {"keychain", "sqlite"} and not args.force:
             stats["skipped"] += 1
             continue
         if args.dry_run:
             stats["migrated"] += 1
             continue
-        value = get_secret(service=meta.service, account=meta.account, name=meta.name, path=_keychain_arg(args), backend=_backend_arg(args))
+        value = get_secret(service=meta.service, account=meta.account, name=meta.name, **_backend_access_kwargs(args))
         meta.updated_at = now_utc_iso()
         set_secret(
             service=meta.service,
@@ -1532,18 +1934,16 @@ def cmd_migrate_metadata(*, args: argparse.Namespace) -> int:
             value=value,
             label=meta.name,
             comment=meta.to_keychain_comment(),
-            path=_keychain_arg(args),
-            backend=_backend_arg(args),
+            **_backend_access_kwargs(args),
         )
         verify = _read_metadata(
             service=meta.service,
             account=meta.account,
             name=meta.name,
             registry=registry,
-            path=_keychain_arg(args),
-            backend=_backend_arg(args),
+            **_backend_access_kwargs(args),
         )
-        if not verify or verify["metadata_source"] != "keychain":
+        if not verify or verify["metadata_source"] not in {"keychain", "sqlite"}:
             return _fatal(message=f"failed to verify migrated metadata for {meta.key()}", code=1)
         upsert_metadata(metadata=meta)
         stats["migrated"] += 1
@@ -1568,7 +1968,14 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--account")
     common.add_argument("--service")
     common.add_argument("--backend", choices=list(BACKEND_CHOICES))
-    common.add_argument("--keychain", help="Override keychain path (default: login.keychain-db)")
+    common.add_argument(
+        "--keychain",
+        help="Secure: keychain file for secret items. SQLite+keychain unlock: keychain file holding the KEK (see SECKIT_SQLITE_UNLOCK). Default: login.keychain-db",
+    )
+    common.add_argument(
+        "--db",
+        help="SQLite database path (--backend sqlite only; default ~/.config/seckit/secrets.db or SECKIT_SQLITE_DB)",
+    )
 
     p_set = sub.add_parser("set", parents=[common], help="Store or update one secret value")
     p_set.add_argument("--name", required=True)
@@ -1604,6 +2011,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_list.add_argument("--format", choices=["table", "json"], default="table")
     p_list.add_argument("--backend", choices=list(BACKEND_CHOICES))
     p_list.add_argument("--keychain", help="Override keychain path (default: login.keychain-db)")
+    p_list.add_argument(
+        "--db",
+        help="SQLite database path (--backend sqlite only; default ~/.config/seckit/secrets.db or SECKIT_SQLITE_DB)",
+    )
     p_list.set_defaults(func=cmd_list)
 
     p_explain = sub.add_parser("explain", parents=[common], help="Show resolved metadata for a stored entry")
@@ -1661,6 +2072,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_import_file.add_argument("--kind", choices=[*ENTRY_KIND_VALUES, "auto"])
     p_import_file.add_argument("--backend", choices=list(BACKEND_CHOICES))
     p_import_file.add_argument("--keychain", help="Override keychain path (default: login.keychain-db)")
+    p_import_file.add_argument(
+        "--db",
+        help="SQLite database path (--backend sqlite only; default ~/.config/seckit/secrets.db or SECKIT_SQLITE_DB)",
+    )
     p_import_file.add_argument("--dry-run", action="store_true")
     p_import_file.add_argument("--allow-overwrite", action="store_true")
     p_import_file.add_argument("--allow-empty", action="store_true")
@@ -1671,6 +2086,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_import_encrypted.add_argument("--file", required=True)
     p_import_encrypted.add_argument("--backend", choices=list(BACKEND_CHOICES))
     p_import_encrypted.add_argument("--keychain", help="Override keychain path (default: login.keychain-db)")
+    p_import_encrypted.add_argument(
+        "--db",
+        help="SQLite database path (--backend sqlite only; default ~/.config/seckit/secrets.db or SECKIT_SQLITE_DB)",
+    )
     p_import_encrypted.add_argument("--password")
     p_import_encrypted.add_argument("--password-stdin", action="store_true")
     p_import_encrypted.add_argument("--dry-run", action="store_true")
@@ -1709,6 +2128,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_service_copy.add_argument("--to-account")
     p_service_copy.add_argument("--backend", choices=list(BACKEND_CHOICES))
     p_service_copy.add_argument("--keychain", help="Override keychain path (default: login.keychain-db)")
+    p_service_copy.add_argument(
+        "--db",
+        help="SQLite database path (--backend sqlite only; default ~/.config/seckit/secrets.db or SECKIT_SQLITE_DB)",
+    )
     p_service_copy.add_argument("--names")
     p_service_copy.add_argument("--tag")
     p_service_copy.add_argument("--type", choices=["secret", "pii"])
@@ -1720,6 +2143,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_doctor = sub.add_parser("doctor", help="Run backend, defaults, and metadata drift diagnostics")
     p_doctor.add_argument("--backend", choices=list(BACKEND_CHOICES))
     p_doctor.add_argument("--keychain", help="Override keychain path (default: login.keychain-db)")
+    p_doctor.add_argument(
+        "--db",
+        help="SQLite database path (--backend sqlite only; default ~/.config/seckit/secrets.db or SECKIT_SQLITE_DB)",
+    )
     p_doctor.set_defaults(func=cmd_doctor)
 
     p_unlock = sub.add_parser("unlock", help="Unlock the configured macOS keychain backend")
@@ -1765,6 +2192,75 @@ def build_parser() -> argparse.ArgumentParser:
     p_helper_status.set_defaults(func=cmd_helper_status)
 
     p_migrate = sub.add_parser("migrate", help="Migrate existing secret files into seckit")
+
+    p_identity = sub.add_parser("identity", help="Host Ed25519/X25519 identity for peer sync")
+    id_sub = p_identity.add_subparsers(dest="identity_command", required=True)
+    p_id_init = id_sub.add_parser("init", help="Create or replace host signing/box key material")
+    p_id_init.add_argument("--force", action="store_true")
+    p_id_init.add_argument("--json", action="store_true")
+    p_id_init.set_defaults(func=cmd_identity_init)
+    p_id_show = id_sub.add_parser("show", help="Show local host id and fingerprints")
+    p_id_show.add_argument("--json", action="store_true")
+    p_id_show.set_defaults(func=cmd_identity_show)
+    p_id_exp = id_sub.add_parser("export", help="Write public identity JSON for peer add")
+    p_id_exp.add_argument("-o", "--out")
+    p_id_exp.add_argument("--json", action="store_true")
+    p_id_exp.set_defaults(func=cmd_identity_export)
+
+    p_peer = sub.add_parser("peer", help="Trusted peers for peer sync bundles")
+    peer_sub = p_peer.add_subparsers(dest="peer_command", required=True)
+    p_peer_add = peer_sub.add_parser("add", help="Add peer from `seckit identity export` file")
+    p_peer_add.add_argument("alias")
+    p_peer_add.add_argument("export_path", metavar="PATH")
+    p_peer_add.add_argument("--json", action="store_true")
+    p_peer_add.set_defaults(func=cmd_peer_add)
+    p_peer_rm = peer_sub.add_parser("remove", help="Remove a peer alias")
+    p_peer_rm.add_argument("alias")
+    p_peer_rm.add_argument("--json", action="store_true")
+    p_peer_rm.set_defaults(func=cmd_peer_remove)
+    p_peer_ls = peer_sub.add_parser("list", help="List trusted peers")
+    p_peer_ls.add_argument("--json", action="store_true")
+    p_peer_ls.set_defaults(func=cmd_peer_list)
+    p_peer_sh = peer_sub.add_parser("show", help="Show one peer (JSON)")
+    p_peer_sh.add_argument("alias")
+    p_peer_sh.set_defaults(func=cmd_peer_show)
+
+    p_sync = sub.add_parser("sync", help="Signed encrypted peer bundle export/import")
+    sync_sub = p_sync.add_subparsers(dest="sync_command", required=True)
+    p_sync_ex = sync_sub.add_parser("export", parents=[common], help="Export registry secrets to a peer bundle")
+    p_sync_ex.add_argument("-o", "--out", required=True)
+    p_sync_ex.add_argument("--peer", action="append", required=True, metavar="ALIAS", help="Recipient alias (repeatable)")
+    p_sync_ex.add_argument("--domain", action="append")
+    p_sync_ex.add_argument("--domains")
+    p_sync_ex.add_argument("--names")
+    p_sync_ex.add_argument("--tag")
+    p_sync_ex.add_argument("--type", choices=["secret", "pii"])
+    p_sync_ex.add_argument("--kind", choices=ENTRY_KIND_VALUES)
+    p_sync_ex.add_argument("--all", action="store_true")
+    p_sync_ex.add_argument("--json", action="store_true")
+    p_sync_ex.set_defaults(func=cmd_sync_export)
+    p_sync_im = sync_sub.add_parser("import", parents=[common], help="Import and merge a peer bundle")
+    p_sync_im.add_argument("file")
+    p_sync_im.add_argument(
+        "--signer",
+        required=True,
+        metavar="ALIAS",
+        help="Local peer alias for the exporter who signed this bundle",
+    )
+    p_sync_im.add_argument("--domain", action="append")
+    p_sync_im.add_argument("--domains")
+    p_sync_im.add_argument("--dry-run", action="store_true")
+    p_sync_im.add_argument("--yes", action="store_true")
+    p_sync_im.set_defaults(func=cmd_sync_import)
+    p_sync_vf = sync_sub.add_parser("verify", help="Verify bundle JSON signature and structure")
+    p_sync_vf.add_argument("file")
+    p_sync_vf.add_argument("--try-decrypt", action="store_true", help="Decrypt inner (requires local identity + --signer)")
+    p_sync_vf.add_argument("--signer", metavar="ALIAS", help="Exporter peer alias (required with --try-decrypt)")
+    p_sync_vf.set_defaults(func=cmd_sync_verify, try_decrypt=False)
+    p_sync_insp = sync_sub.add_parser("inspect", help="Inspect bundle (manifest; no decryption)")
+    p_sync_insp.add_argument("file")
+    p_sync_insp.set_defaults(func=cmd_sync_inspect)
+
     migrate_sub = p_migrate.add_subparsers(dest="migrate_command", required=True)
     p_migrate_dotenv = migrate_sub.add_parser("dotenv", parents=[common], help="Import a dotenv file and optionally rewrite it to placeholders")
     p_migrate_dotenv.add_argument("--dotenv", required=True)

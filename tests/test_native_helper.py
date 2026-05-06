@@ -13,6 +13,12 @@ class NativeHelperStubTest(unittest.TestCase):
         self.assertFalse(status["backend_availability"]["icloud"])
         self.assertFalse(status["backend_availability"]["icloud-helper"])
         self.assertTrue(status["backend_availability"]["secure"])
+        try:
+            import nacl.secret  # noqa: F401
+        except ImportError:
+            self.assertFalse(status["backend_availability"]["sqlite"])
+        else:
+            self.assertTrue(status["backend_availability"]["sqlite"])
 
     def test_helper_status_is_deterministic(self) -> None:
         a = helper_status()

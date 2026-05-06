@@ -59,18 +59,22 @@ This mode proves the LaunchAgent runs in `gui/$UID` and reads:
 
 This is not the right model for unattended post-logout or post-reboot services.
 
-### launchd with iCloud Keychain (`--backend icloud-helper`)
+### `secure` backend and automated tests
 
-When the entitled helper is installed (`seckit helper status` → `backend_availability.icloud-helper: true`), you can prove `seckit run` under launchd loads synchronizable items the same way as in an interactive shell. **Only `login-agent` mode is supported** (user must be logged in with iCloud Keychain available).
+The **`icloud-helper`** / synchronizable Keychain path was **removed** from Secrets-Kit. **`scripts/seckit_launchd_smoke.sh`** uses **`--backend secure`** (alias `local`) and the **`security`** CLI only.
 
-```bash
-./scripts/seckit_launchd_smoke.sh --mode login-agent --backend icloud-helper
-# or: SECKIT_LAUNCHD_BACKEND=icloud-helper ./scripts/seckit_launchd_smoke.sh --mode login-agent
-```
+Automated coverage (macOS, opt-in):
 
-Canonical CLI names are **`secure`** (local `security` CLI; alias `local`) and **`icloud-helper`** (alias `icloud`). The smoke script accepts both.
+| Variable | What it enables |
+| --- | --- |
+| `SECKIT_RUN_LAUNCHD_TESTS=1` | Temp-keychain + optional login-keychain launchd tests in `tests/test_launchd_run_flow.py` |
+| `SECKIT_RUN_LAUNCHD_SQLITE_TESTS=1` | Adds **`test_launch_agent_sqlite_backend_injects_env`**: disposable `HOME`, SQLite DB, **dummy** `SECKIT_SQLITE_PASSPHRASE` / `SECKIT_SQLITE_UNLOCK=passphrase` in the plist (**do not** put production passphrases in real plists). Requires PyNaCl. |
 
-Automated coverage (macOS only): set `SECKIT_RUN_LAUNCHD_TESTS=1` and `SECKIT_RUN_LAUNCHD_ICLOUD_TESTS=1` and run `tests.test_launchd_run_flow` (skips if the helper is missing).
+`test_launch_agent_backend_secure_explicit_uses_temp_keychain` passes **`--backend secure`** explicitly to guard the **`security`** code path.
+
+### SQLite + launchd
+
+Use **`--backend sqlite`** with **`--db`** and non-interactive **`SECKIT_SQLITE_PASSPHRASE`** (and **`SECKIT_SQLITE_UNLOCK=passphrase`**) in the job’s `EnvironmentVariables`, or adopt **`SECKIT_SQLITE_UNLOCK=keychain`** on macOS and supply **`SECKIT_SQLITE_KEK_KEYCHAIN`** / **`--keychain`** so the KEK is readable unattended (same Keychain provisioning discipline as **`secure`**). The repository validates the passphrase path via the test above; the smoke shell script does not implement a sqlite mode.
 
 ## Mode 2: Dedicated Service Keychain LaunchAgent
 

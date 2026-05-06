@@ -2,19 +2,25 @@
 
 ![Secrets Kit](./docs/images/Secrets-Kit-Banner.png)
 
-[![Python](https://img.shields.io/badge/Python-3.9%2B-blue)](#requirements) [![Platform](https://img.shields.io/badge/Platform-macOS-informational)](#requirements) [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.9%2B-blue)](#requirements) [![Platform](https://img.shields.io/badge/Platform-macOS%20%28Keychain%29%20%7C%20cross--platform%20%28SQLite%29-informational)](#requirements) [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 **Repository:** `Secrets-Kit` · **CLI:** `seckit` · **Current release target:** `v1.2.0`
 
-Secrets Kit is a **macOS** CLI that stores secret values in the **login Keychain**, keeps **metadata on the keychain item** (comment JSON), and uses **`~/.config/seckit/registry.json`** only as an index/recovery aid—not the source of truth. It can **inject** selected secrets into child processes via `seckit run` and **export** shell/dotenv or encrypted backups.
+Secrets Kit is a Python CLI that stores secret values in one of two backends:
+
+- **`--backend secure`** (default on macOS): **login Keychain** via the `security` CLI; metadata lives in the keychain item comment JSON; **`~/.config/seckit/registry.json`** is an index/recovery aid.
+- **`--backend sqlite`**: **encrypted SQLite file** (PyNaCl SecretBox + Argon2id); portable across OSes that run Python 3.9+; same registry-driven **`list`** / metadata flow as Keychain.
+
+It can **inject** selected secrets into child processes via `seckit run` and **export** shell/dotenv or encrypted backups.
 
 ## Scope and limits (read first)
 
 | In scope | Out of scope |
 |----------|----------------|
-| macOS, Python 3.9+, `security` + login Keychain | Hosted vault, HSM, zero-knowledge guarantees |
+| Python 3.9+; **Keychain** on macOS (`security`) | Hosted vault, HSM, zero-knowledge guarantees |
+| **`--backend sqlite`**: local encrypted DB file (no sync, no daemon) | Live multi-master sync; **SQLite store** is **not** replicated by this tool |
 | **Primary cross-host:** `seckit export` / **`import`** (e.g. **encrypted JSON**) + you move the file | Phone home; your Keychain password is never read by the tool |
-| `seckit run`, import/export, encrypted cross-host backup | Deprecated **`icloud`** backends (removed); live multi-master “sync” guarantees; **iCloud Drive does not replace Keychain** (see docs); protection on an already-compromised machine/session |
+| `seckit run`, import/export, encrypted cross-host backup | Deprecated **`icloud`** backends (removed); **iCloud Drive does not replace Keychain** (see docs); protection on an already-compromised machine/session |
 
 If that trust model is unclear, use something else until it is.
 
@@ -24,11 +30,25 @@ If that trust model is unclear, use something else until it is.
 pip install "git+https://github.com/unixwzrd/Secrets-Kit.git@v1.2.0#egg=seckit"
 ```
 
-Development checkout: `pip install -e .` in a venv. For day-to-day use, **`--backend secure`** is sufficient (no helper). Wheels still bundle **`seckit-keychain-helper`** for the **legacy, unsupported** **`--backend icloud`** path; see [iCloud Sync Validation](docs/ICLOUD_SYNC_VALIDATION.md). **Reliable host-to-host transfer:** [Cross-Host Validation](docs/CROSS_HOST_VALIDATION.md) (encrypted export).
+Development checkout: `pip install -e .` in a venv. **Dependencies** include **cryptography**, **PyYAML**, and **PyNaCl** (libsodium bindings) for the SQLite backend and encrypted export.
+
+**Keychain (macOS):** `--backend secure` (alias `local`) uses the `security` CLI only—no Swift helper. **Reliable host-to-host transfer:** [Cross-Host Validation](docs/CROSS_HOST_VALIDATION.md) (encrypted export).
+
+**SQLite (portable):** default unlock is **passphrase + Argon2id** (`SECKIT_SQLITE_PASSPHRASE`, or interactive). On macOS you can set **`SECKIT_SQLITE_UNLOCK=keychain`** so new vaults store a **DEK wrapped with a KEK** in the Keychain (`security` CLI); use **`SECKIT_SQLITE_KEK_KEYCHAIN`** or **`--keychain`** (with `--backend sqlite`) to choose the keychain file. Existing passphrase-only vaults stay readable with **`SECKIT_SQLITE_UNLOCK=passphrase`**. Also: **`SECKIT_SQLITE_DB`** / **`--db`** / `sqlite_db` in defaults; default DB `~/.config/seckit/secrets.db`. **No** sync/daemon—back up the file yourself.
 
 ```bash
 seckit version
 ```
+
+## Portable SQLite quick example
+
+```bash
+export SECKIT_SQLITE_PASSPHRASE='use-a-strong-passphrase'
+seckit set --backend sqlite --service myapp --account dev --name API_KEY --value s3cr3t --kind api_key
+seckit get --backend sqlite --service myapp --account dev --name API_KEY
+```
+
+See [Defaults](docs/DEFAULTS.md) for `sqlite_db`, `SECKIT_SQLITE_DB`, and `SECKIT_ORIGIN_HOST`.
 
 ## First commands
 
@@ -56,7 +76,7 @@ Avoid repeating `--service` / `--account` via `~/.config/seckit/defaults.json` o
 | Agents / apps | [Integrations](docs/INTEGRATIONS.md) · [Examples](docs/EXAMPLES.md) |
 | iCloud / signing | [iCloud Sync Validation](docs/ICLOUD_SYNC_VALIDATION.md) · [Two-host manual checklist](docs/plans/icloud-two-host-checklist.md) |
 | Wheels / release | [GitHub release build](docs/GITHUB_RELEASE_BUILD.md) |
-| Deep dives | [Metadata registry](docs/METADATA_REGISTRY.md) · [Cross-host validation](docs/CROSS_HOST_VALIDATION.md) |
+| Deep dives | [Metadata registry](docs/METADATA_REGISTRY.md) · [Cross-host validation](docs/CROSS_HOST_VALIDATION.md) · [Peer sync bundles](docs/PEER_SYNC.md) |
 
 ## Contributing
 
@@ -66,7 +86,7 @@ Issues and PRs welcome (CLI UX, backends, docs, import/export edge cases). Local
 bash ./scripts/run_local_validation.sh
 ```
 
-**Updated:** 2026-05-05
+**Updated:** 2026-05-06
 
 ---
 

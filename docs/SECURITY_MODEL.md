@@ -111,6 +111,8 @@ The practical size limit for comment JSON is determined by what macOS will store
 
 **Supported cross-host workflow:** **encrypted export** and **import** ([CROSS_HOST_VALIDATION.md](CROSS_HOST_VALIDATION.md)) with **`--backend secure`**.
 
+**Optional — peer identity bundles:** **`seckit identity`**, **`peer`**, and **`sync`** implement **signed, encrypted JSON files** for targeted exchange with pre-registered public keys ([PEER_SYNC.md](PEER_SYNC.md)). This is **not** a live multi-master sync; transport is manual file copy.
+
 iCloud-helper / synchronizable Keychain items are **not a supported Secrets-Kit feature** ([ICLOUD_SYNC_VALIDATION.md](ICLOUD_SYNC_VALIDATION.md)). Remaining notes are for maintainers:
 
 - Local backend items are local Keychain items unless your environment syncs them independently.
@@ -126,4 +128,4 @@ Use Secrets Kit when you want a more disciplined local workflow for tokens, pass
 ## [Back to README](../README.md)
 
 **Created**: 2026-03-01  
-**Updated**: 2026-05-04
+**Updated**: 2026-05-05
