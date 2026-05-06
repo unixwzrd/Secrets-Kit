@@ -113,6 +113,51 @@ def _fatal(*, message: str, code: int = 2) -> int:
     return code
 
 
+def _peer_sync_cli_error(exc: BaseException) -> str:
+    """User-facing hints for peer sync / bundle workflows (no secret values)."""
+    if isinstance(exc, IdentityError):
+        return "Peer sync: no host identity. Run: seckit identity init"
+    if isinstance(exc, RegistryError):
+        text = str(exc)
+        if "unknown peer" in text.lower():
+            return f"Peer sync: {text}. Run: seckit peer add <alias> <export.json>"
+        return f"Peer sync: {text}"
+    if isinstance(exc, SyncBundleError):
+        msg = str(exc)
+        if "missing wrapped_cek slot" in msg:
+            return (
+                "Peer sync: this bundle was not encrypted for this host (no wrapped CEK for your signing fingerprint). "
+                "Ask the sender to run `seckit sync export` with `--peer` listing your machine's peer alias. "
+                f"Detail: {msg}"
+            )
+        if "does not match trusted peer" in msg:
+            return (
+                "Peer sync: bundle signing key does not match `seckit peer show` for `--signer`. "
+                "Fix the alias or re-add the sender from a fresh `seckit identity export`. "
+                f"Detail: {msg}"
+            )
+        if msg == "invalid signature":
+            return (
+                "Peer sync: bundle signature invalid (tampered file, truncated transfer, or wrong document). "
+                f"Detail: {msg}"
+            )
+        if (
+            "not valid JSON" in msg
+            or "top-level must be an object" in msg
+            or "unsupported bundle format" in msg
+            or "unsupported bundle version" in msg
+            or "missing bundle field" in msg
+        ):
+            return f"Peer sync: file is not a valid peer bundle. Detail: {msg}"
+        return f"Peer sync: bundle error. Detail: {msg}"
+    if isinstance(exc, BackendError):
+        return (
+            f"Peer sync: secret backend error — {exc} "
+            "(for SQLite: check --backend sqlite, --db, SECKIT_SQLITE_PASSPHRASE, SECKIT_SQLITE_UNLOCK)."
+        )
+    return str(exc)
+
+
 def _cli_version() -> str:
     try:
         return package_version("seckit")
@@ -1276,8 +1321,10 @@ def cmd_peer_add(*, args: argparse.Namespace) -> int:
         else:
             print(f"added peer {rec.alias} host_id={rec.host_id} fingerprint={rec.fingerprint[:16]}…")
         return 0
-    except (IdentityError, RegistryError) as exc:
-        return _fatal(message=str(exc), code=1)
+    except IdentityError as exc:
+        return _fatal(message=f"Peer registry: invalid peer identity export file — {exc}", code=1)
+    except RegistryError as exc:
+        return _fatal(message=_peer_sync_cli_error(exc), code=1)
 
 
 def cmd_peer_remove(*, args: argparse.Namespace) -> int:
@@ -1291,7 +1338,7 @@ def cmd_peer_remove(*, args: argparse.Namespace) -> int:
             print(f"removed peer {args.alias}")
         return 0
     except RegistryError as exc:
-        return _fatal(message=str(exc), code=1)
+        return _fatal(message=_peer_sync_cli_error(exc), code=1)
 
 
 def cmd_peer_list(*, args: argparse.Namespace) -> int:
@@ -1338,7 +1385,7 @@ def cmd_peer_show(*, args: argparse.Namespace) -> int:
         print(json.dumps(payload, indent=2, sort_keys=True))
         return 0
     except RegistryError as exc:
-        return _fatal(message=str(exc), code=1)
+        return _fatal(message=_peer_sync_cli_error(exc), code=1)
 
 
 def cmd_sync_export(*, args: argparse.Namespace) -> int:
@@ -1380,14 +1427,10 @@ def cmd_sync_export(*, args: argparse.Namespace) -> int:
         else:
             print(json.dumps(summary, indent=2, sort_keys=True))
         return 0
-    except (
-        BackendError,
-        IdentityError,
-        RegistryError,
-        SyncBundleError,
-        ValidationError,
-    ) as exc:
+    except ValidationError as exc:
         return _fatal(message=str(exc), code=1)
+    except (BackendError, IdentityError, RegistryError, SyncBundleError) as exc:
+        return _fatal(message=_peer_sync_cli_error(exc), code=1)
 
 
 def cmd_sync_import(*, args: argparse.Namespace) -> int:
@@ -1425,14 +1468,14 @@ def cmd_sync_import(*, args: argparse.Namespace) -> int:
         out["bundle_origin_host"] = inner.get("origin_host", "")
         print(json.dumps(out, indent=2, sort_keys=True))
         return 0
-    except (
-        BackendError,
-        IdentityError,
-        RegistryError,
-        SyncBundleError,
-        ValidationError,
-    ) as exc:
+    except FileNotFoundError as exc:
+        return _fatal(message=f"Peer sync: bundle file not found ({exc})", code=1)
+    except OSError as exc:
+        return _fatal(message=f"Peer sync: cannot read bundle file ({exc})", code=1)
+    except ValidationError as exc:
         return _fatal(message=str(exc), code=1)
+    except (BackendError, IdentityError, RegistryError, SyncBundleError) as exc:
+        return _fatal(message=_peer_sync_cli_error(exc), code=1)
 
 
 def cmd_sync_verify(*, args: argparse.Namespace) -> int:
@@ -1464,15 +1507,15 @@ def cmd_sync_verify(*, args: argparse.Namespace) -> int:
                     result["inner_entry_count"] = len(entries) if isinstance(entries, list) else 0
                 except SyncBundleError as exc:
                     result["decrypt_ok"] = False
-                    result["decrypt_error"] = str(exc)
+                    result["decrypt_error"] = _peer_sync_cli_error(exc)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if vr.ok else 1
-    except SyncBundleError as exc:
-        return _fatal(message=str(exc), code=1)
-    except IdentityError as exc:
-        return _fatal(message=str(exc), code=1)
-    except RegistryError as exc:
-        return _fatal(message=str(exc), code=1)
+    except FileNotFoundError as exc:
+        return _fatal(message=f"Peer sync: bundle file not found ({exc})", code=1)
+    except OSError as exc:
+        return _fatal(message=f"Peer sync: cannot read bundle file ({exc})", code=1)
+    except (SyncBundleError, IdentityError, RegistryError) as exc:
+        return _fatal(message=_peer_sync_cli_error(exc), code=1)
 
 
 def cmd_sync_inspect(*, args: argparse.Namespace) -> int:
@@ -1482,8 +1525,12 @@ def cmd_sync_inspect(*, args: argparse.Namespace) -> int:
         info = inspect_bundle(payload=payload)
         print(json.dumps(info, indent=2, sort_keys=True))
         return 0
+    except FileNotFoundError as exc:
+        return _fatal(message=f"Peer sync: bundle file not found ({exc})", code=1)
+    except OSError as exc:
+        return _fatal(message=f"Peer sync: cannot read bundle file ({exc})", code=1)
     except SyncBundleError as exc:
-        return _fatal(message=str(exc), code=1)
+        return _fatal(message=_peer_sync_cli_error(exc), code=1)
 
 
 def cmd_run(*, args: argparse.Namespace) -> int:

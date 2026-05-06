@@ -1,16 +1,22 @@
 # Secrets-Kit Changelog
 
 **Created**: 2026-03-10  
-**Updated**: 2026-05-05
+**Updated**: 2026-05-06
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-### 2026-05-05 — Phase 1B: peer identities and signed encrypted sync bundles
+### 2026-05-06 — Phase 1B: peer identities and signed encrypted sync bundles
 
 - **Scope:** `src/secrets_kit/identity.py`, `peers.py`, `sync_bundle.py`, `sync_merge.py`, `cli.py` (`identity`, `peer`, `sync` subcommands), `tests/test_identity.py`, `tests/test_peers.py`, `tests/test_sync_bundle.py`, `tests/test_sync_merge.py`, `docs/PEER_SYNC.md`, `docs/SECURITY_MODEL.md`, `docs/README.md`, `README.md`, `CHANGELOG.md`.
 - **What changed:** Local **Ed25519** (sign) + **X25519** (Box) host identity under `~/.config/seckit/identity/`; **`peers.json`** trust registry; **`seckit.peer_bundle` v1** (PyNaCl-only): canonical signed payload, per-recipient wrapped CEK, SecretBox inner JSON, forward-compatible **`manifest`** extra keys limited to **`x_*`** prefix; deterministic merge on import; **`--domain` / `--domains`** filtering on export and import. **Non-goals:** no network/daemon, no change to SQLite unlock/DEK story beyond normal CLI wiring.
 
+### 2026-05-06 — Phase 1B hardening: E2E tests, dry-run, peer sync CLI errors
+
+- **Scope:** `src/secrets_kit/cli.py` (`_peer_sync_cli_error`), `tests/test_peer_sync_e2e_sqlite.py`, `tests/test_peer_sync_dry_run.py`, `docs/PEER_SYNC.md`, `CHANGELOG.md`.
+- **What changed:** Two-HOME **SQLite** end-to-end peer bundle export/verify/import test (plus wrong-recipient case); **dry-run** import tests asserting no DB/registry writes via merge and correct **created/skipped/conflict** counts; **Peer sync:** user-facing error hints (missing identity, unknown peer, wrong recipient/`--signer`, corrupt bundle, SQLite unlock); **PEER_SYNC** walkthrough (two machines, public exchange, scp/rsync, `sync import --dry-run` then `--yes`). Peer sync modules remain **transport-agnostic** (no sockets, daemon, relay, or discovery).
+
+### 2026-05-05 — SQLite unlock providers (`passphrase` vs `keychain`) + launchd coverage
 
 - **Scope:** `src/secrets_kit/sqlite_unlock.py` (new), `sqlite_backend.py`, `keychain_backend.py` (`resolve_secret_store` + `kek_keychain_path`), `cli.py` (`--keychain` allowed with `--backend sqlite`, `_backend_access_kwargs`), `tests/test_sqlite_unlock.py`, `tests/test_launchd_run_flow.py`, `README.md`, `docs/DEFAULTS.md`, `docs/LAUNCHD_VALIDATION.md`, `CHANGELOG.md`.
 - **What changed:** SQLite vaults can use **`SECKIT_SQLITE_UNLOCK=passphrase`** (default, legacy Argon2id metadata) or **`keychain`** on macOS: KEK in Keychain wraps the DEK stored in `vault_meta`. **`SECKIT_SQLITE_KEK_KEYCHAIN`** or **`--keychain`** with sqlite selects the KEK keychain file. **`clear_sqlite_crypto_cache`** clears unlock/passphrase/KEK caches. **Launchd:** optional **`SECKIT_RUN_LAUNCHD_SQLITE_TESTS=1`** runs **`test_launch_agent_sqlite_backend_injects_env`**; **`test_launch_agent_backend_secure_explicit_uses_temp_keychain`** asserts **`--backend secure`** under launchd. **`scripts/seckit_launchd_smoke.sh`** remains focused on **`secure`**; sqlite launchd is covered by the Python test.

@@ -1,7 +1,7 @@
 # Peer sync bundles (Phase 1B)
 
 **Created**: 2026-05-05  
-**Updated**: 2026-05-05
+**Updated**: 2026-05-06
 
 Manual, **offline** exchange of selected secrets between hosts: **signed** (Ed25519) **and encrypted** (X25519 Box for per-recipient CEK wrap, NaCl SecretBox for the payload). **No network, daemon, or sync engine** is part of this phase—only files you copy yourself (`scp`, USB, Syncthing folder, etc.).
 
@@ -52,6 +52,63 @@ For each entry, compare `(updated_at, origin_host)` lexicographically. **Origin*
 | `seckit sync inspect FILE` | Manifest + recipient fingerprints |
 
 Backend flags (`--backend`, `--db`, `--keychain`) on **`sync import`** match other secret commands.
+
+## What this stack does not do (transport)
+
+Peer sync in Phase 1B is **file-in / file-out** only. The implementation does **not** use:
+
+- sockets or HTTP clients  
+- background daemons or auto-sync  
+- relays, discovery, or push notifications  
+
+You copy the bundle and public JSON yourself (**scp**, **rsync**, USB, AirDrop, a Syncthing folder, etc.). Those tools are just transports for files; **seckit** does not connect to them.
+
+Treat a `.peer_bundle` JSON like an **encrypted backup**: ciphertext + wrapped keys—not safe to publish, even though plaintext secrets are not stored in the file in the clear.
+
+## Two-machine walkthrough (SQLite example)
+
+Use the **same** pattern with **`--backend secure`** and your Keychain path if you prefer; below uses portable SQLite.
+
+### Machine 1 (Alice, exporter)
+
+```bash
+export SECKIT_SQLITE_PASSPHRASE='your-strong-passphrase'
+seckit identity init
+seckit identity export -o ~/alice.pub.json
+# After you have Bob's public file from him:
+seckit peer add bob ~/Downloads/bob.pub.json
+seckit set --backend sqlite --db ~/.config/seckit/alice-secrets.db \
+  --service myapp --account prod --name API_KEY --value "$SECRET" --kind api_key
+seckit sync export --backend sqlite --db ~/.config/seckit/alice-secrets.db \
+  --service myapp --account prod --peer bob --all -o ~/peer-bundle.json
+seckit sync verify ~/peer-bundle.json
+```
+
+Copy **`alice.pub.json`** to Bob (email/USB) and **`bob.pub.json`** from Bob the same way.
+
+### Machine 2 (Bob, importer)
+
+```bash
+export SECKIT_SQLITE_PASSPHRASE='bobs-vault-passphrase'
+seckit identity init
+seckit identity export -o ~/bob.pub.json
+seckit peer add alice ~/Downloads/alice.pub.json
+# Copy peer-bundle.json from Alice (scp example):
+# scp alice@host:peer-bundle.json ~/Downloads/peer-bundle.json
+seckit sync verify ~/Downloads/peer-bundle.json
+seckit sync import ~/Downloads/peer-bundle.json --signer alice \
+  --backend sqlite --db ~/.config/seckit/bob-secrets.db --dry-run
+seckit sync import ~/Downloads/peer-bundle.json --signer alice \
+  --backend sqlite --db ~/.config/seckit/bob-secrets.db --yes
+seckit get --backend sqlite --db ~/.config/seckit/bob-secrets.db \
+  --service myapp --account prod --name API_KEY --raw
+```
+
+**Dry-run** prints JSON merge stats (`created`, `updated`, `skipped`, `unchanged`, `conflicts`) and performs **no** writes. Use **`--yes`** after you accept the dry-run summary.
+
+### macOS Keychain (secure backend)
+
+On each machine, use **`--backend secure`** (default on macOS), drop **`--db`**, and set **`--service` / `--account`** as you normally would. The **bundle file** is still moved manually; only the **secret store** backend changes.
 
 ## See also
 
