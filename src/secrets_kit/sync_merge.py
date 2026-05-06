@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Dict, List, Literal, Optional, Set
 
 from secrets_kit.importers import ImportCandidate
@@ -78,12 +79,18 @@ def apply_peer_sync_import(
     backend: str,
     kek_keychain_path: Optional[str],
     domain_filter: Optional[List[str]] = None,
+    home: Optional[Path] = None,
 ) -> Dict[str, int]:
-    """Apply deterministic merge for decrypted bundle entries."""
+    """Apply deterministic merge for decrypted bundle entries.
+
+    ``home`` selects the metadata registry tree (``HOME/.config/seckit`` when
+    omitted, same as other CLI helpers). Use an explicit path in tests or
+    tooling so imports do not depend on mutating ``HOME``.
+    """
     from secrets_kit.cli import _read_metadata
 
     stats = {"conflicts": 0, "created": 0, "skipped": 0, "unchanged": 0, "updated": 0}
-    registry = load_registry()
+    registry = load_registry(home=home)
 
     filter_set: Optional[Set[str]] = None
     if domain_filter:
@@ -170,7 +177,7 @@ def apply_peer_sync_import(
             backend=backend,
             kek_keychain_path=kek_keychain_path,
         )
-        upsert_metadata(metadata=cand.metadata)
+        upsert_metadata(metadata=cand.metadata, home=home)
         registry[cand.metadata.key()] = cand.metadata
         stats["updated" if exists else "created"] += 1
 

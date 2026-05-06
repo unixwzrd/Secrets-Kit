@@ -54,9 +54,6 @@ class PeerSyncE2ESqliteTest(unittest.TestCase):
             del os.environ["SECKIT_SQLITE_PASSPHRASE"]
         self._td.cleanup()
 
-    def _swap_home(self, home: Path) -> None:
-        os.environ["HOME"] = str(home)
-
     def test_full_export_verify_import_sqlite_two_homes(self) -> None:
         init_identity(home=self.home_a)
         init_identity(home=self.home_b)
@@ -131,10 +128,8 @@ class PeerSyncE2ESqliteTest(unittest.TestCase):
         self.assertEqual(inner["entries"][0]["value"], secret_value)
 
         ensure_registry_storage(home=self.home_b)
-        old_home = os.environ.get("HOME")
+        clear_sqlite_crypto_cache()
         try:
-            self._swap_home(self.home_b)
-            clear_sqlite_crypto_cache()
             stats = apply_peer_sync_import(
                 inner_entries=list(inner["entries"]),
                 local_host_id=id_b.host_id,
@@ -143,12 +138,9 @@ class PeerSyncE2ESqliteTest(unittest.TestCase):
                 backend=BACKEND_SQLITE,
                 kek_keychain_path=None,
                 domain_filter=None,
+                home=self.home_b,
             )
         finally:
-            if old_home is None:
-                os.environ.pop("HOME", None)
-            else:
-                os.environ["HOME"] = old_home
             clear_sqlite_crypto_cache()
 
         self.assertGreaterEqual(stats["created"], 1)

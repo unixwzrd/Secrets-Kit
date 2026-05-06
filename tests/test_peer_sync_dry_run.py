@@ -83,29 +83,22 @@ class PeerSyncDryRunTest(unittest.TestCase):
         inner_entries, id_b = self._make_inner_for_import_new_only()
         ensure_registry_storage(home=self.home_b)
 
-        old_home = os.environ.get("HOME")
-        try:
-            os.environ["HOME"] = str(self.home_b)
-            with patch("secrets_kit.sync_merge.set_secret") as m_set, patch(
-                "secrets_kit.sync_merge.upsert_metadata"
-            ) as m_up:
-                stats = apply_peer_sync_import(
-                    inner_entries=inner_entries,
-                    local_host_id=id_b.host_id,
-                    dry_run=True,
-                    path=str(self.db_b),
-                    backend=BACKEND_SQLITE,
-                    kek_keychain_path=None,
-                    domain_filter=None,
-                )
-            m_set.assert_not_called()
-            m_up.assert_not_called()
-        finally:
-            if old_home is None:
-                os.environ.pop("HOME", None)
-            else:
-                os.environ["HOME"] = old_home
-            clear_sqlite_crypto_cache()
+        with patch("secrets_kit.sync_merge.set_secret") as m_set, patch(
+            "secrets_kit.sync_merge.upsert_metadata"
+        ) as m_up:
+            stats = apply_peer_sync_import(
+                inner_entries=inner_entries,
+                local_host_id=id_b.host_id,
+                dry_run=True,
+                path=str(self.db_b),
+                backend=BACKEND_SQLITE,
+                kek_keychain_path=None,
+                domain_filter=None,
+                home=self.home_b,
+            )
+        m_set.assert_not_called()
+        m_up.assert_not_called()
+        clear_sqlite_crypto_cache()
 
         self.assertEqual(stats["created"], 1)
         self.assertEqual(stats["updated"], 0)
@@ -138,24 +131,17 @@ class PeerSyncDryRunTest(unittest.TestCase):
         )
         upsert_metadata(metadata=newer, home=self.home_b)
 
-        old_home = os.environ.get("HOME")
-        try:
-            os.environ["HOME"] = str(self.home_b)
-            stats = apply_peer_sync_import(
-                inner_entries=inner_entries,
-                local_host_id=id_b.host_id,
-                dry_run=True,
-                path=str(self.db_b),
-                backend=BACKEND_SQLITE,
-                kek_keychain_path=None,
-                domain_filter=None,
-            )
-        finally:
-            if old_home is None:
-                os.environ.pop("HOME", None)
-            else:
-                os.environ["HOME"] = old_home
-            clear_sqlite_crypto_cache()
+        stats = apply_peer_sync_import(
+            inner_entries=inner_entries,
+            local_host_id=id_b.host_id,
+            dry_run=True,
+            path=str(self.db_b),
+            backend=BACKEND_SQLITE,
+            kek_keychain_path=None,
+            domain_filter=None,
+            home=self.home_b,
+        )
+        clear_sqlite_crypto_cache()
 
         self.assertEqual(stats["skipped"], 1)
         self.assertEqual(stats["created"], 0)
@@ -185,24 +171,17 @@ class PeerSyncDryRunTest(unittest.TestCase):
         )
         upsert_metadata(metadata=meta_loc, home=self.home_b)
 
-        old_home = os.environ.get("HOME")
-        try:
-            os.environ["HOME"] = str(self.home_b)
-            stats = apply_peer_sync_import(
-                inner_entries=inner_entries,
-                local_host_id=id_b.host_id,
-                dry_run=True,
-                path=str(self.db_b),
-                backend=BACKEND_SQLITE,
-                kek_keychain_path=None,
-                domain_filter=None,
-            )
-        finally:
-            if old_home is None:
-                os.environ.pop("HOME", None)
-            else:
-                os.environ["HOME"] = old_home
-            clear_sqlite_crypto_cache()
+        stats = apply_peer_sync_import(
+            inner_entries=inner_entries,
+            local_host_id=id_b.host_id,
+            dry_run=True,
+            path=str(self.db_b),
+            backend=BACKEND_SQLITE,
+            kek_keychain_path=None,
+            domain_filter=None,
+            home=self.home_b,
+        )
+        clear_sqlite_crypto_cache()
 
         self.assertEqual(stats["conflicts"], 1)
         self.assertEqual(stats["created"], 0)

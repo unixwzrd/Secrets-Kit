@@ -65,6 +65,44 @@ You copy the bundle and public JSON yourself (**scp**, **rsync**, USB, AirDrop, 
 
 Treat a `.peer_bundle` JSON like an **encrypted backup**: ciphertext + wrapped keys—not safe to publish, even though plaintext secrets are not stored in the file in the clear.
 
+## Two physical Macs / Linux hosts (SSH, no hard-coded peers)
+
+The repo does **not** define a production hostname or IP. In **your** shell, set a destination once (examples: `user@10.x.x.x`, `user@lan-name`, or an **SSH config** `Host` alias such as `my-vault-mac`):
+
+```bash
+export SECKIT_PEER_SYNC_SSH='user@other-host'   # operator-only; do not commit
+```
+
+Use **`${SECKIT_PEER_SYNC_SSH}`** with **`scp`** and **`rsync`** the same way you would a literal `user@host`:
+
+```bash
+scp ./peer-bundle.json "${SECKIT_PEER_SYNC_SSH}:~/"
+rsync -av ./alice.pub.json "${SECKIT_PEER_SYNC_SSH}:~/sync-inbox/"
+```
+
+**No TTY required** for a quick connectivity check (good for automation or agents):
+
+```bash
+ssh -o BatchMode=yes -o ConnectTimeout=10 "${SECKIT_PEER_SYNC_SSH}" date
+```
+
+On the **remote** side, **`seckit`** must resolve on **`PATH`** for the command SSH runs. Many operators configure non-interactive sessions (profile/`ssh`/`sshd` behavior) so **`PATH`** matches an interactive shell; then remote one-shots work without `-t` and without a “login shell” wrapper, for example:
+
+```bash
+ssh -o BatchMode=yes "${SECKIT_PEER_SYNC_SSH}" 'seckit --help'
+ssh -o BatchMode=yes "${SECKIT_PEER_SYNC_SSH}" 'seckit sync verify ~/Downloads/peer-bundle.json'
+```
+
+If a host still gives a minimal **`PATH`** for non-interactive commands, use **`bash -lc '…'`** or call the **absolute path** to the **`seckit`** entry point from your **pip** / **conda** environment.
+
+**Replicating the project** without pushing to GitHub: copying a checkout (e.g. **`tar`**) to the peer and **`pip install`** there is enough for validation; you do not need a public remote for manual bundle sync testing. For a one-shot checklist on the peer (no agent SSH required), run [`scripts/peer_sync_remote_smoke.sh`](../scripts/peer_sync_remote_smoke.sh) from that checkout.
+
+Public identity exchange uses the same pattern—copy only **`*.pub.json`** (or whatever you named the export). Never **`scp`** `~/.config/seckit/identity/secret.json`.
+
+### Launchd checks on the other host
+
+Opt-in launchd tests (`SECKIT_RUN_LAUNCHD_TESTS=1`, **`SECKIT_RUN_LAUNCHD_SQLITE_TESTS=1`**, etc.) are documented in [LAUNCHD_VALIDATION.md](LAUNCHD_VALIDATION.md). Run them **on that machine** (not “through” SSH for the job itself): either sit at a desktop session there or SSH in, `cd` to your checkout (Git or **tarball** copy), ensure **`pip install`** / env matches, and execute the unittest commands. A user who is already logged in at the console often has an easier time with login-keychain–backed flows than a headless SSH session alone.
+
 ## Two-machine walkthrough (SQLite example)
 
 Use the **same** pattern with **`--backend secure`** and your Keychain path if you prefer; below uses portable SQLite.
@@ -93,8 +131,8 @@ export SECKIT_SQLITE_PASSPHRASE='bobs-vault-passphrase'
 seckit identity init
 seckit identity export -o ~/bob.pub.json
 seckit peer add alice ~/Downloads/alice.pub.json
-# Copy peer-bundle.json from Alice (scp example):
-# scp alice@host:peer-bundle.json ~/Downloads/peer-bundle.json
+# Copy peer-bundle from exporter, e.g.:
+# scp "${SECKIT_PEER_SYNC_SSH}:peer-bundle.json" ~/Downloads/peer-bundle.json
 seckit sync verify ~/Downloads/peer-bundle.json
 seckit sync import ~/Downloads/peer-bundle.json --signer alice \
   --backend sqlite --db ~/.config/seckit/bob-secrets.db --dry-run
@@ -109,6 +147,10 @@ seckit get --backend sqlite --db ~/.config/seckit/bob-secrets.db \
 ### macOS Keychain (secure backend)
 
 On each machine, use **`--backend secure`** (default on macOS), drop **`--db`**, and set **`--service` / `--account`** as you normally would. The **bundle file** is still moved manually; only the **secret store** backend changes.
+
+## Automated tests and registry `home`
+
+The unit tests under `tests/test_peer_sync_*.py` use distinct temp directories as logical “homes” for SQLite vaults and **`apply_peer_sync_import(..., home=...)`** so metadata merge targets the right **`registry.json`** without changing the process **`HOME`**. For full **`seckit`** integration (Keychain, launchd), run the suite on macOS with **`security`** available; optional launchd coverage uses **`SECKIT_RUN_LAUNCHD_TESTS=1`** and **`SECKIT_RUN_LAUNCHD_SQLITE_TESTS=1`** as documented in [LAUNCHD_VALIDATION.md](LAUNCHD_VALIDATION.md). A GUI login session helps when tests need an unlocked login keychain.
 
 ## See also
 

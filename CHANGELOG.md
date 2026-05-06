@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 2026-05-06 — Phase 1B hardening: E2E tests, dry-run, peer sync CLI errors
 
 - **Scope:** `src/secrets_kit/cli.py` (`_peer_sync_cli_error`), `tests/test_peer_sync_e2e_sqlite.py`, `tests/test_peer_sync_dry_run.py`, `docs/PEER_SYNC.md`, `CHANGELOG.md`.
-- **What changed:** Two-HOME **SQLite** end-to-end peer bundle export/verify/import test (plus wrong-recipient case); **dry-run** import tests asserting no DB/registry writes via merge and correct **created/skipped/conflict** counts; **Peer sync:** user-facing error hints (missing identity, unknown peer, wrong recipient/`--signer`, corrupt bundle, SQLite unlock); **PEER_SYNC** walkthrough (two machines, public exchange, scp/rsync, `sync import --dry-run` then `--yes`). Peer sync modules remain **transport-agnostic** (no sockets, daemon, relay, or discovery).
+- **What changed:** Two-HOME **SQLite** end-to-end peer bundle export/verify/import test (plus wrong-recipient case); **dry-run** import tests asserting no DB/registry writes via merge and correct **created/skipped/conflict** counts; **`apply_peer_sync_import`** optional **`home=`** so tests/tooling target ``~/.config/seckit`` without mutating process **`HOME`** (CLI unchanged); **Peer sync:** user-facing error hints (missing identity, unknown peer, wrong recipient/`--signer`, corrupt bundle, SQLite unlock); **PEER_SYNC** walkthrough (two machines, public exchange, scp/rsync, `sync import --dry-run` then `--yes`). Peer sync modules remain **transport-agnostic** (no sockets, daemon, relay, or discovery).
 
 ### 2026-05-05 — SQLite unlock providers (`passphrase` vs `keychain`) + launchd coverage
 

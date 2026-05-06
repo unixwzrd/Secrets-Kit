@@ -15,6 +15,7 @@ from unittest import mock
 
 from secrets_kit.cli import cmd_set
 from secrets_kit.keychain_backend import delete_keychain, delete_secret, harden_keychain, keychain_path, make_temp_keychain
+from secrets_kit.sqlite_unlock import clear_sqlite_unlock_cache
 
 
 class LaunchdSmokeScriptInterfaceTest(unittest.TestCase):
@@ -307,31 +308,47 @@ class LaunchdRunFlowTest(unittest.TestCase):
             plist_file = home / f"{label}.plist"
             repo_root = Path(__file__).resolve().parents[1]
 
-            with mock.patch("pathlib.Path.home", return_value=home):
-                set_args = argparse.Namespace(
-                    name="SECKIT_TEST_ENV",
-                    value="expected-sqlite",
-                    stdin=False,
-                    allow_empty=False,
-                    type="secret",
-                    kind="generic",
-                    tags=None,
-                    comment="launchd sqlite env injection",
-                    service="launchd-sqlite-test",
-                    account="local",
-                    source_url="",
-                    source_label="",
-                    rotation_days=None,
-                    rotation_warn_days=None,
-                    expires_at="",
-                    domain=None,
-                    domains=None,
-                    meta=None,
-                    keychain=None,
-                    backend="sqlite",
-                    db=str(db_file),
-                )
-                self.assertEqual(cmd_set(args=set_args), 0)
+            prev_pass = os.environ.get("SECKIT_SQLITE_PASSPHRASE")
+            prev_unlock = os.environ.get("SECKIT_SQLITE_UNLOCK")
+            clear_sqlite_unlock_cache()
+            try:
+                os.environ["SECKIT_SQLITE_PASSPHRASE"] = passphrase
+                os.environ["SECKIT_SQLITE_UNLOCK"] = "passphrase"
+                with mock.patch("pathlib.Path.home", return_value=home):
+                    set_args = argparse.Namespace(
+                        name="SECKIT_TEST_ENV",
+                        value="expected-sqlite",
+                        stdin=False,
+                        allow_empty=False,
+                        type="secret",
+                        kind="generic",
+                        tags=None,
+                        comment="launchd sqlite env injection",
+                        service="launchd-sqlite-test",
+                        account="local",
+                        source_url="",
+                        source_label="",
+                        rotation_days=None,
+                        rotation_warn_days=None,
+                        expires_at="",
+                        domain=None,
+                        domains=None,
+                        meta=None,
+                        keychain=None,
+                        backend="sqlite",
+                        db=str(db_file),
+                    )
+                    self.assertEqual(cmd_set(args=set_args), 0)
+            finally:
+                clear_sqlite_unlock_cache()
+                if prev_pass is None:
+                    os.environ.pop("SECKIT_SQLITE_PASSPHRASE", None)
+                else:
+                    os.environ["SECKIT_SQLITE_PASSPHRASE"] = prev_pass
+                if prev_unlock is None:
+                    os.environ.pop("SECKIT_SQLITE_UNLOCK", None)
+                else:
+                    os.environ["SECKIT_SQLITE_UNLOCK"] = prev_unlock
 
             child_code = (
                 "import os, pathlib, sys; "
