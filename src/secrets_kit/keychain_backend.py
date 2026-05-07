@@ -2,7 +2,9 @@
 
 ``resolve_secret_store`` returns either :class:`SecurityCliStore` (macOS ``security`` CLI against
 the login keychain or ``--keychain`` path) or :class:`SqliteSecretStore` (encrypted SQLite via
-PyNaCl). Canonical backend ids: ``secure`` (alias: ``local``) and ``sqlite``.
+PyNaCl). Canonical backend ids: ``secure`` (alias: ``local``) and ``sqlite``. There is no
+``seckit-keychain-helper`` or other bundled Mach-O on the Keychain path; older trees or PATH
+entries may still ship that binary, but this package does not execute it.
 
 Additional backends (PGP, vault, broker) should implement :class:`SecretStore`,
 extend :func:`normalize_backend` / validation, and register in :func:`resolve_secret_store`
@@ -32,6 +34,9 @@ BACKEND_SQLITE = "sqlite"
 
 _BACKEND_ALIASES: Dict[str, str] = {
     "local": BACKEND_SECURE,
+    # Historical backend ids from removed helper work — accepted so old defaults.json / env keep working.
+    "icloud": BACKEND_SECURE,
+    "icloud-helper": BACKEND_SECURE,
 }
 
 # Accepted on CLI / env / defaults.json (``local`` is an alias for ``secure``).
@@ -45,7 +50,10 @@ _KNOWN_NORMALIZED: FrozenSet[str] = frozenset({BACKEND_SECURE, BACKEND_SQLITE})
 
 
 def normalize_backend(backend: str) -> str:
-    """Return canonical backend id (``secure``, ``sqlite``; ``local`` aliases ``secure``)."""
+    """Return canonical backend id (``secure``, ``sqlite``).
+
+    Accepts alias ``local`` and legacy ids ``icloud`` / ``icloud-helper`` (both map to ``secure``).
+    """
     raw = backend.strip().lower()
     normalized = _BACKEND_ALIASES.get(raw, raw)
     if normalized not in _KNOWN_NORMALIZED:
@@ -384,11 +392,18 @@ def doctor_roundtrip(
     )
 
 
-def create_keychain(*, path: str, password: str) -> str:
-    """Create a dedicated test keychain file."""
+def create_keychain(*, path: str, password: Optional[str] = None) -> str:
+    """Create a dedicated test keychain file.
+
+    If *password* is ``None``, create a no-password keychain (non-interactive reads work more
+    broadly, e.g. under ``launchd``). If *password* is set, use ``-p`` as usual.
+    """
     target = keychain_path(path=path)
     Path(target).parent.mkdir(parents=True, exist_ok=True)
-    _run_security(args=["create-keychain", "-p", password, target])
+    if password:
+        _run_security(args=["create-keychain", "-p", password, target])
+    else:
+        _run_security(args=["create-keychain", target])
     return target
 
 
@@ -398,19 +413,27 @@ def delete_keychain(*, path: str) -> None:
     _run_security(args=["delete-keychain", target])
 
 
-def unlock_keychain_with_password(*, path: str, password: str) -> str:
-    """Unlock a keychain using a supplied password, intended for isolated tests."""
+def unlock_keychain_with_password(*, path: str, password: Optional[str] = None) -> str:
+    """Unlock a keychain using a password, or unlock a no-password keychain if *password* is omitted."""
     target = keychain_path(path=path)
-    _run_security(args=["unlock-keychain", "-p", password, target])
+    if password:
+        _run_security(args=["unlock-keychain", "-p", password, target])
+    else:
+        _run_security(args=["unlock-keychain", target])
     return target
 
 
 def make_temp_keychain(*, password: str = "seckit-test-password") -> Dict[str, str]:
-    """Create and unlock a temporary keychain for regression tests."""
+    """Create and unlock a temporary keychain for regression tests.
+
+    Pass ``password=""`` to create an **unprotected** keychain (no ``-p``), which tends to work
+    for non-interactive and ``launchd`` subprocess reads. Any other string uses ``-p`` as usual.
+    """
     temp_dir = tempfile.mkdtemp(prefix="seckit-keychain-")
     path = os.path.join(temp_dir, "test.keychain-db")
-    create_keychain(path=path, password=password)
-    unlock_keychain_with_password(path=path, password=password)
+    pwd_opt: Optional[str] = None if password == "" else password
+    create_keychain(path=path, password=pwd_opt)
+    unlock_keychain_with_password(path=path, password=pwd_opt)
     return {"directory": temp_dir, "path": path, "password": password}
 
 

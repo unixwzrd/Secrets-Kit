@@ -9,6 +9,7 @@ import unittest
 from unittest import mock
 from contextlib import redirect_stdout, redirect_stderr
 
+from secrets_kit.keychain_inventory import GenpCandidate
 from secrets_kit.cli import (
     _apply_defaults,
     _cli_version,
@@ -24,6 +25,7 @@ from secrets_kit.cli import (
     cmd_helper_status,
     cmd_import_env,
     cmd_lock,
+    cmd_recover_registry,
     cmd_run,
     cmd_service_copy,
     cmd_set,
@@ -45,8 +47,7 @@ class CliCommandsTest(unittest.TestCase):
             "export",
             "run",
             "service",
-            "doctor",
-            "migrate",
+            "recover",
             "lock",
             "unlock",
             "keychain-status",
@@ -99,6 +100,15 @@ class CliCommandsTest(unittest.TestCase):
         self.assertEqual(args.key, "backend")
         self.assertEqual(args.value, "icloud")
 
+    def test_defaults_alias_parser_sets_command_defaults(self) -> None:
+        """Argparse stores the invoked name; main() must skip _apply_defaults for both config and defaults."""
+        parser = build_parser()
+        args = parser.parse_args(["defaults", "set", "backend", "secure"])
+        self.assertEqual(args.command, "defaults")
+        self.assertEqual(args.config_command, "set")
+        self.assertEqual(args.key, "backend")
+        self.assertEqual(args.value, "secure")
+
     def test_config_set_writes_defaults_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
@@ -109,11 +119,15 @@ class CliCommandsTest(unittest.TestCase):
                 payload = json.loads(dpath.read_text(encoding="utf-8"))
                 self.assertEqual(payload.get("backend"), "secure")
 
-    def test_config_set_rejects_icloud_backend(self) -> None:
+    def test_config_set_coerces_legacy_icloud_backend_to_secure(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            with mock.patch.object(Path, "home", return_value=Path(tmp)), redirect_stderr(io.StringIO()):
-                code = cmd_config_set(args=argparse.Namespace(key="backend", value="icloud"))
-        self.assertEqual(code, 1)
+            home = Path(tmp)
+            with mock.patch.object(Path, "home", return_value=home):
+                code = cmd_config_set(args=argparse.Namespace(key="backend", value="icloud-helper"))
+                self.assertEqual(code, 0)
+                dpath = home / ".config" / "seckit" / "defaults.json"
+                payload = json.loads(dpath.read_text(encoding="utf-8"))
+                self.assertEqual(payload.get("backend"), "secure")
 
     def test_config_set_rejects_invalid_backend(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -264,13 +278,13 @@ class CliCommandsTest(unittest.TestCase):
             self.assertEqual(args.rotation_warn_days, 14)
             self.assertEqual(args.backend, "secure")
 
-    def test_apply_defaults_rejects_icloud_in_defaults_file(self) -> None:
+    def test_apply_defaults_coerces_legacy_backend_in_defaults_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
             config_dir = home / ".config" / "seckit"
             config_dir.mkdir(parents=True, exist_ok=True)
             (config_dir / "defaults.json").write_text(
-                json.dumps({"service": "s", "account": "a", "backend": "icloud"}),
+                json.dumps({"service": "s", "account": "a", "backend": "icloud-helper"}),
                 encoding="utf-8",
             )
             args = argparse.Namespace(
@@ -287,10 +301,10 @@ class CliCommandsTest(unittest.TestCase):
                 keychain=None,
             )
             with mock.patch("pathlib.Path.home", return_value=home):
-                with self.assertRaisesRegex(Exception, "unsupported backend"):
-                    _apply_defaults(args=args)
+                _apply_defaults(args=args)
+            self.assertEqual(args.backend, "secure")
 
-    def test_apply_defaults_rejects_icloud_explicit_backend(self) -> None:
+    def test_apply_defaults_coerces_legacy_explicit_backend(self) -> None:
         args = argparse.Namespace(
             command="get",
             service="sync-test",
@@ -301,13 +315,13 @@ class CliCommandsTest(unittest.TestCase):
             tag=None,
             rotation_days=None,
             rotation_warn_days=None,
-            backend="icloud",
+            backend="icloud-helper",
             keychain=None,
         )
         with tempfile.TemporaryDirectory() as tmp:
             with mock.patch.object(Path, "home", return_value=Path(tmp)):
-                with self.assertRaisesRegex(Exception, "unsupported backend"):
-                    _apply_defaults(args=args)
+                _apply_defaults(args=args)
+        self.assertEqual(args.backend, "secure")
 
     def test_account_defaults_to_current_user(self) -> None:
         args = argparse.Namespace(
@@ -327,7 +341,111 @@ class CliCommandsTest(unittest.TestCase):
             with mock.patch.object(Path, "home", return_value=Path(tmp)), \
                 mock.patch("getpass.getuser", return_value="miafour"):
                 _apply_defaults(args=args)
-        self.assertEqual(args.account, "miafour")
+            self.assertEqual(args.account, "miafour")
+
+    def test_apply_defaults_migrate_recover_registry_does_not_require_service(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            args = argparse.Namespace(
+                command="migrate",
+                migrate_command="recover-registry",
+                service=None,
+                account=None,
+                type=None,
+                kind=None,
+                tags=None,
+                tag=None,
+                rotation_days=None,
+                rotation_warn_days=None,
+                backend=None,
+                keychain=None,
+                db=None,
+            )
+            with mock.patch.object(Path, "home", return_value=home):
+                _apply_defaults(args=args)
+        self.assertIsNone(args.service)
+
+    def test_recover_dry_run_with_json_machine_readable(self) -> None:
+        payload = {
+            "account": "miafour",
+            "entry_kind": "api_key",
+            "entry_type": "secret",
+            "name": "OPENAI_API_KEY",
+            "service": "hermes",
+        }
+        icmt = json.dumps(payload, separators=(",", ":"), sort_keys=True)
+        candidates = [
+            GenpCandidate(account="u", service="svc", name="lowercase-bad", comment=""),
+            GenpCandidate(account="miafour", service="hermes", name="OPENAI_API_KEY", comment=icmt),
+        ]
+
+        def _iter(**_: object):
+            yield from candidates
+
+        args = argparse.Namespace(
+            backend="secure",
+            keychain=None,
+            service=None,
+            account=None,
+            type=None,
+            kind=None,
+            db=None,
+            dry_run=True,
+            json=True,
+            tags=None,
+            tag=None,
+            rotation_days=None,
+            rotation_warn_days=None,
+        )
+        with mock.patch("secrets_kit.cli.iter_recover_candidates", side_effect=_iter), \
+            mock.patch("secrets_kit.cli.secret_exists", return_value=True), \
+            mock.patch("secrets_kit.cli.check_security_cli", return_value=True):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                code = cmd_recover_registry(args=args)
+        self.assertEqual(code, 0)
+        stats = json.loads(buf.getvalue())
+        self.assertEqual(stats["candidates"], 2)
+        self.assertEqual(stats["recovered"], 1)
+        self.assertEqual(stats["skipped_bad_name"], 1)
+        self.assertEqual(len(stats["skipped_bad_names"]), 1)
+        self.assertEqual(stats["skipped_bad_names"][0]["name"], "lowercase-bad")
+        self.assertIn("recovered_entries", stats)
+        self.assertEqual(len(stats["recovered_entries"]), 1)
+
+    def test_parser_recover(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["recover", "--dry-run"])
+        self.assertEqual(args.command, "recover")
+        self.assertTrue(args.dry_run)
+
+    def test_parser_migrate_recover_registry_alias(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["migrate", "recover-registry", "--dry-run"])
+        self.assertEqual(args.command, "migrate")
+        self.assertEqual(args.migrate_command, "recover-registry")
+        self.assertTrue(args.dry_run)
+
+    def test_apply_defaults_recover_does_not_require_service(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            args = argparse.Namespace(
+                command="recover",
+                service=None,
+                account=None,
+                type=None,
+                kind=None,
+                tags=None,
+                tag=None,
+                rotation_days=None,
+                rotation_warn_days=None,
+                backend=None,
+                keychain=None,
+                db=None,
+            )
+            with mock.patch.object(Path, "home", return_value=home):
+                _apply_defaults(args=args)
+        self.assertIsNone(args.service)
 
     def test_read_password_uses_custom_prompt(self) -> None:
         with mock.patch("getpass.getpass", return_value="backup-pass") as getpass_mock:

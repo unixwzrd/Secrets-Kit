@@ -1,17 +1,72 @@
 # Secrets-Kit Changelog
 
 **Created**: 2026-03-10  
-**Updated**: 2026-05-08
+**Updated**: 2026-05-07
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-### 2026-05-08 — Helper status: drop `helper.removed`; neutral CLI and packaging copy
+### 2026-05-07 — CLI UX: modular parser docs, taxonomy help, workflows split
 
-- **Scope:** `src/secrets_kit/native_helper.py`, `src/secrets_kit/cli.py`, `tests/test_native_helper.py`, `src/secrets_kit/native_helper_bundled/README.md`, `README.md`, `docs/CROSS_HOST_CHECKLIST.md`, `scripts/package_release_wheels.sh`, `CHANGELOG.md`.
-- **What changed:** **`seckit helper status`** / **`version --json`** no longer include **`helper.removed`**. Rely on **`helper.installed`** (false for wheels) plus **`path`** / **`bundled_path`**. Argparse help for **`seckit helper`** and the bundled layout README describe the current model without “removed Swift helper” framing. **Breaking** for JSON consumers that read **`helper.removed`**.
+- **Scope:** `src/secrets_kit/cli.py`, new `cli_parser.py`, `cli_help.py`, `cli_groups.py`, `docs/CONCEPTS.md`, `docs/CLI_ARCHITECTURE.md`, `docs/CLI_STYLE_GUIDE.md`, `docs/CLI_REFERENCE.md`, `docs/WORKFLOWS.md`, slimmed `docs/USAGE.md`, `docs/QUICKSTART.md`, `docs/README.md`, root `README.md`, `tests/test_cli_help_consistency.py`, `CHANGELOG.md`.
+- **What changed:** Split **`build_parser()`** into **`cli_parser`** with shared **`cli_help`** / **`cli_groups`**; root **`seckit --help`** uses **command taxonomy**, compatibility note, and **JSON/automation** pointer; primary subcommands gain concise **Examples** epilogs (`list` uses **`parents=[common]`** like other scope commands). New operator docs cover **resolve vs materialize**, **`backend-index` semantics**, **safe defaults**, and **CLI style** (JSON stability, error classes, cross-platform wording). **`docs/USAGE.md`** is a short index to the new set; **`WORKFLOWS.md`** adds a **common operator flows** appendix. **`tests/test_cli_help_consistency.py`** asserts taxonomy anchors, **Examples** blocks, and narrow forbidden internals without golden help files.
 
-### 2026-05-07 — Remove iCloud-helper docs and unified unsupported-backend errors
+### 2026-05-07 — BackendStore alignment: `IndexRow`, version triple, `rebuild_index`, `Locator`
+
+- **Scope:** `src/secrets_kit/backend_store.py`, `sqlite_backend.py`, `keychain_backend_store.py`, `models.py`, `cli.py`, `registry_journal.py`, `docs/METADATA_SEMANTICS_ADR.md`, `docs/README.md`, `tests/test_backend_store_contract.py`, `tests/test_leakage_invariants.py`, `tests/leakage_needles.py`, `tests/__init__.py`, `CHANGELOG.md`.
+- **What changed:** Safe **`IndexRow`** drops plaintext locator fields from the transport type and adds **`index_schema_version`**, **`payload_schema_version`**, **`backend_impl_version`**, optional opaque **`payload_ref`**, and SQLite corruption flags. **`BackendCapabilities.supports_selective_resolve`**. **`BackendStore.rebuild_index()`** plus optional **`migrate_entry` / `export_authority` / `import_authority`** stubs. SQLite adds **`corrupt`** / **`corrupt_reason` / **`last_validation_at`**, decrypt-free **`iter_index`** column set, and explicit **`BackendStore`** inheritance. Keychain **`iter_index`** uses a **temporary** UUID-from-comment shim (not full JSON parse). CLI:**`seckit rebuild-index`** and **`_read_metadata`** prefers **`resolve_by_locator`**. Registry journal docs state **non-authoritative** operation. Shared contract and leakage tests (incl. **repr**/JSON safe checks).
+
+### 2026-05-05 — CLI: richer `--help`, `defaults` as alias for `config`
+
+- **Scope:** `src/secrets_kit/cli.py`, `tests/test_cli_commands.py`, `CHANGELOG.md`.
+- **What changed:** Top-level help uses a formatter that preserves newlines and lists typical `~/.config/seckit/` paths, command groups, and doc pointers. **`config`** documents subcommands (`show` / `set` / `unset` / **`path`**) vs secrets/registry. **`defaults`** is a subcommand alias for **`config`**; **`main()`** skips **`_apply_defaults`** when the invoked command is **`config`** or **`defaults`** so preference edits do not require service defaults. Tests cover the **`defaults`** parse shape (**`args.command` == `"defaults"`**).
+
+### 2026-05-07 — `registry.json` v2 slim index (no operational metadata duplication)
+
+- **Scope:** `src/secrets_kit/registry.py`, `src/secrets_kit/cli.py` (`list`, `_select_entries`), `tests/test_registry_slim.py`, `tests/test_peer_sync_*.py`, `docs/METADATA_REGISTRY.md`, `docs/METADATA_SEMANTICS_ADR.md`, `src/secrets_kit/registry_v2.py` (docstring), `CHANGELOG.md`.
+- **What changed:** Registry file **version 2** persists only **locator + `entry_id` + timestamps** and optional **`sync_origin_host`** (peer merge vector); tags, source, URLs, kinds, domains, comments, and other custom keys are **not** written to disk (except that single sync field). **v1** files auto-migrate on load. **v2** entries with extra keys are rejected. **`list`** / **`sync export`** selection filters **type** / **kind** / **tag** against metadata **from the backend** after resolve. Peer bundle tests build inner metadata from **SQLite authority**, not the slim registry row.
+
+### 2026-05-07 — `keychain_dev_seed.sh`: synthetic fixture import for login Keychain
+
+- **Scope:** `scripts/keychain_dev_seed.sh`, `docs/EXAMPLES.md`, `CHANGELOG.md`.
+- **What changed:** New helper mirrors **`sqlite_dev_seed.sh`** but runs **`seckit import env --backend secure`** against **`fixtures/synthetic-sample.env`**. Documents **`SECKIT_PYTHON`** when system Python lacks PyNaCl.
+
+### 2026-05-07 — BackendStore alignment: ADR, keychain adapter, leakage tests, journal CLI
+
+- **Scope:** `src/secrets_kit/backend_store.py` (`resolve_backend_store`), `keychain_backend_store.py`, `registry_journal.py`, `sync_merge.py`, `sqlite_backend.py`, `cli.py` (`backend-index`, `journal append`, `doctor` posture for secure), `docs/METADATA_SEMANTICS_ADR.md`, `docs/METADATA_REGISTRY.md`, `docs/SECURITY_MODEL.md`, `tests/test_leakage_invariants.py`, `tests/test_peer_sync_dry_run.py`, `CHANGELOG.md`.
+- **What changed:** Documented generation/tombstone/conflict/atomicity in **`docs/METADATA_SEMANTICS_ADR.md`**. **`KeychainBackendStore`** implements **`BackendStore`** with honest posture (metadata in Keychain comments is not encrypted). **`resolve_backend_store`** selects SQLite vs Keychain. SQLite **`set_entry`** preserves caller **`metadata.updated_at`** when set. Peer **`apply_peer_sync_import`** merges registry vs store metadata by stronger **`(updated_at, origin)`** vector. **`seckit backend-index`** emits **`IndexRow`** JSON lines; **`seckit journal append`** writes **`registry_events.jsonl`**. Leakage tests assert sensitive markers stay out of SQLite index columns and **`IndexRow.to_safe_dict()`** payloads.
+
+### 2026-05-06 — Document SQLite path; `scripts/sqlite_dev_seed.sh` for dev vault
+
+- **Scope:** `fixtures/synthetic-sample.env`, `docs/DEFAULTS.md`, `scripts/sqlite_dev_seed.sh`, `src/secrets_kit/cli.py`, `CHANGELOG.md`.
+- **What changed:** **`fixtures/synthetic-sample.env`** (tracked) + **`scripts/sqlite_dev_seed.sh`** uses built-in test passphrase **`seckit-dev-synthetic-vault`**; no env required for a normal demo import. Import / migrate **plan:** previews use the same fixed-width table helper as **`seckit list`** (tabs previously broke alignment when **`SOURCE`** held long paths).
+
+### 2026-05-06 — `recover`: SQLite backend, dry-run table / `--json`, launchd temp keychains
+
+- **Scope:** `src/secrets_kit/recover_sources.py`, `src/secrets_kit/sqlite_backend.py` (`iter_secrets_plaintext_index`), `src/secrets_kit/keychain_backend.py`, `src/secrets_kit/cli.py`, `tests/test_cli_commands.py`, `tests/test_sqlite_backend.py`, `tests/test_launchd_run_flow.py`, `docs/METADATA_REGISTRY.md`, `CHANGELOG.md`.
+- **What changed:** **`seckit recover`** / **`migrate recover-registry`** support **`--backend sqlite`** (plaintext **`secrets`** index; same metadata JSON as Keychain comments). **`recover_sources.iter_recover_candidates`** centralizes secure vs sqlite enumeration. Human **`--dry-run`** prints a **`seckit list`‑style table** then a JSON summary with **`skipped_bad_names`** (and duplicate / missing-secret keys). **`--json`** prints one machine-readable document including **`recovered_entries`**. Tests: unprotected temp keychains (**`make_temp_keychain(password=""`)**) for launchd agent flows that read secrets non-interactively.
+
+### 2026-05-06 — Recover lost `registry.json` from Keychain (`migrate recover-registry`)
+
+- **Scope:** `src/secrets_kit/keychain_inventory.py`, `src/secrets_kit/cli.py`, `tests/test_keychain_inventory.py`, `tests/test_cli_commands.py`, `docs/METADATA_REGISTRY.md`, `CHANGELOG.md`.
+- **What changed:** New **`seckit recover`** rebuilds **`registry.json`** from **`security dump-keychain`** (generic-password rows with seckit **`svce`** `service:name`), with **`--keychain`**, optional **`--service`**, **`--dry-run`**. Reuses comment JSON when it matches the tuple; otherwise writes minimal metadata with **`source`** **`recovered-keychain`**. **`migrate recover-registry`** calls the same handler. **`migrate`** does not global-require **`--service`** for **`recover-registry`** only.
+
+### 2026-05-06 — Legacy `icloud` backend strings: normalize + rewrite operator JSON
+
+- **Scope:** `src/secrets_kit/keychain_backend.py`, `src/secrets_kit/registry.py`, `src/secrets_kit/cli.py`, `tests/test_backend_resolution.py`, `tests/test_cli_commands.py`, `tests/test_operator_config_migration.py`, `docs/SECKIT_RUN_AND_BACKEND_REWORK_PLAN.md`, `docs/DEFAULTS.md`, `CHANGELOG.md`.
+- **What changed:** **`normalize_backend`** maps **`icloud`** / **`icloud-helper`** to **`secure`**. When loading **`defaults.json`** or legacy **`config.json`**, those legacy **`backend`** values are rewritten to **`secure`** on disk (when permissions ≤ 0600). **`--backend`** argparse choices unchanged. **`docs/DEFAULTS.md`**: **`seckit list`** uses **`registry.json`**, not a full Keychain dump.
+
+### 2026-05-06 — Stub `notarize_bundled_helper.sh`; drop stale gitignore exception
+
+- **Scope:** `scripts/notarize_bundled_helper.sh`, `scripts/package_release_wheels.sh`, `docs/GITHUB_RELEASE_BUILD.md`, `.gitignore`, `CHANGELOG.md`.
+- **What changed:** **`scripts/notarize_bundled_helper.sh`** now matches **`build_bundled_helper_for_wheel.sh`**: it exits with an error (no Mach-O to notarize). Removed obsolete notary pointers from **`package_release_wheels.sh`** comments. **`.gitignore`**: removed dead un-ignore for a deleted plan file; clarified helper section. Runtime **`secrets_kit`** already uses only the **`security`** CLI for **`--backend secure`**; any **`seckit-keychain-helper`** on **`PATH`** is unused by current wheels — remove it locally if old installers dropped it in **`~/bin`** or similar.
+
+### 2026-05-06 — Helper status: drop `helper.removed`; neutral CLI and packaging copy
+
+- **Scope:** `src/secrets_kit/native_helper.py`, `src/secrets_kit/cli.py`, `tests/test_native_helper.py`, `src/secrets_kit/native_helper_bundled/README.md`, `README.md`, `docs/CROSS_HOST_CHECKLIST.md`, `scripts/package_release_wheels.sh`, `tests/test_launchd_run_flow.py`, `docs/LAUNCHD_VALIDATION.md`, `CHANGELOG.md`.
+- **What changed:** **`seckit helper status`** / **`version --json`** no longer include **`helper.removed`**. Rely on **`helper.installed`** (false for wheels) plus **`path`** / **`bundled_path`**. Argparse help for **`seckit helper`** and the bundled layout README describe the current model without “removed Swift helper” framing. **Breaking** for JSON consumers that read **`helper.removed`**. Login-keychain launchd test teardown deletes the fixture item only if **`secret_exists`** (clearer failure when **`cmd_set`** cannot write the login keychain from SSH). **`docs/LAUNCHD_VALIDATION.md`**: document that the login-keychain unittest needs a GUI Keychain session (**User interaction is not allowed** over SSH-only).
+
+### 2026-05-06 — Remove iCloud-helper docs and unified unsupported-backend errors
 
 - **Scope:** `src/secrets_kit/keychain_backend.py`, `src/secrets_kit/native_helper.py`, `tests/test_backend_resolution.py`, `tests/test_cli_commands.py`, `tests/test_native_helper.py`, `scripts/build_bundled_helper_for_wheel.sh`, `scripts/package_release_wheels.sh`, `scripts/seckit_launchd_smoke.sh`, `README.md`, `AGENTS.md`, `docs/*` (index, defaults, security model, cross-host, checklists, launchd, usage, rework plan, plans), deleted `docs/ICLOUD_SYNC_VALIDATION.md`, deleted `docs/plans/icloud-two-host-checklist.md`, `CHANGELOG.md`.
 - **What changed:** Legacy **`icloud` / `icloud-helper`** ids are rejected like any unknown backend (**`unsupported backend`**)—no dedicated long removal string or doc link. **`seckit helper status`** `backend_availability` now lists only **`secure`**, **`local`**, and **`sqlite`** (breaking change for JSON clients that expected **`icloud`** keys). Removed iCloud-helper validation docs and rewired remaining docs to **secure/sqlite**, export/import, and **peer sync** only.

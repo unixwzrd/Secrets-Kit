@@ -25,14 +25,14 @@ The [release workflow](../.github/workflows/release.yml):
 
 ## Local release (your Mac)
 
-```bash
+\```bash
 bash scripts/package_release_wheels.sh
 # optional: PY_VERSIONS='3.9,3.10,3.11,3.12,3.13'
-```
+\```
 
 Then tag `vX.Y.Z`, push, or upload `dist/*` to PyPI / GitHub Release.
 
-`scripts/build_bundled_helper_for_wheel.sh` is a **stub** that exits with an error (historical path only).
+`scripts/build_bundled_helper_for_wheel.sh` is a **stub** that exits with an error (historical path only). **`scripts/notarize_bundled_helper.sh`** is **stubbed** the same way — wheels do not ship a helper binary.
 
 ## References
 

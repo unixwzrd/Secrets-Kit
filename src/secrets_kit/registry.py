@@ -2,14 +2,30 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
 import json
 import os
 from pathlib import Path
 import tempfile
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
-from secrets_kit.models import EntryMetadata, now_utc_iso
+from secrets_kit.models import EntryMetadata, ensure_entry_id, normalize_custom, now_utc_iso
+
+_LEGACY_OPERATOR_BACKEND_TOKENS = frozenset({"icloud", "icloud-helper"})
+
+# On-disk registry.json top-level ``version`` (v2 = slim index only).
+REGISTRY_FILE_VERSION = 2
+LEGACY_REGISTRY_FILE_VERSION = 1
+
+# JSON Schema id for tooling / documentation (not a JSON Schema file on disk).
+REGISTRY_JSON_SCHEMA_ID = "https://unixwzrd.ai/schemas/seckit/registry-slim-v2.json"
+
+# Keys allowed in each registry entry object on disk (v2). No tags, source, kind, domains, etc.
+# ``sync_origin_host`` holds only the peer-sync vector host id (same semantics as
+# ``custom["seckit_sync_origin_host"]`` in full metadata); kept so merge can compare registry vs store.
+_REGISTRY_PEER_SYNC_KEY = "seckit_sync_origin_host"
+_REGISTRY_ENTRY_ALLOWED_KEYS = frozenset(
+    {"name", "service", "account", "entry_id", "created_at", "updated_at", "sync_origin_host"}
+)
 
 
 class RegistryError(RuntimeError):
@@ -53,7 +69,7 @@ def ensure_registry_storage(*, home: Optional[Path] = None) -> Path:
 
     rpath = registry_path(home=home)
     if not rpath.exists():
-        payload = {"version": 1, "entries": []}
+        payload = _empty_registry_payload()
         _atomic_write_json(path=rpath, payload=payload)
     os.chmod(rpath, 0o600)
     _check_secure_perms(path=rpath, max_mode=0o600)
@@ -90,25 +106,174 @@ def _atomic_write_json(*, path: Path, payload: Dict) -> None:
             os.unlink(tmp_path)
 
 
+def _empty_registry_payload() -> Dict[str, object]:
+    return {
+        "version": REGISTRY_FILE_VERSION,
+        "$schema": REGISTRY_JSON_SCHEMA_ID,
+        "entries": [],
+    }
+
+
+def _peer_origin_from_metadata(meta: EntryMetadata) -> str:
+    """Host id used for peer merge vector (must match ``sync_merge.SYNC_ORIGIN_CUSTOM_KEY``)."""
+    if not meta.custom:
+        return ""
+    return str(meta.custom.get(_REGISTRY_PEER_SYNC_KEY, "")).strip()
+
+
+def entry_to_slim_registry_dict(metadata: EntryMetadata) -> Dict[str, Any]:
+    """Serialize one entry for ``registry.json`` (non-leaking index only)."""
+    meta = ensure_entry_id(metadata)
+    row: Dict[str, Any] = {
+        "name": meta.name,
+        "service": meta.service,
+        "account": meta.account,
+        "entry_id": meta.entry_id,
+        "created_at": meta.created_at,
+        "updated_at": meta.updated_at,
+    }
+    sync_origin = _peer_origin_from_metadata(meta)
+    if sync_origin:
+        row["sync_origin_host"] = sync_origin
+    return row
+
+
+def slim_registry_entry_to_metadata(payload: Dict[str, Any]) -> EntryMetadata:
+    """Build in-memory :class:`EntryMetadata` from a v2 registry row (defaults for unstored fields)."""
+    sync_origin = str(payload.get("sync_origin_host", "") or "").strip()
+    custom = normalize_custom({_REGISTRY_PEER_SYNC_KEY: sync_origin} if sync_origin else {})
+    return EntryMetadata(
+        name=str(payload["name"]),
+        service=str(payload["service"]),
+        account=str(payload["account"]),
+        entry_id=str(payload.get("entry_id", "")),
+        created_at=str(payload.get("created_at", now_utc_iso())),
+        updated_at=str(payload.get("updated_at", now_utc_iso())),
+        custom=custom,
+    )
+
+
+def _merged_peer_sync_custom(*, incoming: EntryMetadata, existing: Optional[EntryMetadata]) -> Dict[str, Any]:
+    sync = _peer_origin_from_metadata(incoming) or (
+        _peer_origin_from_metadata(existing) if existing is not None else ""
+    )
+    return normalize_custom({_REGISTRY_PEER_SYNC_KEY: sync} if sync else {})
+
+
+def merge_into_slim_registry_entry(*, incoming: EntryMetadata, existing: Optional[EntryMetadata]) -> EntryMetadata:
+    """Strip ``incoming`` to index fields; preserve ``created_at`` / ``entry_id`` from *existing* when needed."""
+    ts = now_utc_iso()
+    inc = ensure_entry_id(incoming)
+    peer_custom = _merged_peer_sync_custom(incoming=inc, existing=existing)
+    if existing:
+        ex = ensure_entry_id(existing)
+        eid = (inc.entry_id or ex.entry_id).strip() or ex.entry_id
+        return EntryMetadata(
+            name=inc.name,
+            service=inc.service,
+            account=inc.account,
+            entry_id=eid,
+            created_at=ex.created_at,
+            updated_at=ts,
+            custom=peer_custom,
+        )
+    return EntryMetadata(
+        name=inc.name,
+        service=inc.service,
+        account=inc.account,
+        entry_id=inc.entry_id,
+        created_at=inc.created_at or ts,
+        updated_at=inc.updated_at or ts,
+        custom=peer_custom,
+    )
+
+
+def migrate_legacy_operator_backend_in_file(*, path: Path, payload: Dict[str, object]) -> Dict[str, object]:
+    """Rewrite ``backend`` to ``secure`` on disk if it is a removed legacy id.
+
+    Called when loading ``defaults.json`` or legacy ``config.json`` so old installs self-heal.
+    """
+    from secrets_kit.keychain_backend import BACKEND_SECURE
+
+    raw = payload.get("backend")
+    if raw is None:
+        return payload
+    token = str(raw).strip().lower().replace("_", "-")
+    if token not in _LEGACY_OPERATOR_BACKEND_TOKENS:
+        return payload
+    updated = dict(payload)
+    updated["backend"] = BACKEND_SECURE
+    try:
+        if path.exists():
+            _check_secure_perms(path=path, max_mode=0o600)
+        _atomic_write_json(path=path, payload=updated)
+        os.chmod(path, 0o600)
+    except OSError:
+        return payload
+    except RegistryError:
+        return payload
+    return updated
+
+
 def load_registry(*, home: Optional[Path] = None) -> Dict[str, EntryMetadata]:
-    """Load metadata registry into keyed mapping."""
+    """Load metadata registry into keyed mapping.
+
+    **v2 (current):** each file entry is a slim index (locator + ``entry_id`` + timestamps).
+    Authoritative tags, source, kind, domains, etc. live in the backend store only.
+
+    **v1 (legacy):** full :class:`EntryMetadata` blobs are read once, rewritten as v2 on load.
+    """
     rpath = ensure_registry_storage(home=home)
     _check_secure_perms(path=rpath, max_mode=0o600)
     payload = json.loads(rpath.read_text(encoding="utf-8"))
+    file_ver = int(payload.get("version", LEGACY_REGISTRY_FILE_VERSION))
     entries = payload.get("entries", [])
     mapping: Dict[str, EntryMetadata] = {}
     for item in entries:
-        meta = EntryMetadata.from_dict(item)
-        mapping[meta.key()] = meta
+        if not isinstance(item, dict):
+            continue
+        if file_ver <= LEGACY_REGISTRY_FILE_VERSION:
+            full = EntryMetadata.from_dict(item)
+            sync = _peer_origin_from_metadata(full)
+            slim = EntryMetadata(
+                name=full.name,
+                service=full.service,
+                account=full.account,
+                entry_id=ensure_entry_id(full).entry_id,
+                created_at=full.created_at,
+                updated_at=full.updated_at,
+                custom=normalize_custom({_REGISTRY_PEER_SYNC_KEY: sync} if sync else {}),
+            )
+            mapping[slim.key()] = slim
+        else:
+            keys = set(item.keys())
+            if not keys <= _REGISTRY_ENTRY_ALLOWED_KEYS:
+                raise RegistryError(
+                    f"registry entry has unexpected keys (expected slim index only): {sorted(keys - _REGISTRY_ENTRY_ALLOWED_KEYS)!r}"
+                )
+            if "name" not in item or "service" not in item or "account" not in item:
+                raise RegistryError("registry entry missing required locator fields (name, service, account)")
+            meta = ensure_entry_id(slim_registry_entry_to_metadata(item))
+            mapping[meta.key()] = meta
+    if file_ver <= LEGACY_REGISTRY_FILE_VERSION:
+        save_registry(entries=mapping, home=home)
     return mapping
 
 
 def save_registry(*, entries: Dict[str, EntryMetadata], home: Optional[Path] = None) -> None:
-    """Persist metadata registry mapping."""
+    """Persist metadata registry mapping (always v2 slim index)."""
     rpath = ensure_registry_storage(home=home)
     _check_secure_perms(path=rpath, max_mode=0o600)
-    serialized: List[Dict] = [asdict(item) for item in sorted(entries.values(), key=lambda m: (m.service, m.account, m.name))]
-    _atomic_write_json(path=rpath, payload={"version": 1, "entries": serialized})
+    serialized = [
+        entry_to_slim_registry_dict(m)
+        for m in sorted(entries.values(), key=lambda item: (item.service, item.account, item.name))
+    ]
+    body: Dict[str, object] = {
+        "version": REGISTRY_FILE_VERSION,
+        "$schema": REGISTRY_JSON_SCHEMA_ID,
+        "entries": serialized,
+    }
+    _atomic_write_json(path=rpath, payload=body)
     os.chmod(rpath, 0o600)
 
 
@@ -119,7 +284,7 @@ def load_defaults(*, home: Optional[Path] = None) -> Dict[str, object]:
     payload = json.loads(dpath.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise RegistryError(f"invalid defaults json: {dpath} (top-level must be object)")
-    return payload
+    return migrate_legacy_operator_backend_in_file(path=dpath, payload=payload)
 
 
 def save_defaults(*, payload: Dict[str, object], home: Optional[Path] = None) -> None:
@@ -131,14 +296,11 @@ def save_defaults(*, payload: Dict[str, object], home: Optional[Path] = None) ->
 
 
 def upsert_metadata(*, metadata: EntryMetadata, home: Optional[Path] = None) -> None:
-    """Insert or update one metadata record."""
+    """Insert or update one registry index row (slim); does not duplicate store metadata."""
     entries = load_registry(home=home)
     key = metadata.key()
     existing = entries.get(key)
-    if existing:
-        metadata.created_at = existing.created_at
-        metadata.updated_at = now_utc_iso()
-    entries[key] = metadata
+    entries[key] = merge_into_slim_registry_entry(incoming=metadata, existing=existing)
     save_registry(entries=entries, home=home)
 
 

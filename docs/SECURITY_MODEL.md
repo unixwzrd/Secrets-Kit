@@ -1,6 +1,10 @@
 # Security Model
 
+**Created**: 2026-03-10  
+**Updated**: 2026-05-07  
+
 - [Security Model](#security-model)
+  - [Three layers (contract)](#three-layers-contract)
   - [Where values live](#where-values-live)
   - [How entries are identified](#how-entries-are-identified)
   - [What the redaction rules do](#what-the-redaction-rules-do)
@@ -8,6 +12,8 @@
   - [What this does not protect against](#what-this-does-not-protect-against)
   - [launchd and unattended services](#launchd-and-unattended-services)
   - [Permissions and drift](#permissions-and-drift)
+  - [Keychain fields and limits](#keychain-fields-and-limits)
+  - [Sync behavior](#sync-behavior)
   - [Practical takeaway](#practical-takeaway)
   - [Back to README](#back-to-readme)
 
@@ -15,6 +21,17 @@
 Secrets Kit is a local workflow improvement, not a promise of perfect protection.
 
 If you understand that up front, the tool makes more sense and is easier to use safely.
+
+## Three layers (contract)
+
+```text
+CLI / tooling
+    → typed API (secrets, EntryMetadata, IndexRow, BackendCapabilities, BackendSecurityPosture)
+BackendStore protocol (adapters: macOS Keychain, encrypted SQLite, …)
+    → payload encryption, row layout, Keychain comment wire format (adapter-internal only)
+```
+
+Operator commands **`seckit backend-index`** and **`seckit doctor`** can surface honest **capability** and **posture** flags without deserializing ciphertext.
 
 ## Where values live
 

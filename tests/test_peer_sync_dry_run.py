@@ -19,7 +19,7 @@ from secrets_kit.sync_bundle import build_bundle, decrypt_bundle_for_recipient, 
 from secrets_kit.sync_merge import apply_peer_sync_import
 
 if importlib.util.find_spec("nacl") is not None:
-    from secrets_kit.sqlite_backend import clear_sqlite_crypto_cache
+    from secrets_kit.sqlite_backend import SqliteSecretStore, clear_sqlite_crypto_cache
 else:
 
     def clear_sqlite_crypto_cache() -> None:  # pragma: no cover
@@ -111,8 +111,10 @@ class PeerSyncDryRunTest(unittest.TestCase):
         set_secret(service="svc", account="ac", name="NEWKEY", value="v1", path=str(db_a), backend=BACKEND_SQLITE)
         meta = EntryMetadata(name="NEWKEY", service="svc", account="ac")
         upsert_metadata(metadata=meta, home=self.home_a)
-        reg = load_registry(home=self.home_a)
-        m = reg["svc::ac::NEWKEY"]
+        st = SqliteSecretStore(db_path=str(db_a), kek_keychain_path=None)
+        resolved = st.resolve_by_locator(service="svc", account="ac", name="NEWKEY")
+        self.assertIsNotNone(resolved)
+        m = resolved.metadata
         id_a = load_identity(home=self.home_a)
         payload_rows = [{"metadata": m.to_dict(), "origin_host": id_a.host_id, "value": "v1"}]
         id_b, inner_list = self._encrypt_entries_for_b(payload_rows)
@@ -161,13 +163,22 @@ class PeerSyncDryRunTest(unittest.TestCase):
             entries_payload=[{"metadata": meta_in.to_dict(), "origin_host": origin, "value": "from-a"}],
         )
         ensure_registry_storage(home=self.home_b)
-        set_secret(service="svc", account="ac", name="K", value="from-b", path=str(self.db_b), backend=BACKEND_SQLITE)
         meta_loc = EntryMetadata(
             name="K",
             service="svc",
             account="ac",
             updated_at=ts,
             custom={"seckit_sync_origin_host": origin},
+        )
+        # SQLite authority metadata must carry the merge vector (registry alone is not read for merges).
+        set_secret(
+            service="svc",
+            account="ac",
+            name="K",
+            value="from-b",
+            comment=meta_loc.to_keychain_comment(),
+            path=str(self.db_b),
+            backend=BACKEND_SQLITE,
         )
         upsert_metadata(metadata=meta_loc, home=self.home_b)
 

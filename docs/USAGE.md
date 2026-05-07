@@ -1,236 +1,28 @@
-# Usage & Workflows
+# Usage
 
-- [Usage \& Workflows](#usage--workflows)
-  - [Store a secret](#store-a-secret)
-  - [Read a secret safely](#read-a-secret-safely)
-  - [Read the raw value](#read-the-raw-value)
-  - [List inventory](#list-inventory)
-- [Export for a local runtime](#export-for-a-local-runtime)
-  - [Export placeholder dotenv](#export-placeholder-dotenv)
-  - [Export encrypted backup](#export-encrypted-backup)
-  - [Import an existing dotenv file](#import-an-existing-dotenv-file)
-  - [Import encrypted backup](#import-encrypted-backup)
-  - [Migrate a dotenv file and replace inline values](#migrate-a-dotenv-file-and-replace-inline-values)
-  - [Explain an entry without revealing the secret](#explain-an-entry-without-revealing-the-secret)
-  - [A simple everyday pattern](#a-simple-everyday-pattern)
-  - [Back to README](#back-to-readme)
+**Created**: 2026-03-10  
+**Updated**: 2026-05-07
 
+This file is a **short entry point**. Full command coverage and policies live in the split CLI docs:
 
-This guide shows the everyday commands people actually need once Secrets Kit is installed.
+| Doc | Use it for |
+|-----|------------|
+| [CLI_REFERENCE.md](CLI_REFERENCE.md) | All `seckit` subcommands in taxonomy order |
+| [WORKFLOWS.md](WORKFLOWS.md) | Recipes and **common operator flows** appendix |
+| [CONCEPTS.md](CONCEPTS.md) | Mental model, resolve vs **materialize**, compatibility summary |
+| [CLI_ARCHITECTURE.md](CLI_ARCHITECTURE.md) | Authority, safe index, `backend-index`, `list` semantics |
+| [CLI_STYLE_GUIDE.md](CLI_STYLE_GUIDE.md) | Help conventions, **JSON stability**, error classes |
+| [QUICKSTART.md](QUICKSTART.md) | Shortest install/unlock/set/list/run path |
 
-The examples use a neutral scope of `my-stack` and `local-dev` first. Replace those with whatever makes sense for your own runtime, environment, or account naming.
-
-## Store a secret
+## Minimal examples
 
 ```bash
-echo 'sk-live' | seckit set --name OPENAI_API_KEY --stdin --kind api_key --service my-stack --account local-dev
-```
-
-Add a comment to record why a key exists:
-
-```bash
-echo 'sk-live' | seckit set --name OPENAI_API_KEY --stdin --kind api_key --comment "primary llm provider" --service my-stack --account local-dev
-```
-
-Add renewal and rotation metadata at the same time:
-
-```bash
-echo 'sk-live' | seckit set \
-  --name OPENAI_API_KEY \
-  --stdin \
-  --kind api_key \
-  --service my-stack \
-  --account local-dev \
-  --comment "primary llm provider" \
-  --source-label "OpenAI dashboard" \
-  --source-url "https://platform.openai.com/api-keys" \
-  --rotation-days 90 \
-  --rotation-warn-days 14 \
-  --domain openai \
-  --domain production \
-  --meta owner=ops
-```
-
-## Read a secret safely
-
-```bash
-seckit get --name OPENAI_API_KEY --service my-stack --account local-dev
-```
-
-Normal output is redacted. That is the safer default when you only need to confirm the entry exists.
-
-## Read the raw value
-
-```bash
-seckit get --name OPENAI_API_KEY --raw --service my-stack --account local-dev
-```
-
-Use that only when you genuinely need the value printed.
-
-## List inventory
-
-```bash
+echo 'sk-example' | seckit set --name OPENAI_API_KEY --stdin --kind api_key --service my-stack --account local-dev
 seckit list --service my-stack --account local-dev
-```
-
-Filter for stale entries:
-
-```bash
-seckit list --service my-stack --account local-dev --stale 90
-```
-
-`list` now includes a `STATUS` column so upcoming rotation or expiry issues are visible without exposing the value.
-
-## Run a command with injected secrets
-
-```bash
+seckit get --name OPENAI_API_KEY --service my-stack --account local-dev
 seckit run --service my-stack --account local-dev -- python3 app.py
 ```
 
-Use `run` when you want Secrets-Kit to resolve the secrets in the parent process and launch a child command with those variables already present.
+**Elevated disclosure:** `get --raw`, `export`, and `run` **materialize** secrets outside default redaction—see [CONCEPTS.md](CONCEPTS.md).
 
-```bash
-seckit run --service my-stack --account local-dev -- /usr/bin/env
-```
-
-Inject only selected values:
-
-```bash
-seckit run --service my-stack --account local-dev --names OPENAI_API_KEY,ADMIN_PASSWORD -- python3 app.py
-```
-
-OpenClaw-style example:
-
-```bash
-seckit run --service openclaw --account miafour -- openclaw skills
-```
-
-If you configured defaults, the shorter form works too:
-
-```bash
-seckit run -- python3 app.py
-```
-
-Important notes:
-
-- the child command must come after `--`
-- selection flags match `export`: `--all`, `--names`, `--tag`, `--type`, `--kind`
-- if you do not pass a selection flag, `run` injects every matching entry in the selected `service/account` scope
-- if you omit `--account`, Secrets-Kit uses saved defaults or the current OS user
-- if you omit `--service`, you must define a default service first
-
-## Export for a shell session
-
-```bash
-eval "$(seckit export --format shell --service my-stack --account local-dev --all)"
-```
-
-Use this only when the current shell needs the values. Prefer `seckit run` when launching a process.
-
-## Copy a service scope
-
-```bash
-seckit service copy --from-service openclaw --to-service hermes --dry-run
-seckit service copy --from-service openclaw --to-service hermes
-```
-
-Copying a service is useful when two applications share most keys but should keep separate service scopes. Existing destination names are skipped unless you pass `--overwrite`.
-
-## Export placeholder dotenv
-
-```bash
-seckit export --format dotenv --service my-stack --account local-dev --all > ~/.config/my-stack/.env
-```
-
-## Export encrypted backup
-
-```bash
-seckit export --format encrypted-json --service my-stack --account local-dev --all --out backup.json
-```
-
-## Import encrypted backup
-
-```bash
-seckit import encrypted-json --file backup.json
-```
-
-## Import an existing dotenv file
-
-```bash
-seckit import env --dotenv ~/.config/my-stack/.env --service my-stack --account local-dev --upsert
-```
-
-Use `--upsert` when a dotenv file has newly added names or intentionally changed values. Plain import skips existing names unless overwrite/upsert behavior is requested.
-
-## Migrate a dotenv file and replace inline values
-
-```bash
-seckit migrate dotenv --dotenv ~/.config/my-stack/.env --service my-stack --account local-dev --yes --archive ~/.config/my-stack/.env.bak
-```
-
-This is the practical “stop leaving raw secrets in `.env`” workflow. It imports the values, then rewrites the file to use placeholders.
-
-## Explain an entry without revealing the secret
-
-```bash
-seckit explain --name OPENAI_API_KEY --service my-stack --account local-dev
-```
-
-`explain` resolves metadata from the keychain comment first and shows:
-
-- effective metadata
-- status warnings
-- whether registry fallback was needed
-- raw keychain fields that were readable through the CLI
-
-## Migrate older registry-only metadata into the keychain
-
-```bash
-seckit migrate metadata --service my-stack --account local-dev
-```
-
-Use `--dry-run` first if you want to see how many items would be updated without writing anything.
-
-## Use a disposable keychain for testing
-
-When you want isolated regression tests, point the command at a dedicated keychain file:
-
-```bash
-seckit list --keychain /tmp/test.keychain-db --service my-stack --account local-dev
-seckit explain --keychain /tmp/test.keychain-db --name OPENAI_API_KEY --service my-stack --account local-dev
-```
-
-That keeps test data out of the login keychain and makes automation reliable.
-
-## Validate cross-host transfer
-
-Use the built-in disposable-keychain helpers for the automated pass:
-
-```bash
-./scripts/seckit_cross_host_prepare.sh --service sync-test --account local --reset
-./scripts/seckit_cross_host_verify.sh --service sync-test --account local
-```
-
-To validate the pipe transport layer too:
-
-```bash
-./scripts/seckit_cross_host_transport_localhost.sh --service sync-test --account local
-```
-
-Use the login keychain and a VM only for the manual login-keychain validation pass.
-
-## A simple everyday pattern
-
-One reasonable local workflow looks like this:
-
-1. keep values in Keychain
-2. use `list` or `explain` to inspect inventory safely
-3. use `export` only in the shell that is about to launch the runtime
-4. lock the Keychain again when the session is over
-
-That does not eliminate risk, but it is materially better than sprinkling secrets across plain-text files and shell startup scripts.
-
-## [Back to README](../README.md)
-
-**Created**: 2026-04-11  
-**Updated**: 2026-04-15
+Operator defaults (`defaults.json`): [DEFAULTS.md](DEFAULTS.md) and `seckit config --help`.

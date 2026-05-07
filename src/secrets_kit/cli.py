@@ -49,12 +49,15 @@ from secrets_kit.keychain_backend import (
     set_secret,
     unlock_keychain,
 )
+from secrets_kit.recover_sources import iter_recover_candidates
 from secrets_kit.sqlite_backend import default_sqlite_db_path
 from secrets_kit.models import (
     ENTRY_KIND_VALUES,
     METADATA_SCHEMA_VERSION,
     EntryMetadata,
     ValidationError,
+    infer_entry_kind_from_name,
+    make_registry_key,
     now_utc_iso,
     normalize_custom,
     normalize_domains,
@@ -77,6 +80,8 @@ _CONFIG_STORABLE_KEYS: frozenset[str] = frozenset(
         "rotation_warn_days",
     }
 )
+
+
 from secrets_kit.registry import (
     RegistryError,
     delete_metadata,
@@ -85,6 +90,8 @@ from secrets_kit.registry import (
     ensure_defaults_storage,
     load_registry,
     load_defaults,
+    migrate_legacy_operator_backend_in_file,
+    registry_dir,
     save_defaults,
     upsert_metadata,
 )
@@ -106,6 +113,7 @@ from secrets_kit.sync_bundle import (
     verify_bundle_structure,
 )
 from secrets_kit.sync_merge import apply_peer_sync_import, effective_origin_host
+from secrets_kit.cli_parser import build_parser
 
 
 def _fatal(*, message: str, code: int = 2) -> int:
@@ -250,7 +258,7 @@ def _load_default_config() -> Dict[str, object]:
             defaults.update(load_defaults())
         except RegistryError as exc:
             raise ValidationError(str(exc)) from exc
-    legacy_path = Path("~/.config/seckit/config.json").expanduser()
+    legacy_path = registry_dir() / "config.json"
     if legacy_path.exists():
         try:
             payload = json.loads(legacy_path.read_text(encoding="utf-8"))
@@ -258,6 +266,7 @@ def _load_default_config() -> Dict[str, object]:
             raise ValidationError(f"invalid config json: {legacy_path} ({exc})") from exc
         if not isinstance(payload, dict):
             raise ValidationError(f"invalid config json: {legacy_path} (top-level must be object)")
+        payload = migrate_legacy_operator_backend_in_file(path=legacy_path, payload=payload)
         for key, value in payload.items():
             defaults.setdefault(str(key), value)
     return defaults
@@ -335,7 +344,11 @@ def _apply_defaults(*, args: argparse.Namespace) -> None:
 
     if hasattr(args, "service") and not args.service:
         sync_export = args.command == "sync" and getattr(args, "sync_command", None) == "export"
-        if args.command in {"set", "get", "delete", "export", "import", "migrate", "run"} or sync_export:
+        migrate_recover = args.command == "migrate" and getattr(args, "migrate_command", None) == "recover-registry"
+        if (
+            args.command in {"set", "get", "delete", "export", "import", "migrate", "run"}
+            or sync_export
+        ) and not migrate_recover:
             raise ValidationError(
                 "service is required. Set --service or define SECKIT_DEFAULT_SERVICE / config.json"
             )
@@ -596,12 +609,6 @@ def _select_entries(
             continue
         if args.account and indexed.account != args.account:
             continue
-        if getattr(args, "type", None) and indexed.entry_type != args.type:
-            continue
-        if getattr(args, "kind", None) and indexed.entry_kind != args.kind:
-            continue
-        if getattr(args, "tag", None) and args.tag not in indexed.tags:
-            continue
         if require_explicit_selection and not explicit_filter:
             continue
         resolved = _read_metadata(
@@ -616,8 +623,15 @@ def _select_entries(
         if not resolved:
             continue
         meta = resolved["metadata"]
-        if isinstance(meta, EntryMetadata):
-            selected[meta.key()] = meta
+        if not isinstance(meta, EntryMetadata):
+            continue
+        if getattr(args, "type", None) and meta.entry_type != args.type:
+            continue
+        if getattr(args, "kind", None) and meta.entry_kind != args.kind:
+            continue
+        if getattr(args, "tag", None) and args.tag not in meta.tags:
+            continue
+        selected[meta.key()] = meta
 
     return sorted(selected.values(), key=lambda item: item.name)
 
@@ -739,7 +753,36 @@ def _read_metadata(
         backend=backend,
         kek_keychain_path=kek_keychain_path,
     ):
-        keychain_fields: Dict[str, object] = {}
+        res_store = None
+        try:
+            from secrets_kit.backend_store import resolve_backend_store
+
+            store = resolve_backend_store(backend=backend, path=path, kek_keychain_path=kek_keychain_path)
+            resolved = store.resolve_by_locator(service=service, account=account, name=name)
+            if resolved is not None:
+                res_store = resolved
+        except (BackendError, OSError, ValueError, TypeError):
+            res_store = None
+        if res_store is not None:
+            keychain_fields: Dict[str, object] = {}
+            try:
+                keychain_fields = get_secret_metadata(
+                    service=service,
+                    account=account,
+                    name=name,
+                    path=path,
+                    backend=backend,
+                    kek_keychain_path=kek_keychain_path,
+                )
+            except BackendError:
+                pass
+            return {
+                "metadata": res_store.metadata,
+                "metadata_source": "sqlite" if is_sqlite_backend(backend) else "keychain",
+                "keychain_fields": keychain_fields,
+                "registry_fallback_used": False,
+            }
+        keychain_fields = {}
         try:
             keychain_fields = get_secret_metadata(
                 service=service,
@@ -966,17 +1009,10 @@ def cmd_list(*, args: argparse.Namespace) -> int:
     cutoff = None
     if args.stale is not None:
         cutoff = datetime.now(timezone.utc).timestamp() - (args.stale * 86400)
-    rows = []
     for indexed in entries.values():
         if args.service and indexed.service != args.service:
             continue
         if args.account and indexed.account != args.account:
-            continue
-        if args.type and indexed.entry_type != args.type:
-            continue
-        if args.kind and indexed.entry_kind != args.kind:
-            continue
-        if args.tag and args.tag not in indexed.tags:
             continue
         resolved = _read_metadata(
             service=indexed.service,
@@ -991,6 +1027,12 @@ def cmd_list(*, args: argparse.Namespace) -> int:
             continue
         meta = resolved["metadata"]
         if not isinstance(meta, EntryMetadata):
+            continue
+        if args.type and meta.entry_type != args.type:
+            continue
+        if args.kind and meta.entry_kind != args.kind:
+            continue
+        if args.tag and args.tag not in meta.tags:
             continue
         if cutoff is not None:
             updated = _parse_timestamp(meta.updated_at)
@@ -1072,13 +1114,24 @@ def cmd_explain(*, args: argparse.Namespace) -> int:
 
 def _preview_candidates(*, merged: Dict[str, ImportCandidate]) -> None:
     print("plan:")
-    print("NAME\tTYPE\tKIND\tSERVICE\tACCOUNT\tTAGS\tSOURCE\tVALUE")
+    headers = ["NAME", "TYPE", "KIND", "SERVICE", "ACCOUNT", "TAGS", "SOURCE", "VALUE"]
+    table_rows: List[List[str]] = []
     for key in sorted(merged):
         candidate = merged[key]
         meta = candidate.metadata
-        print(
-            f"{meta.name}\t{meta.entry_type}\t{meta.entry_kind}\t{meta.service}\t{meta.account}\t{_format_tags(tags=meta.tags)}\t{meta.source}\t<redacted>"
+        table_rows.append(
+            [
+                meta.name,
+                meta.entry_type,
+                meta.entry_kind,
+                meta.service,
+                meta.account,
+                _format_tags(tags=meta.tags),
+                meta.source,
+                "<redacted>",
+            ]
         )
+    _print_table(headers=headers, rows=table_rows)
 
 
 def cmd_import_env(*, args: argparse.Namespace) -> int:
@@ -1724,6 +1777,20 @@ def cmd_doctor(*, args: argparse.Namespace) -> int:
         status["metadata_keychain_drift"] = drift
         status["entries_using_registry_fallback"] = fallback
         status["rotation_warnings"] = warnings
+        if is_sqlite_backend(backend):
+            from secrets_kit.sqlite_backend import SqliteSecretStore
+
+            spath = _store_path(args)
+            if spath:
+                st = SqliteSecretStore(db_path=spath, kek_keychain_path=_kek_keychain_arg(args))
+                status["backend_security_posture"] = asdict(st.security_posture())
+                status["backend_capabilities"] = {**asdict(st.capabilities())}
+        elif is_secure_backend(backend):
+            from secrets_kit.keychain_backend_store import KeychainBackendStore
+
+            st = KeychainBackendStore(path=_keychain_arg(args))
+            status["backend_security_posture"] = asdict(st.security_posture())
+            status["backend_capabilities"] = {**asdict(st.capabilities())}
     except (RegistryError, BackendError) as exc:
         print(json.dumps(status, indent=2, sort_keys=True))
         return _fatal(message=str(exc), code=1)
@@ -1732,6 +1799,58 @@ def cmd_doctor(*, args: argparse.Namespace) -> int:
     if status["metadata_keychain_drift"] or status["entries_using_registry_fallback"]:
         return _fatal(message="metadata/keychain drift detected", code=1)
     return 0
+
+
+def cmd_backend_index(*, args: argparse.Namespace) -> int:
+    """Emit decrypt-free :class:`~secrets_kit.backend_store.IndexRow` records, JSON lines."""
+    try:
+        from secrets_kit.backend_store import resolve_backend_store
+
+        store = resolve_backend_store(
+            backend=_backend_arg(args),
+            path=_store_path(args),
+            kek_keychain_path=_kek_keychain_arg(args),
+        )
+        for row in store.iter_index():
+            print(json.dumps(row.to_safe_dict(), sort_keys=True))
+        return 0
+    except (BackendError, ValidationError, RegistryError, OSError) as exc:
+        return _fatal(message=str(exc), code=1)
+
+
+def cmd_rebuild_index(*, args: argparse.Namespace) -> int:
+    """Rebuild decrypt-free index fields from authority (SQLite); Keychain no-op."""
+    try:
+        from secrets_kit.backend_store import resolve_backend_store
+
+        store = resolve_backend_store(
+            backend=_backend_arg(args),
+            path=_store_path(args),
+            kek_keychain_path=_kek_keychain_arg(args),
+        )
+        store.rebuild_index()
+        print(json.dumps({"rebuilt": True, "backend": _backend_arg(args)}, indent=2, sort_keys=True))
+        return 0
+    except (BackendError, ValidationError, RegistryError, OSError) as exc:
+        return _fatal(message=str(exc), code=1)
+
+
+def cmd_journal_append(*, args: argparse.Namespace) -> int:
+    """Append one JSON object to ``registry_events.jsonl``."""
+    try:
+        from secrets_kit.registry_journal import append_journal_event
+
+        raw = getattr(args, "event_json", "") or ""
+        evt = json.loads(raw)
+        if not isinstance(evt, dict):
+            return _fatal(message="journal event must be a JSON object", code=1)
+        path = append_journal_event(home=None, event=evt)
+        print(json.dumps({"written": True, "path": str(path)}, sort_keys=True))
+        return 0
+    except json.JSONDecodeError as exc:
+        return _fatal(message=str(exc), code=1)
+    except (RegistryError, OSError) as exc:
+        return _fatal(message=str(exc), code=1)
 
 
 def cmd_unlock(*, args: argparse.Namespace) -> int:
@@ -1999,336 +2118,136 @@ def cmd_migrate_metadata(*, args: argparse.Namespace) -> int:
     return 0
 
 
-def build_parser() -> argparse.ArgumentParser:
-    """Construct CLI parser."""
-    parser = argparse.ArgumentParser(prog="seckit", description="Secure secrets and PII CLI for local ops")
-    parser.add_argument("-v", "--version", action="version", version=f"%(prog)s {_cli_version()}")
-    sub = parser.add_subparsers(
-        dest="command",
-        required=True,
-        title="commands",
-        metavar="COMMAND",
-        description="Available commands",
-    )
+def cmd_recover_registry(*, args: argparse.Namespace) -> int:
+    """Rebuild ``registry.json`` from Keychain dump or SQLite plaintext index."""
+    backend = _backend_arg(args)
+    if is_secure_backend(backend):
+        if not check_security_cli():
+            return _fatal(message="security CLI not found", code=1)
+    elif not is_sqlite_backend(backend):
+        return _fatal(message="recover requires --backend secure or sqlite", code=1)
 
-    common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--account")
-    common.add_argument("--service")
-    common.add_argument("--backend", choices=list(BACKEND_CHOICES))
-    common.add_argument(
-        "--keychain",
-        help="Secure: keychain file for secret items. SQLite+keychain unlock: keychain file holding the KEK (see SECKIT_SQLITE_UNLOCK). Default: login.keychain-db",
-    )
-    common.add_argument(
-        "--db",
-        help="SQLite database path (--backend sqlite only; default ~/.config/seckit/secrets.db or SECKIT_SQLITE_DB)",
-    )
+    filt = getattr(args, "service", None)
+    filt = filt.strip() if filt else None
+    service_filter = filt or None
 
-    p_set = sub.add_parser("set", parents=[common], help="Store or update one secret value")
-    p_set.add_argument("--name", required=True)
-    p_set.add_argument("--value")
-    p_set.add_argument("--stdin", action="store_true")
-    p_set.add_argument("--type", choices=["secret", "pii"])
-    p_set.add_argument("--kind", choices=ENTRY_KIND_VALUES)
-    p_set.add_argument("--tags")
-    p_set.add_argument("--comment")
-    p_set.add_argument("--source-url")
-    p_set.add_argument("--source-label")
-    p_set.add_argument("--rotation-days", type=int)
-    p_set.add_argument("--rotation-warn-days", type=int)
-    p_set.add_argument("--expires-at")
-    p_set.add_argument("--domain", action="append")
-    p_set.add_argument("--domains")
-    p_set.add_argument("--meta", action="append")
-    p_set.add_argument("--allow-empty", action="store_true")
-    p_set.set_defaults(func=cmd_set)
+    sqlite_db: Optional[str] = None
+    if is_sqlite_backend(backend):
+        sqlite_db = _store_path(args)
+        if not sqlite_db:
+            return _fatal(message="SQLite recover requires --db or SECKIT_SQLITE_DB / defaults", code=1)
 
-    p_get = sub.add_parser("get", parents=[common], help="Read one stored secret value")
-    p_get.add_argument("--name", required=True)
-    p_get.add_argument("--raw", action="store_true")
-    p_get.set_defaults(func=cmd_get)
+    try:
+        candidate_iter = iter_recover_candidates(
+            backend=backend,
+            service_filter=service_filter,
+            keychain_file=_keychain_arg(args),
+            sqlite_db=sqlite_db,
+        )
+    except BackendError as exc:
+        return _fatal(message=str(exc), code=1)
 
-    p_list = sub.add_parser("list", help="List stored metadata entries, redacted by default")
-    p_list.add_argument("--account")
-    p_list.add_argument("--service")
-    p_list.add_argument("--type", choices=["secret", "pii"])
-    p_list.add_argument("--kind", choices=ENTRY_KIND_VALUES)
-    p_list.add_argument("--tag")
-    p_list.add_argument("--stale", type=int, help="Filter entries older than N days")
-    p_list.add_argument("--format", choices=["table", "json"], default="table")
-    p_list.add_argument("--backend", choices=list(BACKEND_CHOICES))
-    p_list.add_argument("--keychain", help="Override keychain path (default: login.keychain-db)")
-    p_list.add_argument(
-        "--db",
-        help="SQLite database path (--backend sqlite only; default ~/.config/seckit/secrets.db or SECKIT_SQLITE_DB)",
-    )
-    p_list.set_defaults(func=cmd_list)
+    stats: Dict[str, Any] = {
+        "candidates": 0,
+        "recovered": 0,
+        "skipped_bad_name": 0,
+        "skipped_bad_names": [],
+        "skipped_duplicate": 0,
+        "skipped_duplicate_keys": [],
+        "skipped_no_secret": 0,
+        "skipped_no_secret_keys": [],
+    }
+    seen: set[str] = set()
+    dry = bool(getattr(args, "dry_run", False))
+    json_only = bool(getattr(args, "json", False))
+    recovered_metas: List[EntryMetadata] = []
+    recovered_rows: List[List[str]] = []
 
-    p_explain = sub.add_parser("explain", parents=[common], help="Show resolved metadata for a stored entry")
-    p_explain.add_argument("--name", required=True)
-    p_explain.set_defaults(func=cmd_explain)
+    for cand in candidate_iter:
+        stats["candidates"] += 1
+        try:
+            validate_key_name(name=cand.name)
+        except ValidationError as exc:
+            stats["skipped_bad_name"] += 1
+            stats["skipped_bad_names"].append(
+                {
+                    "service": cand.service,
+                    "account": cand.account,
+                    "name": cand.name,
+                    "reason": str(exc),
+                }
+            )
+            continue
+        rkey = make_registry_key(service=cand.service, account=cand.account, name=cand.name)
+        if rkey in seen:
+            stats["skipped_duplicate"] += 1
+            stats["skipped_duplicate_keys"].append(rkey)
+            continue
+        if not secret_exists(
+            service=cand.service,
+            account=cand.account,
+            name=cand.name,
+            **_backend_access_kwargs(args),
+        ):
+            stats["skipped_no_secret"] += 1
+            stats["skipped_no_secret_keys"].append(rkey)
+            continue
 
-    cfg_keys = sorted(_CONFIG_STORABLE_KEYS)
-    p_config = sub.add_parser("config", help="View or edit ~/.config/seckit/defaults.json")
-    config_sub = p_config.add_subparsers(dest="config_command", required=True)
-    p_config_show = config_sub.add_parser(
-        "show",
-        help="Print defaults from defaults.json; add --effective for merged file + legacy config + env",
-    )
-    p_config_show.add_argument(
-        "--effective",
-        action="store_true",
-        help="Merge defaults.json, legacy ~/.config/seckit/config.json, and SECKIT_* env overrides",
-    )
-    p_config_show.set_defaults(func=cmd_config_show)
-    p_config_set = config_sub.add_parser("set", help="Set one key in defaults.json")
-    p_config_set.add_argument("key", choices=cfg_keys, metavar="KEY")
-    p_config_set.add_argument("value", help="Value (use quotes if it contains spaces)")
-    p_config_set.set_defaults(func=cmd_config_set)
-    p_config_unset = config_sub.add_parser("unset", help="Remove one key from defaults.json")
-    p_config_unset.add_argument("key", choices=cfg_keys, metavar="KEY")
-    p_config_unset.set_defaults(func=cmd_config_unset)
-    p_config_path = config_sub.add_parser("path", help="Print path to defaults.json")
-    p_config_path.set_defaults(func=cmd_config_path)
+        parsed = EntryMetadata.from_keychain_comment(cand.comment)
+        if parsed is not None and (
+            parsed.name != cand.name
+            or parsed.service != cand.service
+            or parsed.account != cand.account
+        ):
+            parsed = None
 
-    p_delete = sub.add_parser("delete", parents=[common], help="Delete one stored secret and its metadata")
-    p_delete.add_argument("--name", required=True)
-    p_delete.add_argument("--yes", action="store_true")
-    p_delete.set_defaults(func=cmd_delete)
+        if parsed is not None:
+            meta = parsed
+            meta.updated_at = now_utc_iso()
+        else:
+            ts = now_utc_iso()
+            meta = EntryMetadata(
+                name=cand.name,
+                service=cand.service,
+                account=cand.account,
+                entry_kind=infer_entry_kind_from_name(name=cand.name),
+                source="recovered-keychain" if is_secure_backend(backend) else "recovered-sqlite",
+                created_at=ts,
+                updated_at=ts,
+            )
 
-    p_import = sub.add_parser("import", help="Import secrets from env or file sources")
-    import_sub = p_import.add_subparsers(dest="import_command", required=True)
+        seen.add(rkey)
+        recovered_metas.append(meta)
+        recovered_rows.append(
+            [
+                meta.name,
+                meta.entry_type,
+                meta.entry_kind,
+                meta.service,
+                meta.account,
+                _format_tags(tags=meta.tags),
+                "dry-run" if dry else "written",
+                meta.updated_at,
+            ]
+        )
+        if dry:
+            stats["recovered"] += 1
+            continue
+        upsert_metadata(metadata=meta)
+        stats["recovered"] += 1
 
-    p_import_env = import_sub.add_parser("env", parents=[common], help="Import secrets from dotenv and/or live environment")
-    p_import_env.add_argument("--dotenv")
-    p_import_env.add_argument("--from-env")
-    p_import_env.add_argument("--type", choices=["secret", "pii"])
-    p_import_env.add_argument("--kind", choices=[*ENTRY_KIND_VALUES, "auto"])
-    p_import_env.add_argument("--tags")
-    p_import_env.add_argument("--dry-run", action="store_true")
-    p_import_env.add_argument("--allow-overwrite", action="store_true")
-    p_import_env.add_argument("--upsert", action="store_true", help="Create new names and update existing values")
-    p_import_env.add_argument("--allow-empty", action="store_true")
-    p_import_env.add_argument("--yes", action="store_true")
-    p_import_env.set_defaults(func=cmd_import_env)
+    report: Dict[str, Any] = {**stats, "recovered_entries": [m.to_dict() for m in recovered_metas]}
+    if json_only:
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return 0
 
-    p_import_file = import_sub.add_parser("file", help="Import secrets from JSON or YAML files")
-    p_import_file.add_argument("--file", required=True)
-    p_import_file.add_argument("--format", choices=["json", "yaml", "yml"])
-    p_import_file.add_argument("--type", choices=["secret", "pii"])
-    p_import_file.add_argument("--kind", choices=[*ENTRY_KIND_VALUES, "auto"])
-    p_import_file.add_argument("--backend", choices=list(BACKEND_CHOICES))
-    p_import_file.add_argument("--keychain", help="Override keychain path (default: login.keychain-db)")
-    p_import_file.add_argument(
-        "--db",
-        help="SQLite database path (--backend sqlite only; default ~/.config/seckit/secrets.db or SECKIT_SQLITE_DB)",
-    )
-    p_import_file.add_argument("--dry-run", action="store_true")
-    p_import_file.add_argument("--allow-overwrite", action="store_true")
-    p_import_file.add_argument("--allow-empty", action="store_true")
-    p_import_file.add_argument("--yes", action="store_true")
-    p_import_file.set_defaults(func=cmd_import_file)
+    if dry and recovered_rows:
+        headers = ["NAME", "TYPE", "KIND", "SERVICE", "ACCOUNT", "TAGS", "STATUS", "UPDATED_AT"]
+        _print_table(headers=headers, rows=recovered_rows)
+        print()
 
-    p_import_encrypted = import_sub.add_parser("encrypted-json", help="Import secrets from encrypted JSON export")
-    p_import_encrypted.add_argument("--file", required=True)
-    p_import_encrypted.add_argument("--backend", choices=list(BACKEND_CHOICES))
-    p_import_encrypted.add_argument("--keychain", help="Override keychain path (default: login.keychain-db)")
-    p_import_encrypted.add_argument(
-        "--db",
-        help="SQLite database path (--backend sqlite only; default ~/.config/seckit/secrets.db or SECKIT_SQLITE_DB)",
-    )
-    p_import_encrypted.add_argument("--password")
-    p_import_encrypted.add_argument("--password-stdin", action="store_true")
-    p_import_encrypted.add_argument("--dry-run", action="store_true")
-    p_import_encrypted.add_argument("--allow-overwrite", action="store_true")
-    p_import_encrypted.add_argument("--allow-empty", action="store_true")
-    p_import_encrypted.add_argument("--yes", action="store_true")
-    p_import_encrypted.set_defaults(func=cmd_import_encrypted)
-
-    p_export = sub.add_parser("export", parents=[common], help="Export selected secrets for runtime use")
-    p_export.add_argument("--format", default="shell", choices=["shell", "dotenv", "encrypted-json"])
-    p_export.add_argument("--out")
-    p_export.add_argument("--password")
-    p_export.add_argument("--password-stdin", action="store_true")
-    p_export.add_argument("--names")
-    p_export.add_argument("--tag")
-    p_export.add_argument("--type", choices=["secret", "pii"])
-    p_export.add_argument("--kind", choices=ENTRY_KIND_VALUES)
-    p_export.add_argument("--all", action="store_true")
-    p_export.set_defaults(func=cmd_export)
-
-    p_run = sub.add_parser("run", parents=[common], help="Resolve secrets in the parent process and exec a child command")
-    p_run.add_argument("--names")
-    p_run.add_argument("--tag")
-    p_run.add_argument("--type", choices=["secret", "pii"])
-    p_run.add_argument("--kind", choices=ENTRY_KIND_VALUES)
-    p_run.add_argument("--all", action="store_true")
-    p_run.add_argument("child_command", nargs=argparse.REMAINDER)
-    p_run.set_defaults(func=cmd_run)
-
-    p_service = sub.add_parser("service", help="Manage service-scoped secret groups")
-    service_sub = p_service.add_subparsers(dest="service_command", required=True)
-    p_service_copy = service_sub.add_parser("copy", help="Copy secrets from one service scope to another")
-    p_service_copy.add_argument("--from-service", required=True)
-    p_service_copy.add_argument("--to-service", required=True)
-    p_service_copy.add_argument("--from-account")
-    p_service_copy.add_argument("--to-account")
-    p_service_copy.add_argument("--backend", choices=list(BACKEND_CHOICES))
-    p_service_copy.add_argument("--keychain", help="Override keychain path (default: login.keychain-db)")
-    p_service_copy.add_argument(
-        "--db",
-        help="SQLite database path (--backend sqlite only; default ~/.config/seckit/secrets.db or SECKIT_SQLITE_DB)",
-    )
-    p_service_copy.add_argument("--names")
-    p_service_copy.add_argument("--tag")
-    p_service_copy.add_argument("--type", choices=["secret", "pii"])
-    p_service_copy.add_argument("--kind", choices=ENTRY_KIND_VALUES)
-    p_service_copy.add_argument("--overwrite", action="store_true")
-    p_service_copy.add_argument("--dry-run", action="store_true")
-    p_service_copy.set_defaults(func=cmd_service_copy)
-
-    p_doctor = sub.add_parser("doctor", help="Run backend, defaults, and metadata drift diagnostics")
-    p_doctor.add_argument("--backend", choices=list(BACKEND_CHOICES))
-    p_doctor.add_argument("--keychain", help="Override keychain path (default: login.keychain-db)")
-    p_doctor.add_argument(
-        "--db",
-        help="SQLite database path (--backend sqlite only; default ~/.config/seckit/secrets.db or SECKIT_SQLITE_DB)",
-    )
-    p_doctor.set_defaults(func=cmd_doctor)
-
-    p_unlock = sub.add_parser("unlock", help="Unlock the configured macOS keychain backend")
-    p_unlock.add_argument("--keychain", help="Override keychain path (default: login.keychain-db)")
-    p_unlock.add_argument("--dry-run", action="store_true", help="Show the backend command without running it")
-    p_unlock.add_argument("--yes", action="store_true", help="Run without confirmation prompt")
-    p_unlock.add_argument("--harden", action="store_true", help="Also apply a safer keychain timeout policy after unlock")
-    p_unlock.add_argument("--timeout", type=int, default=3600, help="Timeout in seconds used with --harden (default: 3600)")
-    p_unlock.set_defaults(func=cmd_unlock)
-
-    p_lock = sub.add_parser("lock", help="Lock the configured macOS keychain backend")
-    p_lock.add_argument("--keychain", help="Override keychain path (default: login.keychain-db)")
-    p_lock.add_argument("--dry-run", action="store_true", help="Show the backend command without running it")
-    p_lock.add_argument("--yes", action="store_true", help="Run without confirmation prompt")
-    p_lock.set_defaults(func=cmd_lock)
-
-    p_keychain = sub.add_parser("keychain-status", help="Report macOS keychain accessibility and lock policy")
-    p_keychain.add_argument("--keychain", help="Override keychain path (default: login.keychain-db)")
-    p_keychain.set_defaults(func=cmd_keychain_status)
-
-    p_version = sub.add_parser("version", help="Print the installed seckit version")
-    vgrp = p_version.add_mutually_exclusive_group()
-    vgrp.add_argument(
-        "--info",
-        action="store_true",
-        dest="version_info",
-        help="Print version, platform, defaults summary, and helper status stub (no secret values)",
-    )
-    vgrp.add_argument(
-        "--json",
-        action="store_true",
-        dest="version_json",
-        help="Same as --info as JSON (sorted keys)",
-    )
-    p_version.set_defaults(func=cmd_version, version_info=False, version_json=False)
-
-    p_helper = sub.add_parser("helper", help="Show backend availability and helper metadata (JSON, no secrets)")
-    helper_sub = p_helper.add_subparsers(dest="helper_command", required=True)
-    p_helper_status = helper_sub.add_parser(
-        "status",
-        help="Print JSON: backend_availability and helper fields (no bundled Mach-O)",
-    )
-    p_helper_status.set_defaults(func=cmd_helper_status)
-
-    p_migrate = sub.add_parser("migrate", help="Migrate existing secret files into seckit")
-
-    p_identity = sub.add_parser("identity", help="Host Ed25519/X25519 identity for peer sync")
-    id_sub = p_identity.add_subparsers(dest="identity_command", required=True)
-    p_id_init = id_sub.add_parser("init", help="Create or replace host signing/box key material")
-    p_id_init.add_argument("--force", action="store_true")
-    p_id_init.add_argument("--json", action="store_true")
-    p_id_init.set_defaults(func=cmd_identity_init)
-    p_id_show = id_sub.add_parser("show", help="Show local host id and fingerprints")
-    p_id_show.add_argument("--json", action="store_true")
-    p_id_show.set_defaults(func=cmd_identity_show)
-    p_id_exp = id_sub.add_parser("export", help="Write public identity JSON for peer add")
-    p_id_exp.add_argument("-o", "--out")
-    p_id_exp.add_argument("--json", action="store_true")
-    p_id_exp.set_defaults(func=cmd_identity_export)
-
-    p_peer = sub.add_parser("peer", help="Trusted peers for peer sync bundles")
-    peer_sub = p_peer.add_subparsers(dest="peer_command", required=True)
-    p_peer_add = peer_sub.add_parser("add", help="Add peer from `seckit identity export` file")
-    p_peer_add.add_argument("alias")
-    p_peer_add.add_argument("export_path", metavar="PATH")
-    p_peer_add.add_argument("--json", action="store_true")
-    p_peer_add.set_defaults(func=cmd_peer_add)
-    p_peer_rm = peer_sub.add_parser("remove", help="Remove a peer alias")
-    p_peer_rm.add_argument("alias")
-    p_peer_rm.add_argument("--json", action="store_true")
-    p_peer_rm.set_defaults(func=cmd_peer_remove)
-    p_peer_ls = peer_sub.add_parser("list", help="List trusted peers")
-    p_peer_ls.add_argument("--json", action="store_true")
-    p_peer_ls.set_defaults(func=cmd_peer_list)
-    p_peer_sh = peer_sub.add_parser("show", help="Show one peer (JSON)")
-    p_peer_sh.add_argument("alias")
-    p_peer_sh.set_defaults(func=cmd_peer_show)
-
-    p_sync = sub.add_parser("sync", help="Signed encrypted peer bundle export/import")
-    sync_sub = p_sync.add_subparsers(dest="sync_command", required=True)
-    p_sync_ex = sync_sub.add_parser("export", parents=[common], help="Export registry secrets to a peer bundle")
-    p_sync_ex.add_argument("-o", "--out", required=True)
-    p_sync_ex.add_argument("--peer", action="append", required=True, metavar="ALIAS", help="Recipient alias (repeatable)")
-    p_sync_ex.add_argument("--domain", action="append")
-    p_sync_ex.add_argument("--domains")
-    p_sync_ex.add_argument("--names")
-    p_sync_ex.add_argument("--tag")
-    p_sync_ex.add_argument("--type", choices=["secret", "pii"])
-    p_sync_ex.add_argument("--kind", choices=ENTRY_KIND_VALUES)
-    p_sync_ex.add_argument("--all", action="store_true")
-    p_sync_ex.add_argument("--json", action="store_true")
-    p_sync_ex.set_defaults(func=cmd_sync_export)
-    p_sync_im = sync_sub.add_parser("import", parents=[common], help="Import and merge a peer bundle")
-    p_sync_im.add_argument("file")
-    p_sync_im.add_argument(
-        "--signer",
-        required=True,
-        metavar="ALIAS",
-        help="Local peer alias for the exporter who signed this bundle",
-    )
-    p_sync_im.add_argument("--domain", action="append")
-    p_sync_im.add_argument("--domains")
-    p_sync_im.add_argument("--dry-run", action="store_true")
-    p_sync_im.add_argument("--yes", action="store_true")
-    p_sync_im.set_defaults(func=cmd_sync_import)
-    p_sync_vf = sync_sub.add_parser("verify", help="Verify bundle JSON signature and structure")
-    p_sync_vf.add_argument("file")
-    p_sync_vf.add_argument("--try-decrypt", action="store_true", help="Decrypt inner (requires local identity + --signer)")
-    p_sync_vf.add_argument("--signer", metavar="ALIAS", help="Exporter peer alias (required with --try-decrypt)")
-    p_sync_vf.set_defaults(func=cmd_sync_verify, try_decrypt=False)
-    p_sync_insp = sync_sub.add_parser("inspect", help="Inspect bundle (manifest; no decryption)")
-    p_sync_insp.add_argument("file")
-    p_sync_insp.set_defaults(func=cmd_sync_inspect)
-
-    migrate_sub = p_migrate.add_subparsers(dest="migrate_command", required=True)
-    p_migrate_dotenv = migrate_sub.add_parser("dotenv", parents=[common], help="Import a dotenv file and optionally rewrite it to placeholders")
-    p_migrate_dotenv.add_argument("--dotenv", required=True)
-    p_migrate_dotenv.add_argument("--archive")
-    p_migrate_dotenv.add_argument("--type", choices=["secret", "pii"])
-    p_migrate_dotenv.add_argument("--kind", choices=[*ENTRY_KIND_VALUES, "auto"])
-    p_migrate_dotenv.add_argument("--tags")
-    p_migrate_dotenv.add_argument("--dry-run", action="store_true")
-    p_migrate_dotenv.add_argument("--allow-overwrite", action="store_true")
-    p_migrate_dotenv.add_argument("--allow-empty", action="store_true")
-    p_migrate_dotenv.add_argument("--yes", action="store_true")
-    p_migrate_dotenv.add_argument("--replace-with-placeholders", dest="replace_with_placeholders", action="store_true", default=True)
-    p_migrate_dotenv.add_argument("--no-replace-with-placeholders", dest="replace_with_placeholders", action="store_false")
-    p_migrate_dotenv.set_defaults(func=cmd_migrate_dotenv)
-
-    p_migrate_metadata = migrate_sub.add_parser("metadata", parents=[common], help="Write registry metadata into keychain comment JSON")
-    p_migrate_metadata.add_argument("--dry-run", action="store_true")
-    p_migrate_metadata.add_argument("--force", action="store_true")
-    p_migrate_metadata.set_defaults(func=cmd_migrate_metadata)
-
-    return parser
+    print(json.dumps({k: v for k, v in report.items() if k != "recovered_entries"}, indent=2, sort_keys=True))
+    return 0
 
 
 def main() -> int:
@@ -2336,7 +2255,7 @@ def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
     try:
-        if getattr(args, "command", None) != "config":
+        if getattr(args, "command", None) not in ("config", "defaults"):
             _apply_defaults(args=args)
     except ValidationError as exc:
         return _fatal(message=str(exc), code=1)

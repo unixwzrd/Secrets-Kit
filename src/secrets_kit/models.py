@@ -68,6 +68,8 @@ class EntryMetadata:
     expires_at: str = ""
     domains: List[str] = field(default_factory=list)
     custom: Dict[str, Any] = field(default_factory=dict)
+    #: Immutable sync identity (UUID); generated on first persist when empty.
+    entry_id: str = ""
 
     def key(self) -> str:
         """Return unique registry key."""
@@ -100,6 +102,7 @@ class EntryMetadata:
             expires_at=str(payload.get("expires_at", "")),
             domains=normalize_domains(payload.get("domains", [])),
             custom=normalize_custom(payload.get("custom", {})),
+            entry_id=str(payload.get("entry_id", "")),
         )
 
     def to_keychain_comment(self) -> str:
@@ -213,6 +216,30 @@ def _optional_int(value: Any) -> Optional[int]:
     return int(value)
 
 
+@dataclass(frozen=True)
+class Locator:
+    """Mutable runtime secret locator (service, account, name); normalize at store boundaries."""
+
+    service: str
+    account: str
+    name: str
+
+    @classmethod
+    def from_parts(cls, *, service: str, account: str, name: str) -> "Locator":
+        """Strip strings for consistent lookups and registry keys."""
+        return cls(service=str(service).strip(), account=str(account).strip(), name=str(name).strip())
+
+
 def make_registry_key(*, service: str, account: str, name: str) -> str:
     """Create composite key for metadata registry."""
     return f"{service}::{account}::{name}"
+
+
+def ensure_entry_id(metadata: EntryMetadata) -> EntryMetadata:
+    """Return metadata with a non-empty ``entry_id`` (assign UUID v4 when missing)."""
+    import uuid
+    from dataclasses import replace
+
+    if str(metadata.entry_id).strip():
+        return metadata
+    return replace(metadata, entry_id=str(uuid.uuid4()))

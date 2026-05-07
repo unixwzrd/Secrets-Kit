@@ -1,5 +1,10 @@
 # Quickstart
 
+**Created**: 2026-04-12  
+**Updated**: 2026-05-07
+
+Next steps after this page: [CONCEPTS.md](CONCEPTS.md) (mental model), [CLI_REFERENCE.md](CLI_REFERENCE.md) (all commands), [WORKFLOWS.md](WORKFLOWS.md) (recipes).
+
 - [Quickstart](#quickstart)
   - [1. Install it](#1-install-it)
   - [2. Make sure Keychain access works](#2-make-sure-keychain-access-works)

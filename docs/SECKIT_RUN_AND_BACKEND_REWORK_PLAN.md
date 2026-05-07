@@ -1,6 +1,29 @@
 # Secrets-Kit Run And Backend Rework Plan
 
 **Created**: 2026-04-28
+**Updated**: 2026-05-06
+
+- [Secrets-Kit Run And Backend Rework Plan](#secrets-kit-run-and-backend-rework-plan)
+  - [Status (2026-05)](#status-2026-05)
+  - [Summary](#summary)
+  - [Current Findings](#current-findings)
+  - [Design Goals](#design-goals)
+  - [Proposed CLI Behavior](#proposed-cli-behavior)
+  - [Service Copy And Dotenv Update Workflow](#service-copy-and-dotenv-update-workflow)
+  - [Backend Architecture](#backend-architecture)
+  - [Implementation Checklist](#implementation-checklist)
+    - [Phase 1: Restore Testability](#phase-1-restore-testability)
+    - [Phase 2: Storage Backend Refactor](#phase-2-storage-backend-refactor)
+    - [Phase 3: Harden `seckit run`](#phase-3-harden-seckit-run)
+    - [Phase 4: Service Copy And Dotenv Upsert](#phase-4-service-copy-and-dotenv-upsert)
+    - [Phase 5: Process Execution Tests](#phase-5-process-execution-tests)
+    - [Phase 6: Required launchd Support Test](#phase-6-required-launchd-support-test)
+    - [Phase 7: Native synchronizable Keychain (obsolete)](#phase-7-native-synchronizable-keychain-obsolete)
+    - [Phase 8: Documentation Cleanup](#phase-8-documentation-cleanup)
+    - [Phase 9: Final Validation](#phase-9-final-validation)
+    - [Phase 10: CI/CD](#phase-10-cicd)
+  - [Acceptance Criteria](#acceptance-criteria)
+
 
 Back: [README](../README.md)
 
@@ -301,6 +324,6 @@ PYTHONPATH=src python3 -m unittest discover
 - Dotenv import can add new keys and update existing service values intentionally.
 - The storage backend is abstracted enough to add future `SecretStore` implementations (e.g. more vault types).
 - `--backend local --keychain <path>` remains usable for isolated tests.
-- Unknown backend ids (including legacy `icloud`) fail with **`unsupported backend`**.
+- Legacy backend strings **`icloud`** / **`icloud-helper`** in config or env normalize to **`secure`** (compat only; not advertised as CLI choices).
 - Test suite imports cleanly and passes.
 - Docs clearly explain the safer `run` workflow and backend limitations.

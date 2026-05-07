@@ -1,6 +1,6 @@
 # Cross-Host Validation Checklist
 
-**Updated:** 2026-05-08
+**Updated:** 2026-05-06
 
 Use this checklist in two passes:
 

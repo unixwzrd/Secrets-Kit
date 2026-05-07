@@ -14,7 +14,7 @@ from pathlib import Path
 from unittest import mock
 
 from secrets_kit.cli import cmd_set
-from secrets_kit.keychain_backend import delete_keychain, delete_secret, harden_keychain, keychain_path, make_temp_keychain
+from secrets_kit.keychain_backend import delete_keychain, delete_secret, harden_keychain, keychain_path, make_temp_keychain, secret_exists
 from secrets_kit.sqlite_unlock import clear_sqlite_unlock_cache
 
 
@@ -60,7 +60,7 @@ def _launchd_sqlite_tests_enabled() -> bool:
 @unittest.skipUnless(_launchd_tests_enabled(), "set SECKIT_RUN_LAUNCHD_TESTS=1 to run launchd integration tests")
 class LaunchdRunFlowTest(unittest.TestCase):
     def test_launch_agent_can_receive_seckit_run_environment(self) -> None:
-        fixture = make_temp_keychain(password="launchd-pass")
+        fixture = make_temp_keychain(password="")
         label = f"ai.unixwzrd.seckit.launchd-test.{os.getpid()}"
         service_target = f"gui/{os.getuid()}/{label}"
         try:
@@ -173,7 +173,7 @@ class LaunchdRunFlowTest(unittest.TestCase):
 
     def test_launch_agent_backend_secure_explicit_uses_temp_keychain(self) -> None:
         """Same as the default temp-keychain test but passes ``--backend secure`` (security CLI path)."""
-        fixture = make_temp_keychain(password="launchd-pass-secure")
+        fixture = make_temp_keychain(password="")
         label = f"ai.unixwzrd.seckit.launchd-secure-explicit.{os.getpid()}"
         service_target = f"gui/{os.getuid()}/{label}"
         try:
@@ -427,6 +427,12 @@ class LaunchdRunFlowTest(unittest.TestCase):
 
     @unittest.skipUnless(_login_keychain_launchd_tests_enabled(), "set SECKIT_RUN_LAUNCHD_LOGIN_KEYCHAIN_TESTS=1 to run login-keychain launchd test")
     def test_launch_agent_can_receive_login_keychain_secret_without_keychain_password(self) -> None:
+        """Requires writing to the real login keychain; needs an interactive GUI session.
+
+        Over plain SSH, ``security`` often returns **User interaction is not allowed** for
+        ``SecKeychainItemCreateFromContent``. Run this test from Terminal.app on the machine
+        while logged in at the console (or ensure Keychain allows the operation for your session).
+        """
         label = f"ai.unixwzrd.seckit.launchd-login-test.{os.getpid()}"
         service_target = f"gui/{os.getuid()}/{label}"
         service = "launchd-login-test"
@@ -535,7 +541,8 @@ class LaunchdRunFlowTest(unittest.TestCase):
                             check=False,
                         )
         finally:
-            delete_secret(service=service, account=account, name=name, path=login_keychain, backend="local")
+            if secret_exists(service=service, account=account, name=name, path=login_keychain, backend="local"):
+                delete_secret(service=service, account=account, name=name, path=login_keychain, backend="local")
 
     @unittest.skipUnless(_service_keychain_launchd_tests_enabled(), "set SECKIT_RUN_LAUNCHD_SERVICE_KEYCHAIN_TESTS=1 to run service-keychain launchd test")
     def test_smoke_script_service_agent_mode(self) -> None:

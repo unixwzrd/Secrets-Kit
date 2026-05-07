@@ -23,7 +23,7 @@ from secrets_kit.sync_bundle import (
 from secrets_kit.sync_merge import apply_peer_sync_import
 
 if importlib.util.find_spec("nacl") is not None:
-    from secrets_kit.sqlite_backend import clear_sqlite_crypto_cache
+    from secrets_kit.sqlite_backend import SqliteSecretStore, clear_sqlite_crypto_cache
 else:
 
     def clear_sqlite_crypto_cache() -> None:  # pragma: no cover
@@ -88,7 +88,11 @@ class PeerSyncE2ESqliteTest(unittest.TestCase):
         id_b = load_identity(home=self.home_b)
         peer_b = get_peer(alias="b", home=self.home_a)
         reg_a = load_registry(home=self.home_a)
-        meta_a = reg_a["e2esvc::dev::API_TOKEN"]
+        self.assertIn("e2esvc::dev::API_TOKEN", reg_a)
+        st_a = SqliteSecretStore(db_path=str(self.db_a), kek_keychain_path=None)
+        res_a = st_a.resolve_by_locator(service="e2esvc", account="dev", name="API_TOKEN")
+        self.assertIsNotNone(res_a)
+        meta_a = res_a.metadata
         value_a = get_secret(
             service="e2esvc",
             account="dev",
@@ -188,8 +192,10 @@ class PeerSyncE2ESqliteTest(unittest.TestCase):
         id_b = load_identity(home=self.home_b)
         id_c = load_identity(home=self.home_c)
         peer_b = get_peer(alias="b", home=self.home_a)
-        reg = load_registry(home=self.home_a)
-        m = reg["s::a::K"]
+        st_a = SqliteSecretStore(db_path=str(self.home_a / "v.db"), kek_keychain_path=None)
+        res_row = st_a.resolve_by_locator(service="s", account="a", name="K")
+        self.assertIsNotNone(res_row)
+        m = res_row.metadata
         bundle = build_bundle(
             identity=id_a,
             recipient_records=[(peer_b.fingerprint, peer_b.box_public())],

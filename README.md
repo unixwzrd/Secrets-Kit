@@ -64,14 +64,15 @@ seckit run --service my-stack --account local-dev -- python3 -c 'import os; prin
 
 ## Defaults and config file
 
-Avoid repeating `--service` / `--account` via `~/.config/seckit/defaults.json` or `SECKIT_DEFAULT_*`. Edit from the CLI: `seckit config set …`, `seckit config show` ([Defaults](docs/DEFAULTS.md)). **`registry.json` is metadata only**, not CLI defaults.
+Avoid repeating `--service` / `--account` via `~/.config/seckit/defaults.json` or `SECKIT_DEFAULT_*`. Edit from the CLI: `seckit config set …`, `seckit config show` ([Defaults](docs/DEFAULTS.md)). **`registry.json` is metadata only**, not CLI defaults. **`seckit list`** shows **registry entries** (secrets seckit knows about), not everything visible in Keychain Access.
 
 ## Documentation
 
 | Audience | Start here |
 |----------|------------|
 | Everyone | [Documentation index](docs/README.md) |
-| Day-to-day use | [Quickstart](docs/QUICKSTART.md) · [Usage](docs/USAGE.md) · [Defaults](docs/DEFAULTS.md) |
+| Day-to-day use | [Quickstart](docs/QUICKSTART.md) · [CLI reference](docs/CLI_REFERENCE.md) · [Workflows](docs/WORKFLOWS.md) · [Defaults](docs/DEFAULTS.md) · [Usage entry](docs/USAGE.md) |
+| CLI concepts | [Concepts](docs/CONCEPTS.md) · [CLI architecture](docs/CLI_ARCHITECTURE.md) · [CLI style guide](docs/CLI_STYLE_GUIDE.md) |
 | Security posture | [Security model](docs/SECURITY_MODEL.md) |
 | Agents / apps | [Integrations](docs/INTEGRATIONS.md) · [Examples](docs/EXAMPLES.md) |
 | Release signing / wheels | [GitHub release build](docs/GITHUB_RELEASE_BUILD.md) |

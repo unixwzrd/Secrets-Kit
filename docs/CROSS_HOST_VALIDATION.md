@@ -2,6 +2,19 @@
 
 **Updated:** 2026-05-07
 
+- [Cross-Host Validation](#cross-host-validation)
+  - [Validation Order](#validation-order)
+  - [Preconditions](#preconditions)
+  - [Helper Scripts](#helper-scripts)
+  - [Disposable-Keychain Flow](#disposable-keychain-flow)
+    - [1. Prepare source and destination keychains](#1-prepare-source-and-destination-keychains)
+    - [2. Run direct import/export verification](#2-run-direct-importexport-verification)
+    - [3. Optional localhost transport verification](#3-optional-localhost-transport-verification)
+  - [Manual login-keychain validation](#manual-login-keychain-validation)
+  - [CI and automation boundary](#ci-and-automation-boundary)
+  - [Recovery Path](#recovery-path)
+
+
 Use this guide to validate Secrets-Kit in two separate tracks:
 
 1. automated transfer validation with disposable keychain files

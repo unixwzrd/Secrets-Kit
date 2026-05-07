@@ -2,8 +2,9 @@
 
 - [Examples](#examples)
   - [A generic run example](#a-generic-run-example)
-  - [An encrypted backup example](#an-encrypted-backup-example)
   - [A generic dotenv migration example](#a-generic-dotenv-migration-example)
+  - [An encrypted backup example](#an-encrypted-backup-example)
+  - [Cross-host validation helpers](#cross-host-validation-helpers)
   - [Back to README](#back-to-readme)
 
 The `docs/examples/` directory contains short shell examples you can copy and adapt.
@@ -17,6 +18,8 @@ Current examples:
 - `../scripts/seckit_cross_host_prepare.sh`
 - `../scripts/seckit_cross_host_verify.sh`
 - `../scripts/seckit_cross_host_transport_localhost.sh`
+- `../scripts/sqlite_dev_seed.sh` — **SQLite** demo import of `fixtures/synthetic-sample.env` (throwaway DB + fixed passphrase).
+- `../scripts/keychain_dev_seed.sh` — same fixture into the **login Keychain** (`--backend secure`); use when you are logged in interactively. Set `SECKIT_PYTHON` if `python3` has no PyNaCl.
 
 Those are meant to be starting points, not rigid templates. In most cases you only need to change the service name, account name, dotenv path, or startup command.
 
@@ -72,4 +75,4 @@ Optionally run the same flow through `ssh localhost`:
 ## [Back to README](../README.md)
 
 **Created**: 2026-04-11  
-**Updated**: 2026-04-28
+**Updated**: 2026-05-07

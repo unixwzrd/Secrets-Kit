@@ -1,29 +1,48 @@
-"""Portable encrypted SQLite secret store (PyNaCl SecretBox + unlock providers)."""
+"""Portable encrypted SQLite secret store (PyNaCl SecretBox + unlock providers).
+
+v2 schema: decrypt-free index columns + single encrypted joint payload (secret + metadata).
+Legacy v1 rows (plaintext metadata_json + ciphertext = secret only) are migrated on open.
+"""
 
 from __future__ import annotations
 
 import os
 import socket
 import sqlite3
+from dataclasses import replace
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Iterator, Optional, Tuple
 
 import nacl.exceptions
 import nacl.secret
 
+from secrets_kit.backend_store import (
+    BACKEND_IMPL_VERSION,
+    INDEX_SCHEMA_VERSION,
+    PAYLOAD_SCHEMA_VERSION,
+    BackendCapabilities,
+    BackendSecurityPosture,
+    BackendStore,
+    IndexRow,
+    ResolvedEntry,
+    build_joint_payload_bytes,
+    normalize_store_locator,
+    parse_joint_payload_or_legacy,
+)
 from secrets_kit.keychain_backend import BackendError, backend_service_name
-from secrets_kit.models import now_utc_iso
+from secrets_kit.keychain_inventory import GenpCandidate
+from secrets_kit.locator import locator_hash_hex, opaque_locator_hint
+from secrets_kit.models import EntryMetadata, ensure_entry_id, now_utc_iso
 from secrets_kit.registry import registry_dir
 from secrets_kit.sqlite_unlock import (
     UnlockProvider,
     _migrate_vault_meta_columns,
     build_sqlite_unlock_provider,
     clear_sqlite_unlock_cache,
-    passphrase_for_store,
-    set_sqlite_passphrase_provider,
 )
 
 CRYPTO_VERSION = 1
+SQLITE_USER_VERSION_V2 = 2
 
 # Process-local cache: (abs_db_path, provider_kind, keychain_tag) -> DEK bytes
 _master_key_by_db: Dict[tuple[str, str, str], bytes] = {}
@@ -61,7 +80,129 @@ def _connect(db_path: str) -> sqlite3.Connection:
     return conn
 
 
-def _init_schema(conn: sqlite3.Connection) -> None:
+_SCHEMA_V2_SECRETS = """
+CREATE TABLE secrets (
+    entry_id TEXT NOT NULL PRIMARY KEY,
+    service TEXT NOT NULL,
+    account TEXT NOT NULL,
+    name TEXT NOT NULL,
+    locator_hash TEXT NOT NULL,
+    locator_hint TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    origin_host TEXT NOT NULL,
+    deleted INTEGER NOT NULL DEFAULT 0,
+    deleted_at TEXT NOT NULL DEFAULT '',
+    generation INTEGER NOT NULL DEFAULT 1,
+    tombstone_generation INTEGER NOT NULL DEFAULT 0,
+    backend_version INTEGER NOT NULL DEFAULT 1,
+    corrupt INTEGER NOT NULL DEFAULT 0,
+    corrupt_reason TEXT NOT NULL DEFAULT '',
+    last_validation_at TEXT NOT NULL DEFAULT '',
+    ciphertext BLOB NOT NULL,
+    nonce BLOB NOT NULL,
+    crypto_version INTEGER NOT NULL,
+    UNIQUE(service, account, name)
+);
+"""
+
+
+def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    cur = conn.execute(f"PRAGMA table_info({table})")
+    return {str(row[1]) for row in cur.fetchall()}
+
+
+def _migrate_legacy_to_v2(conn: sqlite3.Connection, db_path: str, unlock_provider: UnlockProvider) -> None:
+    """Rename legacy ``secrets`` to ``secrets_legacy`` and repopulate v2 ``secrets``."""
+    conn.execute("ALTER TABLE secrets RENAME TO secrets_legacy")
+    conn.executescript(
+        """
+        CREATE TABLE secrets (
+            entry_id TEXT NOT NULL PRIMARY KEY,
+            service TEXT NOT NULL,
+            account TEXT NOT NULL,
+            name TEXT NOT NULL,
+            locator_hash TEXT NOT NULL,
+            locator_hint TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            origin_host TEXT NOT NULL,
+            deleted INTEGER NOT NULL DEFAULT 0,
+            deleted_at TEXT NOT NULL DEFAULT '',
+            generation INTEGER NOT NULL DEFAULT 1,
+            tombstone_generation INTEGER NOT NULL DEFAULT 0,
+            backend_version INTEGER NOT NULL DEFAULT 1,
+            corrupt INTEGER NOT NULL DEFAULT 0,
+            corrupt_reason TEXT NOT NULL DEFAULT '',
+            last_validation_at TEXT NOT NULL DEFAULT '',
+            ciphertext BLOB NOT NULL,
+            nonce BLOB NOT NULL,
+            crypto_version INTEGER NOT NULL,
+            UNIQUE(service, account, name)
+        );
+        """
+    )
+    key = unlock_provider.materialize_master_key(conn, db_path)
+    box = nacl.secret.SecretBox(key)
+    rows = conn.execute(
+        "SELECT service, account, name, ciphertext, nonce, updated_at, origin_host, crypto_version, metadata_json FROM secrets_legacy"
+    ).fetchall()
+    for svc, acct, nm, ciphertext, nonce, updated_at, origin_host, crypto_v, meta_json in rows:
+        try:
+            plain = box.decrypt(ciphertext, nonce)
+        except nacl.exceptions.CryptoError:
+            continue
+        meta_json_str = meta_json if isinstance(meta_json, str) else ""
+        secret_val, meta = parse_joint_payload_or_legacy(
+            plain=plain,
+            legacy_metadata_json=meta_json_str or None,
+            service=str(svc),
+            account=str(acct),
+            name=str(nm),
+        )
+        meta = ensure_entry_id(meta)
+        meta = replace(meta, name=str(nm), service=str(svc), account=str(acct))
+        body = build_joint_payload_bytes(secret=secret_val, metadata=meta)
+        enc = box.encrypt(body)
+        n_nonce, ct = enc[:24], enc[24:]
+        lh = opaque_locator_hint(entry_id=meta.entry_id)
+        lhash = locator_hash_hex(service=str(svc), account=str(acct), name=str(nm))
+        conn.execute(
+            """
+            INSERT INTO secrets (entry_id, service, account, name, locator_hash, locator_hint,
+                updated_at, origin_host, deleted, deleted_at, generation, tombstone_generation,
+                backend_version, corrupt, corrupt_reason, last_validation_at,
+                ciphertext, nonce, crypto_version)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, '', 1, 0, ?, 0, '', '', ?, ?, ?)
+            """,
+            (
+                meta.entry_id,
+                str(svc),
+                str(acct),
+                str(nm),
+                lhash,
+                lh,
+                str(updated_at),
+                str(origin_host),
+                BACKEND_IMPL_VERSION,
+                ct,
+                n_nonce,
+                int(crypto_v),
+            ),
+        )
+    conn.execute("DROP TABLE secrets_legacy")
+    conn.commit()
+
+
+def _ensure_corruption_columns(conn: sqlite3.Connection) -> None:
+    cols = _table_columns(conn, "secrets")
+    if "corrupt" not in cols:
+        conn.execute("ALTER TABLE secrets ADD COLUMN corrupt INTEGER NOT NULL DEFAULT 0")
+    if "corrupt_reason" not in cols:
+        conn.execute("ALTER TABLE secrets ADD COLUMN corrupt_reason TEXT NOT NULL DEFAULT ''")
+    if "last_validation_at" not in cols:
+        conn.execute("ALTER TABLE secrets ADD COLUMN last_validation_at TEXT NOT NULL DEFAULT ''")
+
+
+def _init_schema(conn: sqlite3.Connection, db_path: str, unlock_provider: UnlockProvider) -> None:
     conn.executescript(
         """
         CREATE TABLE IF NOT EXISTS vault_meta (
@@ -73,26 +214,38 @@ def _init_schema(conn: sqlite3.Connection) -> None:
             wrapped_dek BLOB,
             unlock_provider TEXT
         );
-        CREATE TABLE IF NOT EXISTS secrets (
-            service TEXT NOT NULL,
-            account TEXT NOT NULL,
-            name TEXT NOT NULL,
-            ciphertext BLOB NOT NULL,
-            nonce BLOB NOT NULL,
-            updated_at TEXT NOT NULL,
-            origin_host TEXT NOT NULL,
-            crypto_version INTEGER NOT NULL,
-            metadata_json TEXT,
-            PRIMARY KEY (service, account, name)
-        );
         """
     )
-    conn.execute("PRAGMA user_version = 1")
     _migrate_vault_meta_columns(conn)
+    cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='secrets'")
+    has_secrets = cur.fetchone() is not None
+    if not has_secrets:
+        conn.executescript(_SCHEMA_V2_SECRETS)
+        conn.execute(f"PRAGMA user_version = {SQLITE_USER_VERSION_V2}")
+        conn.commit()
+        return
+    cols = _table_columns(conn, "secrets")
+    if "entry_id" not in cols:
+        _migrate_legacy_to_v2(conn, db_path=db_path, unlock_provider=unlock_provider)
+        conn.execute(f"PRAGMA user_version = {SQLITE_USER_VERSION_V2}")
+    _ensure_corruption_columns(conn)
+    conn.commit()
 
 
-class SqliteSecretStore:
-    """Encrypted SQLite-backed store implementing :class:`SecretStore`."""
+def iter_secrets_plaintext_index(
+    *, db_path: str, service_filter: Optional[str] = None
+) -> Iterator[GenpCandidate]:
+    """Yield recover candidates for SQLite.
+
+    v2 stores metadata inside the encrypted payload; this iterator **decrypts** each row to
+    rebuild comment JSON for :func:`recover_sources.iter_recover_candidates` (unlock required).
+    """
+    store = SqliteSecretStore(db_path=str(Path(db_path).expanduser()))
+    yield from store.iter_recover_genp_candidates(service_filter=service_filter)
+
+
+class SqliteSecretStore(BackendStore):
+    """Encrypted SQLite-backed store implementing :class:`SecretStore` and :class:`BackendStore`."""
 
     def __init__(
         self,
@@ -113,7 +266,7 @@ class SqliteSecretStore:
 
     def _conn(self) -> sqlite3.Connection:
         conn = _connect(self.db_path)
-        _init_schema(conn)
+        _init_schema(conn, db_path=self.db_path, unlock_provider=self._unlock_provider)
         return conn
 
     def _unlock_key(self, conn: sqlite3.Connection) -> bytes:
@@ -123,6 +276,302 @@ class SqliteSecretStore:
         key = self._unlock_provider.materialize_master_key(conn, self.db_path)
         _master_key_by_db[ck] = key
         return key
+
+    # --- BackendStore ---
+    def security_posture(self) -> BackendSecurityPosture:
+        return BackendSecurityPosture(
+            metadata_encrypted=True,
+            safe_index_supported=True,
+            requires_unlock_for_metadata=True,
+            supports_secure_delete=False,
+        )
+
+    def capabilities(self) -> BackendCapabilities:
+        return BackendCapabilities(
+            supports_safe_index=True,
+            supports_unlock_enumeration=True,
+            supports_atomic_rename=True,
+            supports_tombstones=True,
+            supports_backend_migrate=True,
+            supports_transactional_set=True,
+            supports_selective_resolve=True,
+            set_atomicity="atomic",
+        )
+
+    def _row_to_index_safe(self, row: Tuple[Any, ...]) -> IndexRow:
+        (
+            entry_id,
+            locator_hash,
+            locator_hint,
+            updated_at,
+            deleted,
+            deleted_at,
+            generation,
+            tombstone_generation,
+            backend_impl,
+            corrupt,
+            corrupt_reason,
+            last_validation_at,
+        ) = row
+        return IndexRow(
+            entry_id=str(entry_id),
+            locator_hash=str(locator_hash),
+            locator_hint=str(locator_hint),
+            updated_at=str(updated_at),
+            deleted=bool(deleted),
+            deleted_at=str(deleted_at or ""),
+            generation=int(generation),
+            tombstone_generation=int(tombstone_generation),
+            index_schema_version=INDEX_SCHEMA_VERSION,
+            payload_schema_version=PAYLOAD_SCHEMA_VERSION,
+            backend_impl_version=int(backend_impl),
+            payload_ref=str(entry_id),
+            corrupt=bool(corrupt),
+            corrupt_reason=str(corrupt_reason or ""),
+            last_validation_at=str(last_validation_at or ""),
+        )
+
+    def _row_to_index_from_full_prefix(self, meta_slice: Tuple[Any, ...]) -> IndexRow:
+        (
+            entry_id,
+            locator_hash,
+            locator_hint,
+            _service,
+            _account,
+            _name,
+            updated_at,
+            deleted,
+            deleted_at,
+            generation,
+            tombstone_generation,
+            backend_impl,
+            corrupt,
+            corrupt_reason,
+            last_validation_at,
+        ) = meta_slice
+        return IndexRow(
+            entry_id=str(entry_id),
+            locator_hash=str(locator_hash),
+            locator_hint=str(locator_hint),
+            updated_at=str(updated_at),
+            deleted=bool(deleted),
+            deleted_at=str(deleted_at or ""),
+            generation=int(generation),
+            tombstone_generation=int(tombstone_generation),
+            index_schema_version=INDEX_SCHEMA_VERSION,
+            payload_schema_version=PAYLOAD_SCHEMA_VERSION,
+            backend_impl_version=int(backend_impl),
+            payload_ref=str(entry_id),
+            corrupt=bool(corrupt),
+            corrupt_reason=str(corrupt_reason or ""),
+            last_validation_at=str(last_validation_at or ""),
+        )
+
+    def iter_index(self) -> Iterator[IndexRow]:
+        conn = self._conn()
+        try:
+            cur = conn.execute(
+                """
+                SELECT entry_id, locator_hash, locator_hint,
+                       updated_at, deleted, deleted_at, generation, tombstone_generation, backend_version,
+                       corrupt, corrupt_reason, last_validation_at
+                FROM secrets ORDER BY entry_id
+                """
+            )
+            for row in cur.fetchall():
+                yield self._row_to_index_safe(row)
+        finally:
+            conn.close()
+
+    def rebuild_index(self) -> None:
+        conn = self._conn()
+        try:
+            cur = conn.execute(
+                """
+                SELECT entry_id, locator_hash, locator_hint, service, account, name, updated_at,
+                       deleted, deleted_at, generation, tombstone_generation, backend_version,
+                       corrupt, corrupt_reason, last_validation_at,
+                       ciphertext, nonce
+                FROM secrets
+                """
+            )
+            for row in cur.fetchall():
+                if row[7]:
+                    continue
+                try:
+                    resolved = self._decrypt_resolved(conn, row)
+                except BackendError:
+                    conn.execute(
+                        """
+                        UPDATE secrets SET corrupt = 1, corrupt_reason = ?, last_validation_at = ?
+                        WHERE entry_id = ?
+                        """,
+                        ("decrypt_failed", now_utc_iso(), row[0]),
+                    )
+                    continue
+                meta = resolved.metadata
+                lh = opaque_locator_hint(entry_id=str(row[0]))
+                lhash = locator_hash_hex(service=meta.service, account=meta.account, name=meta.name)
+                conn.execute(
+                    """
+                    UPDATE secrets SET locator_hash = ?, locator_hint = ?,
+                        corrupt = 0, corrupt_reason = '', last_validation_at = ?
+                    WHERE entry_id = ? AND deleted = 0
+                    """,
+                    (lhash, lh, now_utc_iso(), row[0]),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def _metadata_from_comment(self, *, comment: str, service: str, account: str, name: str) -> EntryMetadata:
+        if comment.strip():
+            parsed = EntryMetadata.from_keychain_comment(comment)
+            if parsed is not None:
+                return ensure_entry_id(parsed)
+        ts = now_utc_iso()
+        return ensure_entry_id(
+            EntryMetadata(name=name, service=service, account=account, created_at=ts, updated_at=ts, source="manual")
+        )
+
+    def _read_row_full(self, conn: sqlite3.Connection, service: str, account: str, name: str) -> Optional[Any]:
+        loc = normalize_store_locator(service=service, account=account, name=name)
+        return conn.execute(
+            """
+            SELECT entry_id, locator_hash, locator_hint, service, account, name, updated_at,
+                   deleted, deleted_at, generation, tombstone_generation, backend_version,
+                   corrupt, corrupt_reason, last_validation_at,
+                   ciphertext, nonce
+            FROM secrets WHERE service = ? AND account = ? AND name = ?
+            """,
+            (loc.service, loc.account, loc.name),
+        ).fetchone()
+
+    def _decrypt_resolved(self, conn: sqlite3.Connection, row: Tuple[Any, ...]) -> ResolvedEntry:
+        key = self._unlock_key(conn)
+        box = nacl.secret.SecretBox(key)
+        ciphertext, nonce = row[-2], row[-1]
+        try:
+            plain = box.decrypt(ciphertext, nonce)
+        except nacl.exceptions.CryptoError as exc:
+            raise BackendError("decryption failed (wrong passphrase or corrupted data)") from exc
+        meta_slice = row[:-2]
+        (
+            _entry_id,
+            _locator_hash,
+            _locator_hint,
+            service,
+            account,
+            name,
+            _updated_at,
+            _deleted,
+            _deleted_at,
+            _generation,
+            _tombstone_generation,
+            _backend_impl,
+            _corrupt,
+            _corrupt_reason,
+            _last_validation_at,
+        ) = meta_slice
+        secret_val, meta = parse_joint_payload_or_legacy(
+            plain=plain,
+            legacy_metadata_json=None,
+            service=str(service),
+            account=str(account),
+            name=str(name),
+        )
+        return ResolvedEntry(secret=secret_val, metadata=meta)
+
+    def set_entry(
+        self,
+        *,
+        service: str,
+        account: str,
+        name: str,
+        secret: str,
+        metadata: EntryMetadata,
+    ) -> None:
+        meta = ensure_entry_id(metadata)
+        loc = normalize_store_locator(service=service, account=account, name=name)
+        meta = replace(meta, name=loc.name, service=loc.service, account=loc.account)
+        if not (meta.updated_at or "").strip():
+            meta = replace(meta, updated_at=now_utc_iso())
+        body = build_joint_payload_bytes(secret=secret, metadata=meta)
+        lh = opaque_locator_hint(entry_id=meta.entry_id)
+        lhash = locator_hash_hex(service=loc.service, account=loc.account, name=loc.name)
+        conn = self._conn()
+        try:
+            key = self._unlock_key(conn)
+            box = nacl.secret.SecretBox(key)
+            enc = box.encrypt(body)
+            nonce, ciphertext = enc[:24], enc[24:]
+            updated_at = meta.updated_at
+            origin = _origin_host()
+            existing = self._read_row_full(conn, loc.service, loc.account, loc.name)
+            if existing:
+                _eid = str(existing[0])
+                gen = int(existing[9]) + 1
+                entry_id = meta.entry_id or _eid
+                if entry_id != _eid:
+                    entry_id = _eid
+                meta = replace(meta, entry_id=entry_id)
+                body2 = build_joint_payload_bytes(secret=secret, metadata=meta)
+                enc2 = box.encrypt(body2)
+                nonce2, ciphertext2 = enc2[:24], enc2[24:]
+                conn.execute(
+                    """
+                    UPDATE secrets SET
+                        locator_hash = ?, locator_hint = ?, updated_at = ?, origin_host = ?,
+                        generation = ?, tombstone_generation = ?, backend_version = ?,
+                        ciphertext = ?, nonce = ?, crypto_version = ?,
+                        corrupt = 0, corrupt_reason = '', last_validation_at = ?
+                    WHERE service = ? AND account = ? AND name = ? AND deleted = 0
+                    """,
+                    (
+                        lhash,
+                        lh,
+                        updated_at,
+                        origin,
+                        gen,
+                        int(existing[10]),
+                        BACKEND_IMPL_VERSION,
+                        ciphertext2,
+                        nonce2,
+                        CRYPTO_VERSION,
+                        now_utc_iso(),
+                        loc.service,
+                        loc.account,
+                        loc.name,
+                    ),
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO secrets (
+                        entry_id, service, account, name, locator_hash, locator_hint,
+                        updated_at, origin_host, deleted, deleted_at, generation, tombstone_generation,
+                        backend_version, corrupt, corrupt_reason, last_validation_at,
+                        ciphertext, nonce, crypto_version
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, '', 1, 0, ?, 0, '', '', ?, ?, ?)
+                    """,
+                    (
+                        meta.entry_id,
+                        loc.service,
+                        loc.account,
+                        loc.name,
+                        lhash,
+                        lh,
+                        updated_at,
+                        origin,
+                        BACKEND_IMPL_VERSION,
+                        ciphertext,
+                        nonce,
+                        CRYPTO_VERSION,
+                    ),
+                )
+            conn.commit()
+        finally:
+            conn.close()
 
     def set(
         self,
@@ -134,67 +583,60 @@ class SqliteSecretStore:
         comment: str = "",
         label: Optional[str] = None,
     ) -> None:
-        key = self._unlock_key(conn := self._conn())
-        try:
-            box = nacl.secret.SecretBox(key)
-            encrypted = box.encrypt(value.encode("utf-8"))
-            nonce, ciphertext = encrypted[:24], encrypted[24:]
-            updated_at = now_utc_iso()
-            origin = _origin_host()
-            meta_json = comment if comment else None
-            conn.execute(
-                """
-                INSERT INTO secrets (service, account, name, ciphertext, nonce, updated_at, origin_host, crypto_version, metadata_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(service, account, name) DO UPDATE SET
-                    ciphertext = excluded.ciphertext,
-                    nonce = excluded.nonce,
-                    updated_at = excluded.updated_at,
-                    origin_host = excluded.origin_host,
-                    crypto_version = excluded.crypto_version,
-                    metadata_json = excluded.metadata_json
-                """,
-                (service, account, name, ciphertext, nonce, updated_at, origin, CRYPTO_VERSION, meta_json),
-            )
-            conn.commit()
-        finally:
-            conn.close()
+        meta = self._metadata_from_comment(comment=comment, service=service, account=account, name=name)
+        self.set_entry(service=service, account=account, name=name, secret=value, metadata=meta)
+
+    def get_secret(self, *, service: str, account: str, name: str) -> str:
+        return self.get(service=service, account=account, name=name)
 
     def get(self, *, service: str, account: str, name: str) -> str:
         conn = self._conn()
         try:
-            row = conn.execute(
-                "SELECT ciphertext, nonce FROM secrets WHERE service = ? AND account = ? AND name = ?",
-                (service, account, name),
-            ).fetchone()
-            if row is None:
+            row = self._read_row_full(conn, service, account, name)
+            if row is None or row[7]:
                 raise BackendError("secret not found")
-            key = self._unlock_key(conn)
-            ciphertext, nonce = row[0], row[1]
-            box = nacl.secret.SecretBox(key)
-            try:
-                plain = box.decrypt(ciphertext, nonce)
-            except nacl.exceptions.CryptoError as exc:
-                raise BackendError("decryption failed (wrong passphrase or corrupted data)") from exc
-            return plain.decode("utf-8")
+            resolved = self._decrypt_resolved(conn, row)
+            return resolved.secret
         finally:
             conn.close()
 
-    def metadata(self, *, service: str, account: str, name: str) -> Dict[str, Any]:
-        """Return row metadata (stored in plaintext columns; no passphrase required)."""
+    def resolve_by_entry_id(self, *, entry_id: str) -> Optional[ResolvedEntry]:
         conn = self._conn()
         try:
             row = conn.execute(
                 """
-                SELECT metadata_json, updated_at, origin_host, crypto_version
-                FROM secrets WHERE service = ? AND account = ? AND name = ?
+                SELECT entry_id, locator_hash, locator_hint, service, account, name, updated_at,
+                       deleted, deleted_at, generation, tombstone_generation, backend_version,
+                       corrupt, corrupt_reason, last_validation_at,
+                       ciphertext, nonce
+                FROM secrets WHERE entry_id = ?
                 """,
-                (service, account, name),
+                (entry_id,),
             ).fetchone()
+            if row is None or row[7]:
+                return None
+            return self._decrypt_resolved(conn, row)
+        finally:
+            conn.close()
+
+    def resolve_by_locator(self, *, service: str, account: str, name: str) -> Optional[ResolvedEntry]:
+        conn = self._conn()
+        try:
+            row = self._read_row_full(conn, service, account, name)
+            if row is None or row[7]:
+                return None
+            return self._decrypt_resolved(conn, row)
+        finally:
+            conn.close()
+
+    def metadata(self, *, service: str, account: str, name: str) -> Dict[str, Any]:
+        conn = self._conn()
+        try:
+            row = self._read_row_full(conn, service, account, name)
             if row is None:
                 raise BackendError("secret not found")
-            metadata_json, updated_at, origin_host, crypto_version = row
-            comment = metadata_json or ""
+            resolved = self._decrypt_resolved(conn, row)
+            comment = resolved.metadata.to_keychain_comment()
             svc = backend_service_name(service=service, name=name)
             return {
                 "account": account,
@@ -203,30 +645,147 @@ class SqliteSecretStore:
                 "comment": comment,
                 "created_at_raw": "",
                 "modified_at_raw": "",
-                "sqlite_updated_at": updated_at,
-                "origin_host": origin_host,
-                "crypto_version": int(crypto_version),
+                "sqlite_updated_at": str(row[6]),
+                "origin_host": _origin_host(),
+                "crypto_version": CRYPTO_VERSION,
                 "raw": "",
             }
         finally:
             conn.close()
 
     def exists(self, *, service: str, account: str, name: str) -> bool:
+        loc = normalize_store_locator(service=service, account=account, name=name)
         conn = self._conn()
         try:
-            _init_schema(conn)
             row = conn.execute(
-                "SELECT 1 FROM secrets WHERE service = ? AND account = ? AND name = ? LIMIT 1",
-                (service, account, name),
+                "SELECT deleted FROM secrets WHERE service = ? AND account = ? AND name = ?",
+                (loc.service, loc.account, loc.name),
             ).fetchone()
-            return row is not None
+            return row is not None and not bool(row[0])
+        finally:
+            conn.close()
+
+    def delete_entry(self, *, service: str, account: str, name: str) -> None:
+        loc = normalize_store_locator(service=service, account=account, name=name)
+        conn = self._conn()
+        try:
+            row = self._read_row_full(conn, loc.service, loc.account, loc.name)
+            if row is None:
+                return
+            gen = int(row[9]) + 1
+            tgen = int(row[10]) + 1
+            conn.execute(
+                """
+                UPDATE secrets SET deleted = 1, deleted_at = ?, generation = ?, tombstone_generation = ?, updated_at = ?
+                WHERE service = ? AND account = ? AND name = ?
+                """,
+                (now_utc_iso(), gen, tgen, now_utc_iso(), loc.service, loc.account, loc.name),
+            )
+            conn.commit()
         finally:
             conn.close()
 
     def delete(self, *, service: str, account: str, name: str) -> None:
+        self.delete_entry(service=service, account=account, name=name)
+
+    def iter_unlocked(
+        self, *, filter_fn: Optional[Callable[[IndexRow, EntryMetadata], bool]] = None
+    ) -> Iterator[tuple[IndexRow, ResolvedEntry]]:
         conn = self._conn()
         try:
-            conn.execute("DELETE FROM secrets WHERE service = ? AND account = ? AND name = ?", (service, account, name))
+            cur = conn.execute(
+                """
+                SELECT entry_id, locator_hash, locator_hint, service, account, name,
+                       updated_at, deleted, deleted_at, generation, tombstone_generation, backend_version,
+                       corrupt, corrupt_reason, last_validation_at,
+                       ciphertext, nonce
+                FROM secrets WHERE deleted = 0
+                """
+            )
+            for row in cur.fetchall():
+                idx = self._row_to_index_from_full_prefix(row[:-2])
+                try:
+                    resolved = self._decrypt_resolved(conn, row)
+                except BackendError:
+                    continue
+                if filter_fn is None or filter_fn(idx, resolved.metadata):
+                    yield idx, resolved
+        finally:
+            conn.close()
+
+    def rename_entry(self, *, entry_id: str, new_service: str, new_account: str, new_name: str) -> None:
+        nloc = normalize_store_locator(service=new_service, account=new_account, name=new_name)
+        conn = self._conn()
+        try:
+            row = conn.execute(
+                """
+                SELECT entry_id, locator_hash, locator_hint, service, account, name, updated_at,
+                       deleted, deleted_at, generation, tombstone_generation, backend_version,
+                       corrupt, corrupt_reason, last_validation_at,
+                       ciphertext, nonce
+                FROM secrets WHERE entry_id = ?
+                """,
+                (entry_id,),
+            ).fetchone()
+            if row is None or row[7]:
+                raise BackendError("secret not found")
+            resolved = self._decrypt_resolved(conn, row)
+            gen = int(row[9]) + 1
+            new_hash = locator_hash_hex(service=nloc.service, account=nloc.account, name=nloc.name)
+            new_hint = opaque_locator_hint(entry_id=entry_id)
+            meta = replace(
+                resolved.metadata,
+                name=nloc.name,
+                service=nloc.service,
+                account=nloc.account,
+                updated_at=now_utc_iso(),
+            )
+            body = build_joint_payload_bytes(secret=resolved.secret, metadata=meta)
+            key = self._unlock_key(conn)
+            box = nacl.secret.SecretBox(key)
+            enc = box.encrypt(body)
+            nonce, ciphertext = enc[:24], enc[24:]
+            conn.execute("DELETE FROM secrets WHERE entry_id = ?", (entry_id,))
+            conn.execute(
+                """
+                INSERT INTO secrets (
+                    entry_id, service, account, name, locator_hash, locator_hint,
+                    updated_at, origin_host, deleted, deleted_at, generation, tombstone_generation,
+                    backend_version, corrupt, corrupt_reason, last_validation_at,
+                    ciphertext, nonce, crypto_version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, '', ?, 0, ?, 0, '', '', ?, ?, ?)
+                """,
+                (
+                    entry_id,
+                    nloc.service,
+                    nloc.account,
+                    nloc.name,
+                    new_hash,
+                    new_hint,
+                    now_utc_iso(),
+                    _origin_host(),
+                    gen,
+                    BACKEND_IMPL_VERSION,
+                    ciphertext,
+                    nonce,
+                    CRYPTO_VERSION,
+                ),
+            )
             conn.commit()
         finally:
             conn.close()
+
+    def iter_recover_genp_candidates(self, *, service_filter: Optional[str] = None) -> Iterator[GenpCandidate]:
+        for _idx, resolved in self.iter_unlocked():
+            if service_filter and resolved.metadata.service != service_filter:
+                continue
+            yield GenpCandidate(
+                account=resolved.metadata.account,
+                service=resolved.metadata.service,
+                name=resolved.metadata.name,
+                comment=resolved.metadata.to_keychain_comment(),
+            )
+
+
+
+

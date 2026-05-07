@@ -1,5 +1,14 @@
 # Defaults
 
+- [Defaults](#defaults)
+  - [Environment defaults](#environment-defaults)
+    - [SQLite backend environment (`--backend sqlite`)](#sqlite-backend-environment---backend-sqlite)
+    - [Where the SQLite file lives](#where-the-sqlite-file-lives)
+  - [Config file defaults](#config-file-defaults)
+  - [CLI: `seckit config`](#cli-seckit-config)
+  - [Notes](#notes)
+
+
 Defaults are here to make repeated daily use less noisy. If you are always working in the same local scope, you should not have to type `--service` and `--account` every time.
 
 Resolution order:
@@ -8,6 +17,10 @@ Resolution order:
 2. `SECKIT_DEFAULT_*` environment variables
 3. `~/.config/seckit/defaults.json`
 4. current OS user for `account` only
+
+**Legacy `~/.config/seckit/config.json`:** merged after `defaults.json` only for keys missing from `defaults.json`. If `backend` is an old **`icloud`** / **`icloud-helper`** value, Secrets-Kit rewrites that file to **`secure`** on read when permissions allow (same for `defaults.json`).
+
+**`seckit list`:** lists entries in **`registry.json`**, not every generic password in Keychain Access. Items must have been created/registered through seckit (or metadata imported) to appear.
 
 ## Environment defaults
 
@@ -57,6 +70,19 @@ export SECKIT_ORIGIN_HOST=my-laptop
 ```
 
 The SQLite file is **local only**—no sync, daemon, or relay is provided by this tool.
+
+### Where the SQLite file lives
+
+| What | Path or source |
+|------|----------------|
+| **Default file** | `~/.config/seckit/secrets.db` (same directory as `registry.json` and `defaults.json`) |
+| **Override order** | `--db` → **`SECKIT_SQLITE_DB`** → **`sqlite_db`** in `defaults.json` → default path above |
+
+The directory `~/.config/seckit` is created on demand with restricted permissions when you first write registry or defaults.
+
+**Development / throwaway vault:** run **`bash scripts/sqlite_dev_seed.sh --force`**. It imports **`fixtures/synthetic-sample.env`** (fake data only) into **`~/.config/seckit/secrets-dev.db`** with passphrase **`seckit-dev-synthetic-vault`** unless you set **`SECKIT_SQLITE_PASSPHRASE`**. **`--account`** defaults to your OS login; **`--service`** defaults to **`synthetic`**.
+
+**iCloud / synced folders:** moving **`secrets.db`** through Drive or iCloud is not supported; you risk corruption or conflicting writes. Prefer explicit **export/import** or [PEER_SYNC.md](PEER_SYNC.md) bundles for cross-machine transfer.
 
 ## Config file defaults
 

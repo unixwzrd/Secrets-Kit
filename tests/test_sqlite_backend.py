@@ -15,7 +15,7 @@ if importlib.util.find_spec("nacl") is None:
             self.skipTest("Install project dependencies to run SQLite backend tests (pip install -e .)")
 
 else:
-    from secrets_kit.sqlite_backend import SqliteSecretStore, clear_sqlite_crypto_cache, default_sqlite_db_path
+    from secrets_kit.sqlite_backend import SqliteSecretStore, clear_sqlite_crypto_cache, default_sqlite_db_path, iter_secrets_plaintext_index
 
     class SqliteBackendTest(unittest.TestCase):
         def setUp(self) -> None:
@@ -43,7 +43,13 @@ else:
             self.assertEqual(store.get(service="s", account="a", name="K"), "secret-value")
             meta = store.metadata(service="s", account="a", name="K")
             self.assertNotIn("secret-value", str(meta))
-            self.assertEqual(meta["comment"], '{"name":"K","service":"s","account":"a"}')
+            import json
+
+            comment_obj = json.loads(meta["comment"])
+            self.assertEqual(comment_obj["name"], "K")
+            self.assertEqual(comment_obj["service"], "s")
+            self.assertEqual(comment_obj["account"], "a")
+            self.assertTrue(comment_obj.get("entry_id"))
             self.assertIn("sqlite_updated_at", meta)
             self.assertIn("origin_host", meta)
             self.assertEqual(meta["crypto_version"], 1)
@@ -88,6 +94,28 @@ else:
             )
             store = resolve_secret_store(backend=BACKEND_SQLITE, path=self.db)
             self.assertIsInstance(store, SqliteSecretStore)
+
+        def test_plaintext_index_for_recover(self) -> None:
+            store = SqliteSecretStore(db_path=self.db)
+            store.set(
+                service="hermes",
+                account="miafour",
+                name="API_KEY",
+                value="s",
+                comment='{"name":"API_KEY","service":"hermes","account":"miafour","entry_type":"secret"}',
+            )
+            store.set(
+                service="other",
+                account="miafour",
+                name="OTHER_KEY",
+                value="t",
+                comment="",
+            )
+            all_rows = list(iter_secrets_plaintext_index(db_path=self.db))
+            self.assertEqual(len(all_rows), 2)
+            filtered = list(iter_secrets_plaintext_index(db_path=self.db, service_filter="hermes"))
+            self.assertEqual(len(filtered), 1)
+            self.assertEqual(filtered[0].name, "API_KEY")
 
         def test_default_sqlite_db_path(self) -> None:
             p = default_sqlite_db_path()

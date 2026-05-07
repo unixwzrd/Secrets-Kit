@@ -54,6 +54,22 @@ def merge_decision(
     return "conflict"
 
 
+def stronger_metadata_for_sync(
+    *,
+    a: Optional[EntryMetadata],
+    b: Optional[EntryMetadata],
+    local_host_id: str,
+) -> Optional[EntryMetadata]:
+    """When both registry and store carry metadata, use the lexicographically larger merge vector."""
+    if a is None:
+        return b
+    if b is None:
+        return a
+    ta = (a.updated_at, effective_origin_host(meta=a, default_host_id=local_host_id))
+    tb = (b.updated_at, effective_origin_host(meta=b, default_host_id=local_host_id))
+    return a if ta >= tb else b
+
+
 def import_candidate_from_sync_row(row: Dict[str, object], *, default_origin: str) -> ImportCandidate:
     """Build candidate from inner bundle ``entries[]`` row."""
     if not isinstance(row, dict):
@@ -116,7 +132,14 @@ def apply_peer_sync_import(
             backend=backend,
             kek_keychain_path=kek_keychain_path,
         )
-        local_meta = res["metadata"] if res and isinstance(res.get("metadata"), EntryMetadata) else None
+        store_meta = res["metadata"] if res and isinstance(res.get("metadata"), EntryMetadata) else None
+        reg_key = cand.metadata.key()
+        registry_entry = registry.get(reg_key)
+        local_meta = stronger_metadata_for_sync(
+            a=registry_entry,
+            b=store_meta,
+            local_host_id=local_host_id,
+        )
         local_val: Optional[str] = None
         if local_meta and secret_exists(
             service=cand.metadata.service,

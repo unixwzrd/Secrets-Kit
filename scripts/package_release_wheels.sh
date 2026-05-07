@@ -6,9 +6,6 @@
 # Optional: build several interpreters on your machine (comma-separated; must exist on PATH):
 #    export PY_VERSIONS='3.9,3.10,3.11,3.12,3.13'
 #
-# Optional: notarize + staple before wheels — set ONE of: SECKIT_NOTARY_KEYCHAIN_PROFILE,
-#    or SECKIT_NOTARY_KEY_PATH + KEY_ID + ISSUER_ID, or SECKIT_NOTARY_APPLE_ID (see notarize_bundled_helper.sh).
-#
 # Wheel platform tag is fixed in repo setup.cfg (macosx_13_0_universal2). To change it, edit setup.cfg.
 #
 # Then:

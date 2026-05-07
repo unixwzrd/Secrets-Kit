@@ -20,11 +20,10 @@ class BackendResolutionTest(unittest.TestCase):
         self.assertEqual(normalize_backend("local"), BACKEND_SECURE)
         self.assertEqual(normalize_backend("secure"), BACKEND_SECURE)
 
-    def test_normalize_backend_rejects_icloud(self) -> None:
-        for bad in ("icloud", "iCloud", "icloud-helper", "iCloud-Helper"):
-            with self.subTest(bad=bad):
-                with self.assertRaisesRegex(BackendError, "unsupported backend"):
-                    normalize_backend(bad)
+    def test_normalize_backend_legacy_icloud_ids_map_to_secure(self) -> None:
+        for legacy in ("icloud", "iCloud", "icloud-helper", "iCloud-Helper"):
+            with self.subTest(legacy=legacy):
+                self.assertEqual(normalize_backend(legacy), BACKEND_SECURE)
 
     def test_normalize_backend_sqlite(self) -> None:
         from secrets_kit.keychain_backend import BACKEND_SQLITE

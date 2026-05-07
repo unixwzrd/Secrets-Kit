@@ -1,6 +1,21 @@
 # launchd Validation
 
+**Updated:** 2026-05-06
+
 Back: [README](../README.md)
+
+- [launchd Validation](#launchd-validation)
+  - [Decision Table](#decision-table)
+  - [Mode 1: Login Keychain LaunchAgent](#mode-1-login-keychain-launchagent)
+    - [`secure` backend and automated tests](#secure-backend-and-automated-tests)
+    - [SQLite + launchd](#sqlite--launchd)
+  - [Mode 2: Dedicated Service Keychain LaunchAgent](#mode-2-dedicated-service-keychain-launchagent)
+  - [Mode 3: Dedicated Service Keychain LaunchDaemon](#mode-3-dedicated-service-keychain-launchdaemon)
+  - [Proof Output](#proof-output)
+  - [Gated Tests](#gated-tests)
+  - [Manual Reboot Test](#manual-reboot-test)
+  - [Password Prompt Notes](#password-prompt-notes)
+
 
 `seckit run` must work when launchd starts the process. There are three supported launchd modes, and they have different Keychain requirements.
 
@@ -164,6 +179,8 @@ cat "$TMPDIR/seckit-launchd-smoke-$(id -un)/service-agent-result.txt"
 ## Gated Tests
 
 Normal validation does not run live launchd tests by default.
+
+**Login keychain unittest** (`test_launch_agent_can_receive_login_keychain_secret_without_keychain_password`): provisioning calls `seckit set` against the **real** login keychain. That needs a session where Keychain allows non-prompt writes—typically **Terminal.app on the console** with the user logged in at the GUI. Over **SSH only**, macOS often returns `SecKeychainItemCreateFromContent ... User interaction is not allowed` and the test will fail; that is an environment limit, not a seckit logic error.
 
 Run all user LaunchAgent tests:
 
