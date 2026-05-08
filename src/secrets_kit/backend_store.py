@@ -110,10 +110,18 @@ class IndexRow:
 
 @dataclass(frozen=True)
 class ResolvedEntry:
-    """One decrypted authority view (secret + logical metadata)."""
+    """One decrypted authority view (secret + logical metadata).
+
+    Plaintext is **resolved-within-handling** until some other layer **materializes** it (stdout,
+    child env, files, etc.). :meth:`repr` intentionally **redacts** ``secret`` so tracebacks and
+    logs do not implicitly leak. See ``docs/RUNTIME_AUTHORITY_ADR.md``.
+    """
 
     secret: str
     metadata: EntryMetadata
+
+    def __repr__(self) -> str:
+        return f"ResolvedEntry(secret=<redacted>, metadata={self.metadata!r})"
 
 
 class UnlockedFilter(Protocol):
@@ -125,12 +133,17 @@ class UnlockedFilter(Protocol):
 class BackendStore(ABC):
     """Backend contract: SQLite / Keychain / future.
 
-    Only adapters implement payload encryption, row layout, and comment formats.
+    Only adapters implement payload encryption, row layout, and comment formats. All work here
+    is **protected authority handling**: adapters may **resolve** full authority (including
+    in-memory plaintext) without **materialization** until a caller crosses the boundary to
+    operators, child processes, filesystems, or IPC (see ``docs/RUNTIME_AUTHORITY_ADR.md``).
 
     **Enumeration vs resolution**
 
-    - :meth:`iter_index` — decrypt-free; must not decrypt ciphertext or parse rich comment JSON.
-    - :meth:`resolve_by_entry_id` / :meth:`resolve_by_locator` — authority (secret + metadata).
+    - :meth:`iter_index` — decrypt-free **index** surface; must not decrypt ciphertext or parse
+      rich comment JSON. Output stays **inside** safe-index semantics (no secret plaintext).
+    - :meth:`resolve_by_entry_id` / :meth:`resolve_by_locator` — **authority** (secret + metadata)
+      for in-process consumers; **does not** by itself **materialize** to the operator.
     - :meth:`iter_unlocked` — heavy scan with decrypt; must not be used to implement ``iter_index``.
     """
 
@@ -160,11 +173,19 @@ class BackendStore(ABC):
 
     @abstractmethod
     def resolve_by_entry_id(self, *, entry_id: str) -> Optional[ResolvedEntry]:
-        """Load authority for one entry id, or None if missing/deleted."""
+        """Load authority for one entry id, or None if missing/deleted.
+
+        Returns :class:`ResolvedEntry` (secret + metadata) **in-process** — **resolved-within-handling**,
+        not a CLI **materialization** path. Do not substitute documentary-only types from
+        ``runtime_authority`` as return types here.
+        """
 
     @abstractmethod
     def resolve_by_locator(self, *, service: str, account: str, name: str) -> Optional[ResolvedEntry]:
-        """Load authority by runtime locator (normalize via :class:`~secrets_kit.models.Locator` in implementations)."""
+        """Load authority by runtime locator (normalize via :class:`~secrets_kit.models.Locator` in implementations).
+
+        Same **resolved-within-handling** semantics as :meth:`resolve_by_entry_id` (see ADR).
+        """
 
     def resolve_by_locator_obj(self, *, locator: Locator) -> Optional[ResolvedEntry]:
         """Convenience: resolve using a normalized :class:`~secrets_kit.models.Locator`."""
@@ -181,7 +202,10 @@ class BackendStore(ABC):
 
     @abstractmethod
     def iter_index(self) -> Iterator[IndexRow]:
-        """Decrypt-free index scan; must not decrypt payloads or parse rich metadata from comments."""
+        """Decrypt-free index scan; must not decrypt payloads or parse rich metadata from comments.
+
+        Index rows are **index-only** / safe-index surfaces — not **materialization** paths.
+        """
 
     @abstractmethod
     def iter_unlocked(self, *, filter_fn: Optional[Callable[[IndexRow, EntryMetadata], bool]] = None) -> Iterator[tuple[IndexRow, ResolvedEntry]]:

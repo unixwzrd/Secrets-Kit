@@ -1,9 +1,9 @@
 # CLI reference — `seckit`
 
 **Created**: 2026-05-07  
-**Updated**: 2026-05-07
+**Updated**: 2026-05-05
 
-Exhaustive command list in **taxonomy order** (same as `seckit --help` epilog). For mental models and policies, see [CONCEPTS.md](CONCEPTS.md), [CLI_ARCHITECTURE.md](CLI_ARCHITECTURE.md), and [CLI_STYLE_GUIDE.md](CLI_STYLE_GUIDE.md).
+Exhaustive command list in **taxonomy order** (same as `seckit --help` epilog). For mental models and policies, see [CONCEPTS.md](CONCEPTS.md), [CLI_ARCHITECTURE.md](CLI_ARCHITECTURE.md), [RUNTIME_AUTHORITY_ADR.md](RUNTIME_AUTHORITY_ADR.md), and [CLI_STYLE_GUIDE.md](CLI_STYLE_GUIDE.md).
 
 ## Output conventions
 
@@ -17,9 +17,9 @@ Exhaustive command list in **taxonomy order** (same as `seckit --help` epilog). 
 | `set` | Store or update one secret (`--stdin` recommended for values). |
 | `get` | Read one secret; **redacted** unless **`--raw`** (materialization). |
 | `list` | **Inventory**; safe paths; selective resolve when filters/capabilities require it. |
-| `explain` | Inspect one entry; resolve metadata without materializing the secret by default. |
-| `run` | **Exec** child with injected env (runtime materialization). |
-| `export` | Export shell/dotenv/encrypted-json; **materialization** for selected scope. |
+| `explain` | Inspect one entry; metadata JSON **without** secret plaintext on stdout by default. |
+| `run` | **Inject** into child env (**runtime-scoped materialization**); see ADR inject wording. |
+| `export` | Bulk **materialization** to stdout formats or an **externalized** encrypted-json **artifact**. |
 | `import` | Subcommands: `env`, `file`, `encrypted-json`. |
 | `delete` | Remove one entry from store + registry metadata. |
 

@@ -4,7 +4,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.9%2B-blue)](#requirements) [![Platform](https://img.shields.io/badge/Platform-macOS%20%28Keychain%29%20%7C%20cross--platform%20%28SQLite%29-informational)](#requirements) [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-**Repository:** `Secrets-Kit` · **CLI:** `seckit` · **Current release target:** `v1.2.0`
+**Repository:** `Secrets-Kit` · **CLI:** `seckit` · **Current release target:** `v1.2.5`
 
 Secrets Kit is a Python CLI that stores secret values in one of two backends:
 

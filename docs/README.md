@@ -1,7 +1,7 @@
 # Secrets Kit documentation
 
 **Created:** 2026-03-10  
-**Updated:** 2026-05-07
+**Updated:** 2026-05-08
 
 Use this page as the map. The root [README](../README.md) stays short; detail lives here.
 
@@ -30,6 +30,9 @@ Use this page as the map. The root [README](../README.md) stays short; detail li
 | Doc | Purpose |
 |-----|---------|
 | [CONCEPTS.md](CONCEPTS.md) | Operator mental model; resolve vs **materialize**; compatibility summary |
+| [RUNTIME_AUTHORITY_ADR.md](RUNTIME_AUTHORITY_ADR.md) | Protected authority handling; inject / exported wording; invariants |
+| [RUNTIME_SESSION_ADR.md](RUNTIME_SESSION_ADR.md) | User-scoped session, same-host authority, ownership, cache bias |
+| [IPC_SEMANTICS_ADR.md](IPC_SEMANTICS_ADR.md) | Local IPC; `seckitd` vs `relayd`; relay appendix (optional future) |
 | [CLI_REFERENCE.md](CLI_REFERENCE.md) | Full command reference (taxonomy order) |
 | [WORKFLOWS.md](WORKFLOWS.md) | Recipes; **common operator flows** appendix |
 | [CLI_ARCHITECTURE.md](CLI_ARCHITECTURE.md) | Authority vs index; `backend-index`; safe output policy |
@@ -56,6 +59,9 @@ Use this page as the map. The root [README](../README.md) stays short; detail li
 |-----|---------|
 | [SECKIT_RUN_AND_BACKEND_REWORK_PLAN.md](SECKIT_RUN_AND_BACKEND_REWORK_PLAN.md) | Historical/rework notes |
 | [METADATA_SEMANTICS_ADR.md](METADATA_SEMANTICS_ADR.md) | Index/tombstone/generation, safe index, authority vs registry |
+| [RUNTIME_AUTHORITY_ADR.md](RUNTIME_AUTHORITY_ADR.md) | Resolve / materialize / inject / exported vocabulary (semantics-first) |
+| [RUNTIME_SESSION_ADR.md](RUNTIME_SESSION_ADR.md) | Runtime session, ownership, same-host authority (pre-daemon) |
+| [IPC_SEMANTICS_ADR.md](IPC_SEMANTICS_ADR.md) | IPC trust boundary, transport mediator, optional relay semantics |
 | [METADATA_REGISTRY.md](METADATA_REGISTRY.md) | Registry schema |
 
 Other files under **`docs/plans/`** may be gitignored local notes.

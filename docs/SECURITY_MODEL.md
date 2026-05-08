@@ -1,7 +1,7 @@
 # Security Model
 
 **Created**: 2026-03-10  
-**Updated**: 2026-05-07  
+**Updated**: 2026-05-05  
 
 - [Security Model](#security-model)
   - [Three layers (contract)](#three-layers-contract)
@@ -58,6 +58,12 @@ That lets you keep the same environment-variable-style name in different scopes 
 Normal output is redacted by default. You have to explicitly ask for raw values with commands like `get --raw`, export them for a shell session, or launch a child process with `seckit run`.
 
 That default helps prevent casual leaks into terminal history, screenshots, or copied command output.
+
+## Protected authority handling (summary)
+
+See [RUNTIME_AUTHORITY_ADR.md](RUNTIME_AUTHORITY_ADR.md) for definitions of **resolve**, **materialize**, **inject**, and **exported** exposure. **Resolved-within-handling** may include plaintext in process memory before it **crosses** to operators, child processes, filesystems, or IPC. **Injection** (today: `seckit run`) is a **runtime-scoped materialization path** that **transfers plaintext into another execution context**, and may propagate via **environment inheritance** unless constrained.
+
+Treat **helpers**, **`repr`**, **loggers**, and **tracebacks** as high risk: they must not **implicitly** surface plaintext outside explicit materialization commands. **Exposure levels** in the ADR are **descriptive** vocabulary only, not compliance tiers.
 
 ## What this protects against
 

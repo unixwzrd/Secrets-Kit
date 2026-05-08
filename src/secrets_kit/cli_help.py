@@ -32,7 +32,7 @@ Automation: prefer --json and structured output; human-readable tables and help 
   releases. See docs/CLI_STYLE_GUIDE.md (JSON output stability).
 
 Further reading: docs/CONCEPTS.md, docs/WORKFLOWS.md, docs/CLI_ARCHITECTURE.md, docs/DEFAULTS.md,
-  docs/METADATA_REGISTRY.md, docs/METADATA_SEMANTICS_ADR.md
+  docs/METADATA_REGISTRY.md, docs/METADATA_SEMANTICS_ADR.md, docs/RUNTIME_AUTHORITY_ADR.md
 """
 
 # Backward-compatible alias for internal imports

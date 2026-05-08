@@ -1,10 +1,20 @@
 # Secrets-Kit Changelog
 
 **Created**: 2026-03-10  
-**Updated**: 2026-05-07
+**Updated**: 2026-05-08
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+### 2026-05-08 — Runtime session + IPC semantics ADRs, documentary runtime_ipc
+
+- **Scope:** `docs/RUNTIME_SESSION_ADR.md`, `docs/IPC_SEMANTICS_ADR.md`, `src/secrets_kit/runtime_ipc.py`, `tests/test_runtime_ipc_contract.py`, `docs/RUNTIME_AUTHORITY_ADR.md`, `docs/README.md`, `docs/Secrets-Kit-Glossary-of-Terms.md`, `CHANGELOG.md`.
+- **What changed:** Pre-daemon **session** semantics (user-scoped **runtime router**, same-host authority, injection lineage, ephemeral cache, fail-closed restart, plumbing matrix `relayd` / `seckitd` / `seckit` / `BackendStore`). **IPC** ADR: **relayd** opaque-only vs **same-user seckitd** IPC possibly plaintext per materialization ADR; minimalist Unix/stream bias; optional relay appendix (direct peer first, NAT/async/disconnected); `src/secrets_kit/runtime_ipc.py` documentary **RuntimeMediatorProtocol**, **LocalRuntimeTransport**, **RuntimeRouterTransport**, envelopes and error enums — **no** wire/daemon. **Static** contract tests only (repr, naming, enums). Authority ADR links session/IPC docs and clarifies IPC materialization bullets.
+
+### 2026-05-05 — Runtime authority ADR, vocabulary types, stdout/stderr invariant tests
+
+- **Scope:** `docs/RUNTIME_AUTHORITY_ADR.md`, `src/secrets_kit/runtime_authority.py`, `src/secrets_kit/backend_store.py` (`ResolvedEntry` redacting repr + docstrings), `src/secrets_kit/cli_parser.py`, `src/secrets_kit/cli_help.py`, `docs/CONCEPTS.md`, `docs/CLI_ARCHITECTURE.md`, `docs/SECURITY_MODEL.md`, `docs/WORKFLOWS.md`, `docs/CLI_REFERENCE.md`, `docs/README.md`, `tests/leakage_needles.py`, `tests/test_runtime_authority_invariants.py`, `tests/test_cli_help_consistency.py`, `CHANGELOG.md`.
+- **What changed:** Semantics-first documentation for **protected authority handling**, **resolve / materialize / inject / exported**, **resolved-within-handling**, implicit-materialization guard, anti-daemon scope, and non-contract **`RuntimeAccessResult`** / **`RuntimeLease`** placeholders. **`BACKEND_INTERFACE_EXPOSURE`** maps `BackendStore` abstract methods to descriptive exposure levels (drift tests only). **`seckit run --help`** carries the canonical **inject** sentence and **environment inheritance** note. New tests lock **no plaintext on stdout/stderr** for non-materialization CLI paths (SQLite harness) and **`repr(ResolvedEntry)`** redaction.
 
 ### 2026-05-07 — CLI UX: modular parser docs, taxonomy help, workflows split
 

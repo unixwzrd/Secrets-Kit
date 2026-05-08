@@ -73,12 +73,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_get = sub.add_parser(
         "get",
         parents=[common],
-        help="Read one stored secret value (redacted by default; --raw materializes plaintext)",
+        help="Read one stored secret value (redacted by default; --raw materializes plaintext to stdout)",
         epilog=(
             "Examples:\n"
             "  seckit get --name OPENAI_API_KEY --service my-stack --account local-dev\n"
             "  seckit get --name OPENAI_API_KEY --service my-stack --account local-dev --raw\n"
-            "The second form exposes the secret (--raw is elevated disclosure)."
+            "Without --raw, output stays redacted. With --raw, plaintext is materialized to stdout. "
+            "Child env injection uses `seckit run` (see `seckit run --help`). docs/RUNTIME_AUTHORITY_ADR.md"
         ),
         formatter_class=SeckitHelpFormatter,
     )
@@ -115,11 +116,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_explain = sub.add_parser(
         "explain",
         parents=[common],
-        help="Inspect one entry: resolve authoritative metadata; secret stays redacted in normal output",
+        help="Inspect one entry: authoritative metadata JSON; secret plaintext is not written to stdout by default",
         epilog=(
             "Examples:\n"
             "  seckit explain --name OPENAI_API_KEY --service my-stack --account local-dev\n"
-            "Resolves internally without materializing the secret to the terminal by default."
+            "Resolves internally without materializing the secret to the terminal by default. "
+            "See docs/RUNTIME_AUTHORITY_ADR.md (resolve vs materialize)."
         ),
         formatter_class=SeckitHelpFormatter,
     )
@@ -230,12 +232,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_export = sub.add_parser(
         "export",
         parents=[common],
-        help="Materialize selected secrets for runtime (shell, dotenv, or encrypted-json backup)",
+        help="Exported materialization: shell, dotenv, or encrypted-json file (bulk plaintext or backup artifact)",
         epilog=(
+            "Exports are materialization paths that produce operator-visible text or an externalized artifact "
+            "(transient or persistent depending on transport/storage). Prefer narrow scope (--names, --tag) or "
+            "explicit --all.\n\n"
             "Examples:\n"
             "  seckit export --service my-stack --account local-dev --format shell --names OPENAI_API_KEY\n"
             "  seckit export --service my-stack --account local-dev --format encrypted-json --out backup.json\n"
-            "Export paths perform bulk materialization; scope with --names, --tag, or explicit --all as documented."
         ),
         formatter_class=SeckitHelpFormatter,
     )
@@ -253,12 +257,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_run = sub.add_parser(
         "run",
         parents=[common],
-        help="Resolve secrets and exec a child with env injection (runtime-scoped materialization)",
+        help="Exec a child after resolve/inject: injection transfers plaintext into another execution context",
         epilog=(
+            "Injection is a runtime-scoped materialization path that transfers plaintext into another execution context.\n"
+            "Environment inheritance: injection into child execution contexts may further propagate through environment "
+            "inheritance unless explicitly constrained by the caller/runtime.\n\n"
             "Examples:\n"
             "  seckit run --service my-stack --account local-dev -- python3 app.py\n"
             "  seckit run --service my-stack --account local-dev --names OPENAI_API_KEY -- python3 -c 'import os; ...'\n"
-            "Child processes receive plaintext in environment variables."
         ),
         formatter_class=SeckitHelpFormatter,
     )

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "seckit"
-version = "1.2.0"
+version = "1.2.5"
 description = "Local CLI for secrets and PII: macOS Keychain (secure) or portable encrypted SQLite (sqlite); registry + export/import"
 readme = "README.md"
 requires-python = ">=3.9"

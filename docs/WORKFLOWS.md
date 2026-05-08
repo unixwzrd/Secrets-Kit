@@ -1,7 +1,7 @@
 # Workflows — Secrets Kit
 
 **Created**: 2026-05-07  
-**Updated**: 2026-05-07
+**Updated**: 2026-05-05
 
 Task-oriented recipes. Command taxonomy and flags: [CLI_REFERENCE.md](CLI_REFERENCE.md). Concepts: [CONCEPTS.md](CONCEPTS.md).
 
@@ -16,7 +16,7 @@ SQLite portable loop: set **`--backend sqlite`** and passphrase / unlock env per
 
 ## CI/CD runtime injection
 
-- Prefer **`seckit run`** so secrets **materialize** only in the child process environment, not in build logs.  
+- Prefer **`seckit run`** so secrets **materialize** in the **child** process environment: **injection** is a **runtime-scoped materialization path** that **transfers plaintext into another execution context** (may propagate via env inheritance).  
 - Avoid **`get --raw`** in shared logs; scope with **`--service` / `--account` / `--names`**.  
 - For automation, prefer **`--json`** on commands that support it over scraping tables. See [CLI_STYLE_GUIDE.md](CLI_STYLE_GUIDE.md).
 

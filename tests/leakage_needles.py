@@ -7,3 +7,6 @@ LEAKAGE_NEEDLES: tuple[str, ...] = (
     "LEAKCUSTOM",
     "LEAKCOMMENT",
 )
+
+# Distinct plaintext used only for stdout/stderr runtime invariant tests.
+RUNTIME_INVARIANT_PLAINTEXT = "RTINV_PLAINTEXT_9fbd2a5e"

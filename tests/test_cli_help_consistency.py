@@ -83,10 +83,11 @@ class CliHelpConsistencyTests(unittest.TestCase):
         self.assertIn("config", choices)
         self.assertIn("defaults", choices)
 
-    def test_materialize_mentioned_on_get_help(self) -> None:
+    def test_run_help_includes_inject_definition(self) -> None:
         choices = _subparser_choices(self.parser)
-        text = choices["get"].format_help().lower()
-        self.assertIn("material", text)
+        text = choices["run"].format_help()
+        self.assertIn("Injection is a runtime-scoped materialization path that transfers plaintext into another execution context.", text)
+        self.assertIn("Environment inheritance", text)
 
     def test_backend_index_help_denies_materialization(self) -> None:
         choices = _subparser_choices(self.parser)

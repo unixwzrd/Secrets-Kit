@@ -1,9 +1,9 @@
 # Concepts — Secrets Kit CLI
 
 **Created**: 2026-05-07  
-**Updated**: 2026-05-07
+**Updated**: 2026-05-05
 
-This page is the short mental model for operators. Deeper backend semantics live in [METADATA_SEMANTICS_ADR.md](METADATA_SEMANTICS_ADR.md) and [METADATA_REGISTRY.md](METADATA_REGISTRY.md).
+This page is the short mental model for operators. Deeper backend semantics live in [METADATA_SEMANTICS_ADR.md](METADATA_SEMANTICS_ADR.md) and [METADATA_REGISTRY.md](METADATA_REGISTRY.md). Runtime vocabulary (**resolve**, **materialize**, **inject**, **exported**): [RUNTIME_AUTHORITY_ADR.md](RUNTIME_AUTHORITY_ADR.md).
 
 ## Operator mental model
 
@@ -12,8 +12,8 @@ This page is the short mental model for operators. Deeper backend semantics live
 | `list` | **Inventory** — what seckit knows about, redacted by default |
 | `explain` | **Inspect** — one entry’s resolved metadata (secret not materialized by default) |
 | `get` | **Retrieve** — redacted unless you opt into **`--raw`** |
-| `export` | **Materialize** — bulk plaintext (or encrypted backup format) for chosen scope |
-| `run` | **Inject** — runtime-scoped materialization into a child process environment |
+| `export` | **Exported materialization** — bulk plaintext or an **externalized artifact** (short- or long-lived, depending on how you handle output) |
+| `run` | **Inject** — use canonical wording: *Injection is a runtime-scoped materialization path that transfers plaintext into another execution context.* Environment variables may propagate via inheritance unless constrained. |
 | `recover` | **Rebuild** slim registry / index state from the live store when needed |
 | `backend-index` | **Diagnostics** — decrypt-safe view of the store index, not secrets |
 
@@ -22,8 +22,13 @@ This page is the short mental model for operators. Deeper backend semantics live
 | Term | Meaning |
 |------|--------|
 | **Resolve** | Obtain **authoritative** entry data **inside** the tool (metadata + secret bytes if the operation requires them). |
-| **Materialize** (verb) | **Expose** secret **plaintext** outside protected authority handling (terminal output, env injection, export files, child runtime, etc.). Still **exposure** even when nothing is printed to the operator’s screen. |
+| **Materialize** (verb) | **Expose** secret **plaintext** outside **protected authority handling** (terminal output, env injection, export files, child runtime, etc.). Local-only exposure still counts. |
 | **Materialization** (noun) | Any path that moves plaintext out of protected handling. Use **materialize** as the verb and **materialization** as the noun in prose. |
+| **Materialize vs persist** | Materialization does **not** imply persistence. **Exported** paths create an **externalized artifact**, which may be transient or persistent depending on transport/storage. |
+
+**Exposure levels** (index-only, resolved-within-handling, materialized, injected, exported) in the ADR are **descriptive** operational labels — not formal security tiers without a separate policy framework.
+
+**Implicit guard:** helpers, `repr`, log formatters, and tracebacks must not **implicitly** surface plaintext off explicit materialization paths.
 
 **Examples:**
 

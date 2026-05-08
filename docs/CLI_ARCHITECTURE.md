@@ -1,9 +1,9 @@
 # CLI architecture — Secrets Kit
 
 **Created**: 2026-05-07  
-**Updated**: 2026-05-07
+**Updated**: 2026-05-05
 
-How the `seckit` CLI relates to **registry**, **backends**, **safe index**, **authority**, and **materialization**. This is operator-facing architecture, not Python module layout. Parser code is split into `cli_parser.py`, `cli_help.py`, and `cli_groups.py`; handlers remain in `cli.py`.
+How the `seckit` CLI relates to **registry**, **backends**, **safe index**, **authority**, and **materialization**. This is operator-facing architecture, not Python module layout. Parser code is split into `cli_parser.py`, `cli_help.py`, and `cli_groups.py`; handlers remain in `cli.py`. Normative terms: [RUNTIME_AUTHORITY_ADR.md](RUNTIME_AUTHORITY_ADR.md).
 
 ## Authority vs slim index
 
@@ -33,6 +33,10 @@ Canonical semantics: [METADATA_SEMANTICS_ADR.md](METADATA_SEMANTICS_ADR.md).
 - **`get --raw`**, **`export`**, and **`run`** are **materialization** paths and must be explicit.
 - **`explain`** resolves **without** materializing the secret into normal stdout.
 
+## Future daemons / machine APIs
+
+No background daemon ships in this repo today. If a future `seckit` API or daemon appears, it **must reuse** the ADR meanings of **resolve**, **materialize**, **inject**, and **exported** — extending transport only, not redefining those terms. Prefer **local-first** authority; **no implicit remote trust** for secret material. Placeholder **lease**, **policy**, and **audit** stories remain **out of scope** until specified. See [RUNTIME_AUTHORITY_ADR.md](RUNTIME_AUTHORITY_ADR.md).
+
 ## Future command hierarchy
 
 If commands are regrouped (e.g. `seckit backend unlock`):
@@ -46,5 +50,6 @@ Shared argparse helpers **must not** force **identical semantics** across comman
 ## Related docs
 
 - [CONCEPTS.md](CONCEPTS.md) — mental model and resolve vs materialize  
+- [RUNTIME_AUTHORITY_ADR.md](RUNTIME_AUTHORITY_ADR.md) — protected authority handling and crossings  
 - [CLI_REFERENCE.md](CLI_REFERENCE.md) — per-command reference  
 - [CLI_STYLE_GUIDE.md](CLI_STYLE_GUIDE.md) — help wording, JSON stability, errors  
