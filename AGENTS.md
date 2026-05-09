@@ -1,9 +1,16 @@
 # AGENTS.md — Secrets-Kit
 
 **Created**: 2026-05-02  
-**Updated**: 2026-05-09
+**Updated**: 2026-05-10
 
 Guidance for humans and coding agents working in this repository.
+
+## Publishing and git discipline
+
+- **Ship only when it is demonstrably whole.** A known-good release (for example **v1.2.0**) is the bar: new work should reach **tests green**, **CLI smoke OK**, and **operator workflows** you care about before anything is treated as publishable.
+- **Local commits are normal; public history is not a scratch pad.** Many incremental or experimental commits are fine **on your machine**. **Do not `git push`** (and do not ask the maintainer to push) until the tree is in a state they are willing to stand behind—half-working snapshots reflect badly on the project and its authors.
+- **Agents must not push.** Coding agents: **never** run `git push`, change `origin`, or open PRs that imply publishing unless the human **explicitly** asks for that step.
+- **Before a push or tag:** Remove or relocate anything that must not ship, squash or reorganize history if desired, bump version and changelog deliberately, and re-run the full test command above.
 
 ## Environment
 
