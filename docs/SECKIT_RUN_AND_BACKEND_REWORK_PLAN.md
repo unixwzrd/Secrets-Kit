@@ -53,8 +53,8 @@ seckit run --service <service> --account <account> -- command --with --args
 - `seckit run` is already implemented as a subcommand.
 - `seckit run` already resolves secrets in the parent process and launches the child with `os.execvpe`.
 - Tests already cover basic env injection, missing command handling, and explicit error messages when a selected secret cannot be read.
-- `src/secrets_kit/native_helper.py` has been restored so CLI/backend/helper tests import cleanly.
-- The macOS `security` CLI is currently mixed directly into `keychain_backend.py`.
+- Helper / version JSON for availability lives in `src/secrets_kit/utils/helper_status.py` (no bundled native binary).
+- The macOS `security` CLI is currently mixed directly into `src/secrets_kit/backends/security.py`.
 - Documentation still emphasizes `export` in several places where `run` should become the safer recommendation for launching a process.
 - Service-level secret injection should be easy: `--names` should be optional, and by default `run` should inject the selected service/account scope.
 - Operators need a way to duplicate one service scope into another, then override the values that should differ.
