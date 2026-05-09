@@ -15,9 +15,9 @@ from importlib.metadata import version as package_version
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
-from secrets_kit.native_helper import helper_status
-from secrets_kit.crypto import CryptoUnavailable, build_plain_export, decrypt_payload, encrypt_payload, ensure_crypto_available
-from secrets_kit.exporters import export_dotenv_placeholders, export_shell_lines
+from secrets_kit.utils.helper_status import helper_status
+from secrets_kit.utils.crypto import CryptoUnavailable, build_plain_export, decrypt_payload, encrypt_payload, ensure_crypto_available
+from secrets_kit.utils.exporters import export_dotenv_placeholders, export_shell_lines
 from secrets_kit.importers import (
     ImportCandidate,
     candidates_from_dotenv,
@@ -25,7 +25,7 @@ from secrets_kit.importers import (
     candidates_from_file,
     read_dotenv,
 )
-from secrets_kit.keychain_backend import (
+from secrets_kit.backends.security import (
     BACKEND_CHOICES,
     BACKEND_SECURE,
     BackendError,
@@ -49,9 +49,9 @@ from secrets_kit.keychain_backend import (
     set_secret,
     unlock_keychain,
 )
-from secrets_kit.recover_sources import iter_recover_candidates
-from secrets_kit.sqlite_backend import default_sqlite_db_path
-from secrets_kit.models import (
+from secrets_kit.recovery.recover_sources import iter_recover_candidates
+from secrets_kit.backends.sqlite import default_sqlite_db_path
+from secrets_kit.models.core import (
     ENTRY_KIND_VALUES,
     METADATA_SCHEMA_VERSION,
     EntryMetadata,
@@ -82,7 +82,7 @@ _CONFIG_STORABLE_KEYS: frozenset[str] = frozenset(
 )
 
 
-from secrets_kit.registry import (
+from secrets_kit.registry.core import (
     RegistryError,
     delete_metadata,
     defaults_path,
@@ -95,7 +95,7 @@ from secrets_kit.registry import (
     save_defaults,
     upsert_metadata,
 )
-from secrets_kit.identity import (
+from secrets_kit.identity.core import (
     IdentityError,
     export_public_identity,
     identity_dir,
@@ -103,8 +103,8 @@ from secrets_kit.identity import (
     init_identity,
     load_identity,
 )
-from secrets_kit.peers import add_peer_from_file, get_peer, list_peers, remove_peer
-from secrets_kit.sync_bundle import (
+from secrets_kit.identity.peers import add_peer_from_file, get_peer, list_peers, remove_peer
+from secrets_kit.sync.bundle import (
     SyncBundleError,
     build_bundle,
     decrypt_bundle_for_recipient,
@@ -112,8 +112,8 @@ from secrets_kit.sync_bundle import (
     parse_bundle_file,
     verify_bundle_structure,
 )
-from secrets_kit.sync_merge import apply_peer_sync_import, effective_origin_host
-from secrets_kit.cli_parser import build_parser
+from secrets_kit.sync.merge import apply_peer_sync_import, effective_origin_host
+from secrets_kit.cli.parser.base import build_parser
 
 
 def _fatal(*, message: str, code: int = 2) -> int:
@@ -755,7 +755,7 @@ def _read_metadata(
     ):
         res_store = None
         try:
-            from secrets_kit.backend_store import resolve_backend_store
+            from secrets_kit.backends.base import resolve_backend_store
 
             store = resolve_backend_store(backend=backend, path=path, kek_keychain_path=kek_keychain_path)
             resolved = store.resolve_by_locator(service=service, account=account, name=name)
@@ -1778,7 +1778,7 @@ def cmd_doctor(*, args: argparse.Namespace) -> int:
         status["entries_using_registry_fallback"] = fallback
         status["rotation_warnings"] = warnings
         if is_sqlite_backend(backend):
-            from secrets_kit.sqlite_backend import SqliteSecretStore
+            from secrets_kit.backends.sqlite import SqliteSecretStore
 
             spath = _store_path(args)
             if spath:
@@ -1786,7 +1786,7 @@ def cmd_doctor(*, args: argparse.Namespace) -> int:
                 status["backend_security_posture"] = asdict(st.security_posture())
                 status["backend_capabilities"] = {**asdict(st.capabilities())}
         elif is_secure_backend(backend):
-            from secrets_kit.keychain_backend_store import KeychainBackendStore
+            from secrets_kit.backends.security_store import KeychainBackendStore
 
             st = KeychainBackendStore(path=_keychain_arg(args))
             status["backend_security_posture"] = asdict(st.security_posture())
@@ -1802,9 +1802,9 @@ def cmd_doctor(*, args: argparse.Namespace) -> int:
 
 
 def cmd_backend_index(*, args: argparse.Namespace) -> int:
-    """Emit decrypt-free :class:`~secrets_kit.backend_store.IndexRow` records, JSON lines."""
+    """Emit decrypt-free :class:`~secrets_kit.backends.base.IndexRow` records, JSON lines."""
     try:
-        from secrets_kit.backend_store import resolve_backend_store
+        from secrets_kit.backends.base import resolve_backend_store
 
         store = resolve_backend_store(
             backend=_backend_arg(args),
@@ -1821,7 +1821,7 @@ def cmd_backend_index(*, args: argparse.Namespace) -> int:
 def cmd_rebuild_index(*, args: argparse.Namespace) -> int:
     """Rebuild decrypt-free index fields from authority (SQLite); Keychain no-op."""
     try:
-        from secrets_kit.backend_store import resolve_backend_store
+        from secrets_kit.backends.base import resolve_backend_store
 
         store = resolve_backend_store(
             backend=_backend_arg(args),
@@ -1838,7 +1838,7 @@ def cmd_rebuild_index(*, args: argparse.Namespace) -> int:
 def cmd_journal_append(*, args: argparse.Namespace) -> int:
     """Append one JSON object to ``registry_events.jsonl``."""
     try:
-        from secrets_kit.registry_journal import append_journal_event
+        from secrets_kit.registry.journal import append_journal_event
 
         raw = getattr(args, "event_json", "") or ""
         evt = json.loads(raw)

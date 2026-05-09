@@ -68,7 +68,7 @@ else
   build_one "default python3" python3
 fi
 
-echo "==> sdist (source; no bundled binary in tarball beyond README under native_helper_bundled/)"
+echo "==> sdist (source; Python-only package)"
 python3 -m build -s -n --outdir "$ROOT/dist"
 
 echo

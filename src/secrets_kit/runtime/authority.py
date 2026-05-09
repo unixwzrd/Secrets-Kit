@@ -3,8 +3,8 @@
 This module exists to reduce drift between docs and code. It does **not** define a stable
 public API for daemons, IPC, caching, or lease enforcement.
 
-**Do not** use :class:`RuntimeAccessResult` as a return type for :class:`~secrets_kit.backend_store.BackendStore`
-methods; :class:`~secrets_kit.backend_store.ResolvedEntry` remains the resolve primitive.
+**Do not** use :class:`RuntimeAccessResult` as a return type for :class:`~secrets_kit.backends.base.BackendStore`
+methods; :class:`~secrets_kit.backends.base.ResolvedEntry` remains the resolve primitive.
 """
 
 from __future__ import annotations
@@ -58,8 +58,8 @@ class RuntimeLease:
 class RuntimeAccessResult:
     """Informational snapshot for docs/diagrams — not an API or IPC contract.
 
-    Must not be used as a return type for :meth:`~secrets_kit.backend_store.BackendStore.resolve_by_entry_id`,
-    :meth:`~secrets_kit.backend_store.BackendStore.resolve_by_locator`, or related store methods.
+    Must not be used as a return type for :meth:`~secrets_kit.backends.base.BackendStore.resolve_by_entry_id`,
+    :meth:`~secrets_kit.backends.base.BackendStore.resolve_by_locator`, or related store methods.
     Does not imply caching, lease validity, or cross-process semantics.
     """
 
@@ -87,8 +87,8 @@ BACKEND_INTERFACE_EXPOSURE: Dict[str, RuntimeExposureLevel] = {
 
 
 def _abstract_backend_method_names() -> frozenset[str]:
-    """Return abstract method names defined on :class:`~secrets_kit.backend_store.BackendStore`."""
-    from secrets_kit.backend_store import BackendStore
+    """Return abstract method names defined on :class:`~secrets_kit.backends.base.BackendStore`."""
+    from secrets_kit.backends.base import BackendStore
 
     return frozenset(getattr(BackendStore, "__abstractmethods__", frozenset()))
 

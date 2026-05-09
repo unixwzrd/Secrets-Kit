@@ -11,7 +11,7 @@ import subprocess
 from dataclasses import dataclass
 from typing import Iterator, List, Optional
 
-from secrets_kit.keychain_backend import BackendError
+from secrets_kit.backends.security import BackendError
 
 
 @dataclass(frozen=True)

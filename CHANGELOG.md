@@ -1,10 +1,15 @@
 # Secrets-Kit Changelog
 
 **Created**: 2026-03-10  
-**Updated**: 2026-05-08
+**Updated**: 2026-05-09
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+### 2026-05-09 — Phase 1: subpackage layout (`models/`, `backends/`, `cli/`, etc.)
+
+- **Scope:** Mechanical `git mv` of flat `src/secrets_kit/*.py` into subpackages; import path updates in `src/`, `tests/`, `docs/METADATA_REGISTRY.md`, `pyproject.toml` (`secrets_kit.cli.main:main`), `scripts/package_release_wheels.sh`, [docs/IMPORT_LAYER_RULES.md](docs/IMPORT_LAYER_RULES.md), `CHANGELOG.md`, `AGENTS.md`.
+- **What changed:** Code lives under `secrets_kit/models/core.py`, `registry/core.py`, `identity/core.py`, `backends/*.py`, `cli/main.py`, `utils/helper_status.py` (verbatim from removed `native_helper.py`), `sync/`, `runtime/`, `recovery/`; top-level **`importers.py` unchanged**. **`native_helper.py`** and **`native_helper_bundled/`** removed; **`[tool.setuptools.package-data]`** dropped. Console scripts and **`python -m secrets_kit.cli`** unchanged for operators. Behavior and public symbol names are unchanged aside from module paths.
 
 ### 2026-05-08 — Runtime session + IPC semantics ADRs, documentary runtime_ipc
 

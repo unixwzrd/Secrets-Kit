@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from secrets_kit.exporters import export_shell_lines
+from secrets_kit.utils.exporters import export_shell_lines
 
 
 class ExportShellTest(unittest.TestCase):

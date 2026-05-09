@@ -7,8 +7,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from secrets_kit.identity import init_identity, load_identity
-from secrets_kit.sync_bundle import (
+from secrets_kit.identity.core import init_identity, load_identity
+from secrets_kit.sync.bundle import (
     SyncBundleError,
     build_bundle,
     decrypt_bundle_for_recipient,

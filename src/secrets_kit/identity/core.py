@@ -15,7 +15,7 @@ from typing import Any, Dict, Optional
 import nacl.public
 import nacl.signing
 
-from secrets_kit.registry import registry_dir
+from secrets_kit.registry.core import registry_dir
 
 IDENTITY_PUBLIC_FORMAT = "seckit.identity_public"
 IDENTITY_SECRET_VERSION = 1

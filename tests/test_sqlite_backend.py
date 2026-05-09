@@ -5,9 +5,9 @@ import os
 import tempfile
 import unittest
 
-from secrets_kit.keychain_backend import BACKEND_SQLITE, BackendError, get_secret, resolve_secret_store, set_secret
+from secrets_kit.backends.security import BACKEND_SQLITE, BackendError, get_secret, resolve_secret_store, set_secret
 
-# Importing secrets_kit.sqlite_backend requires PyNaCl; keep collection working without it.
+# Importing secrets_kit.backends.sqlite requires PyNaCl; keep collection working without it.
 if importlib.util.find_spec("nacl") is None:
 
     class SqliteBackendTest(unittest.TestCase):
@@ -15,7 +15,7 @@ if importlib.util.find_spec("nacl") is None:
             self.skipTest("Install project dependencies to run SQLite backend tests (pip install -e .)")
 
 else:
-    from secrets_kit.sqlite_backend import SqliteSecretStore, clear_sqlite_crypto_cache, default_sqlite_db_path, iter_secrets_plaintext_index
+    from secrets_kit.backends.sqlite import SqliteSecretStore, clear_sqlite_crypto_cache, default_sqlite_db_path, iter_secrets_plaintext_index
 
     class SqliteBackendTest(unittest.TestCase):
         def setUp(self) -> None:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from secrets_kit.registry_v2 import (
+from secrets_kit.registry.v2 import (
     REGISTRY_FORMAT_VERSION_V2,
     RegistryIndexEntryV2,
     name_hash_hex,

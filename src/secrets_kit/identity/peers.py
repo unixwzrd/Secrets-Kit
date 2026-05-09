@@ -14,9 +14,9 @@ from typing import Any, Dict, List, Optional
 import nacl.public
 import nacl.signing
 
-from secrets_kit.identity import fingerprint_from_verify_key, load_identity_public_file
-from secrets_kit.models import now_utc_iso
-from secrets_kit.registry import RegistryError, registry_dir
+from secrets_kit.identity.core import fingerprint_from_verify_key, load_identity_public_file
+from secrets_kit.models.core import now_utc_iso
+from secrets_kit.registry.core import RegistryError, registry_dir
 
 PEERS_FILE_VERSION = 1
 

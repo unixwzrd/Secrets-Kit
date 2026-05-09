@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import argparse
 
-from secrets_kit.cli_groups import HELP_DB, HELP_KEYCHAIN_OVERRIDE, make_common_parent
-from secrets_kit.cli_help import CONFIG_COMMAND_DESCRIPTION, MAIN_HELP_EPILOG, SeckitHelpFormatter
-from secrets_kit.keychain_backend import BACKEND_CHOICES
-from secrets_kit.models import ENTRY_KIND_VALUES
+from secrets_kit.cli.parser.groups import HELP_DB, HELP_KEYCHAIN_OVERRIDE, make_common_parent
+from secrets_kit.cli.help.formatter import CONFIG_COMMAND_DESCRIPTION, MAIN_HELP_EPILOG, SeckitHelpFormatter
+from secrets_kit.backends.security import BACKEND_CHOICES
+from secrets_kit.models.core import ENTRY_KIND_VALUES
 
 
 def build_parser() -> argparse.ArgumentParser:
     """Construct CLI parser. Lazy-imports cli handlers to avoid import cycles."""
-    import secrets_kit.cli as cli
+    import secrets_kit.cli.main as cli
 
     parser = argparse.ArgumentParser(
         prog="seckit",

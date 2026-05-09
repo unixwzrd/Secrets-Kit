@@ -1,10 +1,10 @@
 """Optional append-only operator log adjacent to ``registry.json``.
 
 The journal is **operational convenience only** and **must never be treated as authoritative state**
-(authority lives in :class:`~secrets_kit.backend_store.BackendStore`; ``registry.json`` is a slim index).
+(authority lives in :class:`~secrets_kit.backends.base.BackendStore`; ``registry.json`` is a slim index).
 
 Events are JSON lines written to ``registry_events.jsonl``. Sync and merge stay on the
-:class:`~secrets_kit.backend_store.BackendStore` protocol; this file is for audit and future
+:class:`~secrets_kit.backends.base.BackendStore` protocol; this file is for audit and future
 registry v2 journaling without changing secret storage layouts.
 """
 
@@ -14,7 +14,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from secrets_kit.registry import registry_dir
+from secrets_kit.registry.core import registry_dir
 
 
 def journal_path(*, home: Optional[Path] = None) -> Path:

@@ -9,8 +9,8 @@ import unittest
 from unittest import mock
 from contextlib import redirect_stdout, redirect_stderr
 
-from secrets_kit.keychain_inventory import GenpCandidate
-from secrets_kit.cli import (
+from secrets_kit.backends.inventory import GenpCandidate
+from secrets_kit.cli.main import (
     _apply_defaults,
     _cli_version,
     _read_password,
@@ -186,14 +186,14 @@ class CliCommandsTest(unittest.TestCase):
             out = io.StringIO()
             err = io.StringIO()
             with mock.patch.object(Path, "home", return_value=Path(tmp)), \
-                mock.patch("secrets_kit.cli.check_security_cli", return_value=True), \
-                mock.patch("secrets_kit.cli.ensure_registry_storage", return_value=f"{tmp}/registry.json"), \
-                mock.patch("secrets_kit.cli.doctor_roundtrip", return_value=None), \
-                mock.patch("secrets_kit.cli.load_registry") as load_registry_mock, \
-                mock.patch("secrets_kit.cli.secret_exists", return_value=False), \
+                mock.patch("secrets_kit.cli.main.check_security_cli", return_value=True), \
+                mock.patch("secrets_kit.cli.main.ensure_registry_storage", return_value=f"{tmp}/registry.json"), \
+                mock.patch("secrets_kit.cli.main.doctor_roundtrip", return_value=None), \
+                mock.patch("secrets_kit.cli.main.load_registry") as load_registry_mock, \
+                mock.patch("secrets_kit.cli.main.secret_exists", return_value=False), \
                 redirect_stdout(out), \
                 redirect_stderr(err):
-                from secrets_kit.models import EntryMetadata
+                from secrets_kit.models.core import EntryMetadata
 
                 load_registry_mock.return_value = {
                     key: EntryMetadata.from_dict(value) for key, value in fake_registry.items()
@@ -216,7 +216,7 @@ class CliCommandsTest(unittest.TestCase):
     def test_lock_dry_run_shows_backend_command(self) -> None:
         out = io.StringIO()
         err = io.StringIO()
-        with mock.patch("secrets_kit.cli.check_security_cli", return_value=True), \
+        with mock.patch("secrets_kit.cli.main.check_security_cli", return_value=True), \
             redirect_stdout(out), \
             redirect_stderr(err):
             code = cmd_lock(args=argparse.Namespace(keychain=None, dry_run=True, yes=False))
@@ -227,8 +227,8 @@ class CliCommandsTest(unittest.TestCase):
     def test_lock_runs_backend(self) -> None:
         out = io.StringIO()
         err = io.StringIO()
-        with mock.patch("secrets_kit.cli.check_security_cli", return_value=True), \
-            mock.patch("secrets_kit.cli.lock_keychain", return_value="/tmp/login.keychain-db"), \
+        with mock.patch("secrets_kit.cli.main.check_security_cli", return_value=True), \
+            mock.patch("secrets_kit.cli.main.lock_keychain", return_value="/tmp/login.keychain-db"), \
             redirect_stdout(out), \
             redirect_stderr(err):
             code = cmd_lock(args=argparse.Namespace(keychain="/tmp/login.keychain-db", dry_run=False, yes=True))
@@ -397,9 +397,9 @@ class CliCommandsTest(unittest.TestCase):
             rotation_days=None,
             rotation_warn_days=None,
         )
-        with mock.patch("secrets_kit.cli.iter_recover_candidates", side_effect=_iter), \
-            mock.patch("secrets_kit.cli.secret_exists", return_value=True), \
-            mock.patch("secrets_kit.cli.check_security_cli", return_value=True):
+        with mock.patch("secrets_kit.cli.main.iter_recover_candidates", side_effect=_iter), \
+            mock.patch("secrets_kit.cli.main.secret_exists", return_value=True), \
+            mock.patch("secrets_kit.cli.main.check_security_cli", return_value=True):
             buf = io.StringIO()
             with redirect_stdout(buf):
                 code = cmd_recover_registry(args=args)
@@ -476,9 +476,9 @@ class CliCommandsTest(unittest.TestCase):
             keychain="/tmp/test.keychain-db",
         )
         fake_meta = mock.Mock(entry_type="secret", entry_kind="api_key", to_keychain_comment=mock.Mock(return_value="{}"))
-        with mock.patch("secrets_kit.cli._build_metadata", return_value=fake_meta), \
-            mock.patch("secrets_kit.cli.set_secret") as set_secret_mock, \
-            mock.patch("secrets_kit.cli.upsert_metadata"):
+        with mock.patch("secrets_kit.cli.main._build_metadata", return_value=fake_meta), \
+            mock.patch("secrets_kit.cli.main.set_secret") as set_secret_mock, \
+            mock.patch("secrets_kit.cli.main.upsert_metadata"):
             code = cmd_set(args=args)
         self.assertEqual(code, 0)
         set_secret_mock.assert_called_once()
@@ -493,8 +493,8 @@ class CliCommandsTest(unittest.TestCase):
             keychain="/tmp/test.keychain-db",
         )
         out = io.StringIO()
-        with mock.patch("secrets_kit.cli.get_secret", return_value="secret") as get_secret_mock, \
-            mock.patch("secrets_kit.cli._read_metadata", return_value=None), \
+        with mock.patch("secrets_kit.cli.main.get_secret", return_value="secret") as get_secret_mock, \
+            mock.patch("secrets_kit.cli.main._read_metadata", return_value=None), \
             redirect_stdout(out):
             code = cmd_get(args=args)
         self.assertEqual(code, 0)
@@ -509,8 +509,8 @@ class CliCommandsTest(unittest.TestCase):
             account="local",
             keychain="/tmp/test.keychain-db",
         )
-        with mock.patch("secrets_kit.cli.delete_secret") as delete_secret_mock, \
-            mock.patch("secrets_kit.cli.delete_metadata", return_value=True), \
+        with mock.patch("secrets_kit.cli.main.delete_secret") as delete_secret_mock, \
+            mock.patch("secrets_kit.cli.main.delete_metadata", return_value=True), \
             redirect_stdout(io.StringIO()):
             code = cmd_delete(args=args)
         self.assertEqual(code, 0)
@@ -519,11 +519,11 @@ class CliCommandsTest(unittest.TestCase):
     def test_doctor_passes_keychain_path(self) -> None:
         out = io.StringIO()
         err = io.StringIO()
-        with mock.patch("secrets_kit.cli.check_security_cli", return_value=True), \
-            mock.patch("secrets_kit.cli.ensure_registry_storage", return_value="/tmp/registry.json"), \
-            mock.patch("secrets_kit.cli.ensure_defaults_storage", return_value="/tmp/defaults.json"), \
-            mock.patch("secrets_kit.cli.doctor_roundtrip") as doctor_roundtrip_mock, \
-            mock.patch("secrets_kit.cli.load_registry", return_value={}), \
+        with mock.patch("secrets_kit.cli.main.check_security_cli", return_value=True), \
+            mock.patch("secrets_kit.cli.main.ensure_registry_storage", return_value="/tmp/registry.json"), \
+            mock.patch("secrets_kit.cli.main.ensure_defaults_storage", return_value="/tmp/defaults.json"), \
+            mock.patch("secrets_kit.cli.main.doctor_roundtrip") as doctor_roundtrip_mock, \
+            mock.patch("secrets_kit.cli.main.load_registry", return_value={}), \
             redirect_stdout(out), \
             redirect_stderr(err):
             code = cmd_doctor(args=argparse.Namespace(keychain="/tmp/test.keychain-db"))
@@ -531,7 +531,7 @@ class CliCommandsTest(unittest.TestCase):
         self.assertEqual(doctor_roundtrip_mock.call_args.kwargs["path"], "/tmp/test.keychain-db")
 
     def test_run_injects_selected_secrets_and_execs_child(self) -> None:
-        from secrets_kit.models import EntryMetadata
+        from secrets_kit.models.core import EntryMetadata
 
         args = argparse.Namespace(
             service="openclaw",
@@ -562,16 +562,16 @@ class CliCommandsTest(unittest.TestCase):
             source="manual",
         )
 
-        with mock.patch("secrets_kit.cli.load_registry", return_value={}), \
+        with mock.patch("secrets_kit.cli.main.load_registry", return_value={}), \
             mock.patch(
-                "secrets_kit.cli._read_metadata",
+                "secrets_kit.cli.main._read_metadata",
                 side_effect=[
                     {"metadata": openai_meta},
                     {"metadata": telegram_meta},
                 ],
             ), \
-            mock.patch("secrets_kit.cli.get_secret", side_effect=["sk-openai", "bot-token"]), \
-            mock.patch("secrets_kit.cli._exec_child", return_value=0) as exec_mock:
+            mock.patch("secrets_kit.cli.main.get_secret", side_effect=["sk-openai", "bot-token"]), \
+            mock.patch("secrets_kit.cli.main._exec_child", return_value=0) as exec_mock:
             code = cmd_run(args=args)
 
         self.assertEqual(code, 0)
@@ -582,7 +582,7 @@ class CliCommandsTest(unittest.TestCase):
         self.assertEqual(injected_env["TELEGRAM_BOT_TOKEN"], "bot-token")
 
     def test_run_without_names_injects_service_scope(self) -> None:
-        from secrets_kit.models import EntryMetadata
+        from secrets_kit.models.core import EntryMetadata
 
         args = argparse.Namespace(
             service="openclaw",
@@ -604,16 +604,16 @@ class CliCommandsTest(unittest.TestCase):
             entry_kind="api_key",
             source="manual",
         )
-        with mock.patch("secrets_kit.cli._select_entries", return_value=[meta]) as select_mock, \
-            mock.patch("secrets_kit.cli.get_secret", return_value="sk-openai"), \
-            mock.patch("secrets_kit.cli._exec_child", return_value=0) as exec_mock:
+        with mock.patch("secrets_kit.cli.main._select_entries", return_value=[meta]) as select_mock, \
+            mock.patch("secrets_kit.cli.main.get_secret", return_value="sk-openai"), \
+            mock.patch("secrets_kit.cli.main._exec_child", return_value=0) as exec_mock:
             code = cmd_run(args=args)
         self.assertEqual(code, 0)
         self.assertFalse(select_mock.call_args.kwargs["require_explicit_selection"])
         self.assertEqual(exec_mock.call_args.kwargs["env"]["OPENAI_API_KEY"], "sk-openai")
 
     def test_service_copy_skips_existing_by_default(self) -> None:
-        from secrets_kit.models import EntryMetadata
+        from secrets_kit.models.core import EntryMetadata
 
         meta = EntryMetadata(
             name="OPENAI_API_KEY",
@@ -638,10 +638,10 @@ class CliCommandsTest(unittest.TestCase):
             backend="local",
         )
         out = io.StringIO()
-        with mock.patch("secrets_kit.cli._select_entries", return_value=[meta]), \
-            mock.patch("secrets_kit.cli.get_secret", return_value="sk-openai"), \
-            mock.patch("secrets_kit.cli.secret_exists", return_value=True), \
-            mock.patch("secrets_kit.cli.set_secret") as set_secret_mock, \
+        with mock.patch("secrets_kit.cli.main._select_entries", return_value=[meta]), \
+            mock.patch("secrets_kit.cli.main.get_secret", return_value="sk-openai"), \
+            mock.patch("secrets_kit.cli.main.secret_exists", return_value=True), \
+            mock.patch("secrets_kit.cli.main.set_secret") as set_secret_mock, \
             redirect_stdout(out):
             code = cmd_service_copy(args=args)
         self.assertEqual(code, 0)
@@ -669,7 +669,7 @@ class CliCommandsTest(unittest.TestCase):
                 yes=True,
             )
             out = io.StringIO()
-            with mock.patch("secrets_kit.cli._apply_candidates", return_value={"created": 0, "updated": 1, "skipped": 0, "unchanged": 0}) as apply_mock, \
+            with mock.patch("secrets_kit.cli.main._apply_candidates", return_value={"created": 0, "updated": 1, "skipped": 0, "unchanged": 0}) as apply_mock, \
                 redirect_stdout(out):
                 code = cmd_import_env(args=args)
         self.assertEqual(code, 0)
@@ -695,8 +695,8 @@ class CliCommandsTest(unittest.TestCase):
         self.assertIn("run requires a target command", err.getvalue())
 
     def test_run_reports_which_secret_failed_to_read(self) -> None:
-        from secrets_kit.keychain_backend import BackendError
-        from secrets_kit.models import EntryMetadata
+        from secrets_kit.backends.security import BackendError
+        from secrets_kit.models.core import EntryMetadata
 
         args = argparse.Namespace(
             service="openclaw",
@@ -719,9 +719,9 @@ class CliCommandsTest(unittest.TestCase):
             source="manual",
         )
         err = io.StringIO()
-        with mock.patch("secrets_kit.cli.load_registry", return_value={}), \
-            mock.patch("secrets_kit.cli._read_metadata", return_value={"metadata": apple_meta}), \
-            mock.patch("secrets_kit.cli.get_secret", side_effect=BackendError("security find-generic-password failed")), \
+        with mock.patch("secrets_kit.cli.main.load_registry", return_value={}), \
+            mock.patch("secrets_kit.cli.main._read_metadata", return_value={"metadata": apple_meta}), \
+            mock.patch("secrets_kit.cli.main.get_secret", side_effect=BackendError("security find-generic-password failed")), \
             redirect_stderr(err):
             code = cmd_run(args=args)
 
@@ -731,9 +731,9 @@ class CliCommandsTest(unittest.TestCase):
         self.assertIn("--names/--tag", err.getvalue())
 
     def test_read_metadata_falls_back_to_registry_when_keychain_metadata_read_fails(self) -> None:
-        from secrets_kit.cli import _read_metadata
-        from secrets_kit.keychain_backend import BackendError
-        from secrets_kit.models import EntryMetadata
+        from secrets_kit.cli.main import _read_metadata
+        from secrets_kit.backends.security import BackendError
+        from secrets_kit.models.core import EntryMetadata
 
         registry_entry = EntryMetadata(
             name="APPLE_APP_PASSWORD",
@@ -745,8 +745,8 @@ class CliCommandsTest(unittest.TestCase):
         )
         registry = {registry_entry.key(): registry_entry}
 
-        with mock.patch("secrets_kit.cli.secret_exists", return_value=True), \
-            mock.patch("secrets_kit.cli.get_secret_metadata", side_effect=BackendError("metadata denied")):
+        with mock.patch("secrets_kit.cli.main.secret_exists", return_value=True), \
+            mock.patch("secrets_kit.cli.main.get_secret_metadata", side_effect=BackendError("metadata denied")):
             resolved = _read_metadata(
                 service="hermes",
                 account="miafour",
@@ -762,8 +762,8 @@ class CliCommandsTest(unittest.TestCase):
         self.assertEqual(resolved["keychain_fields"], {})
 
     def test_migrate_metadata_passes_keychain_path(self) -> None:
-        from secrets_kit.cli import cmd_migrate_metadata
-        from secrets_kit.models import EntryMetadata
+        from secrets_kit.cli.main import cmd_migrate_metadata
+        from secrets_kit.models.core import EntryMetadata
 
         registry = {
             "sync-test::local::OPENAI_API_KEY": EntryMetadata(
@@ -784,9 +784,9 @@ class CliCommandsTest(unittest.TestCase):
             backend="local",
         )
         out = io.StringIO()
-        with mock.patch("secrets_kit.cli.load_registry", return_value=registry), \
-            mock.patch("secrets_kit.cli.secret_exists", return_value=True) as secret_exists_mock, \
-            mock.patch("secrets_kit.cli._read_metadata", return_value=None) as read_metadata_mock, \
+        with mock.patch("secrets_kit.cli.main.load_registry", return_value=registry), \
+            mock.patch("secrets_kit.cli.main.secret_exists", return_value=True) as secret_exists_mock, \
+            mock.patch("secrets_kit.cli.main._read_metadata", return_value=None) as read_metadata_mock, \
             redirect_stdout(out):
             code = cmd_migrate_metadata(args=args)
         self.assertEqual(code, 0)
@@ -796,7 +796,7 @@ class CliCommandsTest(unittest.TestCase):
     def test_helper_status_command_prints_json(self) -> None:
         out = io.StringIO()
         payload = {"backend_availability": {"local": True, "secure": True, "sqlite": False}}
-        with mock.patch("secrets_kit.cli.helper_status", return_value=payload), redirect_stdout(out):
+        with mock.patch("secrets_kit.cli.main.helper_status", return_value=payload), redirect_stdout(out):
             code = cmd_helper_status(args=argparse.Namespace())
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(out.getvalue()), payload)
@@ -819,7 +819,7 @@ class CliCommandsTest(unittest.TestCase):
             "helper": {"installed": False, "path": None, "bundled_path": None},
         }
         out = io.StringIO()
-        with mock.patch("secrets_kit.cli._version_info_dict", return_value=fake), redirect_stdout(out):
+        with mock.patch("secrets_kit.cli.main._version_info_dict", return_value=fake), redirect_stdout(out):
             code = cmd_version(args=argparse.Namespace(version_info=False, version_json=True))
         self.assertEqual(code, 0)
         parsed = json.loads(out.getvalue())
@@ -838,7 +838,7 @@ class CliCommandsTest(unittest.TestCase):
             "helper": {"installed": False, "path": None, "bundled_path": None},
         }
         out = io.StringIO()
-        with mock.patch("secrets_kit.cli._version_info_dict", return_value=fake_data), redirect_stdout(out):
+        with mock.patch("secrets_kit.cli.main._version_info_dict", return_value=fake_data), redirect_stdout(out):
             code = cmd_version(args=argparse.Namespace(version_info=True, version_json=False))
         self.assertEqual(code, 0)
         self.assertIn("version: 1.0.0", out.getvalue())

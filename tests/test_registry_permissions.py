@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from secrets_kit.registry import defaults_path, ensure_defaults_storage, ensure_registry_storage, registry_dir, registry_path
+from secrets_kit.registry.core import defaults_path, ensure_defaults_storage, ensure_registry_storage, registry_dir, registry_path
 
 
 class RegistryPermissionsTest(unittest.TestCase):

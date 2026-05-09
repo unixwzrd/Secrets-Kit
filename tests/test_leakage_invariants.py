@@ -9,14 +9,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from secrets_kit.backend_store import resolve_backend_store
+from secrets_kit.backends.base import resolve_backend_store
 from tests.leakage_needles import LEAKAGE_NEEDLES
-from secrets_kit.keychain_backend import BACKEND_SQLITE
-from secrets_kit.locator import opaque_locator_hint
-from secrets_kit.models import EntryMetadata
+from secrets_kit.backends.security import BACKEND_SQLITE
+from secrets_kit.models.locator import opaque_locator_hint
+from secrets_kit.models.core import EntryMetadata
 
 if importlib.util.find_spec("nacl") is not None:
-    from secrets_kit.sqlite_backend import clear_sqlite_crypto_cache
+    from secrets_kit.backends.sqlite import clear_sqlite_crypto_cache
 else:
 
     def clear_sqlite_crypto_cache() -> None:  # pragma: no cover
@@ -127,7 +127,7 @@ class SqliteSafeIndexLeakageTest(unittest.TestCase):
         self.assertIn("backend_impl_version", dumped)
 
     def test_safe_surfaces_exclude_needles_in_repr_and_json(self) -> None:
-        from secrets_kit.backend_store import PAYLOAD_SCHEMA_VERSION, IndexRow
+        from secrets_kit.backends.base import PAYLOAD_SCHEMA_VERSION, IndexRow
 
         row = IndexRow(
             entry_id="550e8400-e29b-41d4-a716-446655440000",

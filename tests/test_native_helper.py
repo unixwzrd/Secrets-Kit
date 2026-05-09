@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from secrets_kit.native_helper import helper_status
+from secrets_kit.utils.helper_status import helper_status
 
 
 class NativeHelperStubTest(unittest.TestCase):

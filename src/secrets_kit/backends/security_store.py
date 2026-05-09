@@ -1,8 +1,8 @@
-"""Keychain :class:`~secrets_kit.backend_store.BackendStore` adapter (``security`` CLI).
+"""Keychain :class:`~secrets_kit.backends.base.BackendStore` adapter (``security`` CLI).
 
 Metadata today lives in the **generic-password comment** (structured JSON) alongside the
 secret — honest posture flags surface that comments are not encrypted. A future layout can
-store ciphertext elsewhere without changing :class:`~secrets_kit.backend_store.BackendStore`.
+store ciphertext elsewhere without changing :class:`~secrets_kit.backends.base.BackendStore`.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import uuid
 from dataclasses import replace
 from typing import Callable, Iterator, Optional
 
-from secrets_kit.backend_store import (
+from secrets_kit.backends.base import (
     INDEX_SCHEMA_VERSION,
     PAYLOAD_SCHEMA_VERSION,
     BackendCapabilities,
@@ -21,10 +21,10 @@ from secrets_kit.backend_store import (
     IndexRow,
     ResolvedEntry,
 )
-from secrets_kit.keychain_backend import BackendError, SecurityCliStore, keychain_path
-from secrets_kit.keychain_inventory import GenpCandidate, dump_keychain_text, iter_seckit_genp_candidates
-from secrets_kit.locator import locator_hash_hex, opaque_locator_hint
-from secrets_kit.models import EntryMetadata, Locator, ensure_entry_id, now_utc_iso
+from secrets_kit.backends.security import BackendError, SecurityCliStore, keychain_path
+from secrets_kit.backends.inventory import GenpCandidate, dump_keychain_text, iter_seckit_genp_candidates
+from secrets_kit.models.locator import locator_hash_hex, opaque_locator_hint
+from secrets_kit.models.core import EntryMetadata, Locator, ensure_entry_id, now_utc_iso
 
 # Temporary migration compatibility: extract UUID from comment without full JSON parse.
 # Must not become permanent architecture; see docs/METADATA_SEMANTICS_ADR.md.

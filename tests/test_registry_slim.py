@@ -7,8 +7,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from secrets_kit.models import EntryMetadata
-from secrets_kit.registry import (
+from secrets_kit.models.core import EntryMetadata
+from secrets_kit.registry.core import (
     REGISTRY_FILE_VERSION,
     LEGACY_REGISTRY_FILE_VERSION,
     ensure_registry_storage,

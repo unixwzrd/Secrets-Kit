@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from secrets_kit.keychain_backend import (
+from secrets_kit.backends.security import (
     BackendError,
     BACKEND_SECURE,
     get_secret,
@@ -26,14 +26,14 @@ class BackendResolutionTest(unittest.TestCase):
                 self.assertEqual(normalize_backend(legacy), BACKEND_SECURE)
 
     def test_normalize_backend_sqlite(self) -> None:
-        from secrets_kit.keychain_backend import BACKEND_SQLITE
+        from secrets_kit.backends.security import BACKEND_SQLITE
 
         self.assertEqual(normalize_backend("sqlite"), BACKEND_SQLITE)
 
     @unittest.skipUnless(importlib.util.find_spec("nacl") is not None, "requires PyNaCl")
     def test_resolve_sqlite_store(self) -> None:
-        from secrets_kit.keychain_backend import resolve_secret_store
-        from secrets_kit.sqlite_backend import SqliteSecretStore
+        from secrets_kit.backends.security import resolve_secret_store
+        from secrets_kit.backends.sqlite import SqliteSecretStore
 
         with tempfile.TemporaryDirectory() as d:
             db = os.path.join(d, "x.db")
@@ -46,8 +46,8 @@ class BackendResolutionTest(unittest.TestCase):
 
     @unittest.skipUnless(importlib.util.find_spec("nacl") is not None, "requires PyNaCl")
     def test_resolve_sqlite_store_with_explicit_kek_path(self) -> None:
-        from secrets_kit.keychain_backend import resolve_secret_store
-        from secrets_kit.sqlite_backend import SqliteSecretStore
+        from secrets_kit.backends.security import resolve_secret_store
+        from secrets_kit.backends.sqlite import SqliteSecretStore
 
         with tempfile.TemporaryDirectory() as d:
             db = os.path.join(d, "x.db")
@@ -59,7 +59,7 @@ class BackendResolutionTest(unittest.TestCase):
                 del os.environ["SECKIT_SQLITE_PASSPHRASE"]
 
     def test_local_backend_with_path_uses_security(self) -> None:
-        with mock.patch("secrets_kit.keychain_backend._run_security", return_value="secret") as run_security_mock:
+        with mock.patch("secrets_kit.backends.security._run_security", return_value="secret") as run_security_mock:
             value = get_secret(
                 service="sync-test",
                 account="local",
@@ -71,7 +71,7 @@ class BackendResolutionTest(unittest.TestCase):
         run_security_mock.assert_called_once()
 
     def test_local_backend_login_keychain_uses_security_only(self) -> None:
-        with mock.patch("secrets_kit.keychain_backend._run_security", return_value="") as run_security_mock:
+        with mock.patch("secrets_kit.backends.security._run_security", return_value="") as run_security_mock:
             set_secret(
                 service="sync-test",
                 account="local",

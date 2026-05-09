@@ -12,8 +12,8 @@ import tempfile
 import unittest
 from unittest import mock
 
-from secrets_kit.cli import cmd_export, cmd_get, cmd_import_env, cmd_set
-from secrets_kit.keychain_backend import delete_keychain, keychain_path, lock_keychain, make_temp_keychain
+from secrets_kit.cli.main import cmd_export, cmd_get, cmd_import_env, cmd_set
+from secrets_kit.backends.security import delete_keychain, keychain_path, lock_keychain, make_temp_keychain
 
 
 def _pythonpath_for_subprocess_hijacked_home(*, src_relative_to_repo: Path) -> str:

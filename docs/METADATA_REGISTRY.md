@@ -26,8 +26,8 @@ Registry path:
 
 ### Backend authority, ``entry_id``, and operator journal
 
-- **Transport model:** Application code should treat :class:`~secrets_kit.backend_store.BackendStore` and ``IndexRow`` as the abstraction; CLI helpers include **`seckit backend-index`** (decrypt-free index, JSON lines).
-- **Immutable sync identity:** Each :class:`~secrets_kit.models.EntryMetadata` may carry an **`entry_id`** (UUID) assigned on first persist when empty; the locator tuple ``service`` / ``account`` / ``name`` remains mutable (see **`seckit`** rename flows). Merge and tombstone rules are documented in [METADATA_SEMANTICS_ADR.md](METADATA_SEMANTICS_ADR.md).
+- **Transport model:** Application code should treat :class:`~secrets_kit.backends.base.BackendStore` and ``IndexRow`` as the abstraction; CLI helpers include **`seckit backend-index`** (decrypt-free index, JSON lines).
+- **Immutable sync identity:** Each :class:`~secrets_kit.models.core.EntryMetadata` may carry an **`entry_id`** (UUID) assigned on first persist when empty; the locator tuple ``service`` / ``account`` / ``name`` remains mutable (see **`seckit`** rename flows). Merge and tombstone rules are documented in [METADATA_SEMANTICS_ADR.md](METADATA_SEMANTICS_ADR.md).
 - **Optional audit log:** **`seckit journal append '<json-object>'`** appends one line to **`~/.config/seckit/registry_events.jsonl`** (non-authoritative; does not replace backend storage).
 
 ## Security posture
@@ -65,7 +65,7 @@ Top-level object:
 
 **Migration:** If `version` is `1`, the next load rewrites the file as v2 (fat fields are dropped; timestamps, `entry_id`, and peer sync origin are preserved when present).
 
-The full :class:`~secrets_kit.models.EntryMetadata` shape is the **logical schema** for the backend payload (see code and [METADATA_SEMANTICS_ADR.md](METADATA_SEMANTICS_ADR.md)); it must not be mirrored into `registry.json`.
+The full :class:`~secrets_kit.models.core.EntryMetadata` shape is the **logical schema** for the backend payload (see code and [METADATA_SEMANTICS_ADR.md](METADATA_SEMANTICS_ADR.md)); it must not be mirrored into `registry.json`.
 
 ## Legacy schema (v1, migrated)
 
@@ -117,7 +117,7 @@ Legacy field meanings match the previous documentation; authoritative copies now
 
 - Builds candidate records.
 - Applies overwrite policy (`--allow-overwrite`).
-- Writes secret values to the backend and a **slim** registry row per accepted entry (full :class:`~secrets_kit.models.EntryMetadata` is stored in the backend only).
+- Writes secret values to the backend and a **slim** registry row per accepted entry (full :class:`~secrets_kit.models.core.EntryMetadata` is stored in the backend only).
 
 3. `delete`
 

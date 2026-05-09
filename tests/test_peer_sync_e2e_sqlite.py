@@ -8,22 +8,22 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from secrets_kit.identity import export_public_identity, init_identity, load_identity
-from secrets_kit.keychain_backend import BACKEND_SQLITE, get_secret, set_secret
-from secrets_kit.models import EntryMetadata
-from secrets_kit.peers import add_peer_from_file, get_peer
-from secrets_kit.registry import ensure_registry_storage, load_registry, upsert_metadata
-from secrets_kit.sync_bundle import (
+from secrets_kit.identity.core import export_public_identity, init_identity, load_identity
+from secrets_kit.backends.security import BACKEND_SQLITE, get_secret, set_secret
+from secrets_kit.models.core import EntryMetadata
+from secrets_kit.identity.peers import add_peer_from_file, get_peer
+from secrets_kit.registry.core import ensure_registry_storage, load_registry, upsert_metadata
+from secrets_kit.sync.bundle import (
     SyncBundleError,
     build_bundle,
     decrypt_bundle_for_recipient,
     parse_bundle_file,
     verify_bundle_structure,
 )
-from secrets_kit.sync_merge import apply_peer_sync_import
+from secrets_kit.sync.merge import apply_peer_sync_import
 
 if importlib.util.find_spec("nacl") is not None:
-    from secrets_kit.sqlite_backend import SqliteSecretStore, clear_sqlite_crypto_cache
+    from secrets_kit.backends.sqlite import SqliteSecretStore, clear_sqlite_crypto_cache
 else:
 
     def clear_sqlite_crypto_cache() -> None:  # pragma: no cover

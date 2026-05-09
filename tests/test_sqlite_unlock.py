@@ -9,8 +9,8 @@ import sys
 import tempfile
 import unittest
 
-from secrets_kit.keychain_backend import BackendError, check_security_cli, delete_keychain, make_temp_keychain
-from secrets_kit.sqlite_unlock import (
+from secrets_kit.backends.security import BackendError, check_security_cli, delete_keychain, make_temp_keychain
+from secrets_kit.backends.sqlite_unlock import (
     KeychainUnlockProvider,
     PassphraseUnlockProvider,
     build_sqlite_unlock_provider,
@@ -25,7 +25,7 @@ if importlib.util.find_spec("nacl") is None:
             self.skipTest("Install project dependencies (PyNaCl) to run sqlite unlock tests")
 
 else:
-    from secrets_kit.sqlite_backend import SqliteSecretStore, clear_sqlite_crypto_cache
+    from secrets_kit.backends.sqlite import SqliteSecretStore, clear_sqlite_crypto_cache
 
     class SqliteUnlockTest(unittest.TestCase):
         def setUp(self) -> None:

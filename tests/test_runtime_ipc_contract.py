@@ -7,7 +7,7 @@ import inspect
 import unittest
 from typing import get_type_hints
 
-from secrets_kit import runtime_ipc as ri
+import secrets_kit.runtime.ipc as ri
 
 
 _FORBIDDEN_PUBLIC_NAME_MARKERS = (
@@ -58,7 +58,7 @@ class RuntimeIpcContractTest(unittest.TestCase):
         self.assertGreaterEqual(len(ri.RuntimeIpcErrorCode), 1)
 
     def test_module_docstring_posts_non_goals(self) -> None:
-        doc = (importlib.import_module("secrets_kit.runtime_ipc").__doc__ or "").lower()
+        doc = (importlib.import_module("secrets_kit.runtime.ipc").__doc__ or "").lower()
         self.assertIn("not", doc)
         self.assertIn("daemon", doc)
         self.assertIn("wire", doc)

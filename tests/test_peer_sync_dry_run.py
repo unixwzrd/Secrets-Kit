@@ -10,16 +10,16 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from secrets_kit.identity import export_public_identity, init_identity, load_identity
-from secrets_kit.keychain_backend import BACKEND_SQLITE, get_secret, set_secret
-from secrets_kit.models import EntryMetadata
-from secrets_kit.peers import add_peer_from_file, get_peer
-from secrets_kit.registry import ensure_registry_storage, load_registry, upsert_metadata
-from secrets_kit.sync_bundle import build_bundle, decrypt_bundle_for_recipient, parse_bundle_file
-from secrets_kit.sync_merge import apply_peer_sync_import
+from secrets_kit.identity.core import export_public_identity, init_identity, load_identity
+from secrets_kit.backends.security import BACKEND_SQLITE, get_secret, set_secret
+from secrets_kit.models.core import EntryMetadata
+from secrets_kit.identity.peers import add_peer_from_file, get_peer
+from secrets_kit.registry.core import ensure_registry_storage, load_registry, upsert_metadata
+from secrets_kit.sync.bundle import build_bundle, decrypt_bundle_for_recipient, parse_bundle_file
+from secrets_kit.sync.merge import apply_peer_sync_import
 
 if importlib.util.find_spec("nacl") is not None:
-    from secrets_kit.sqlite_backend import SqliteSecretStore, clear_sqlite_crypto_cache
+    from secrets_kit.backends.sqlite import SqliteSecretStore, clear_sqlite_crypto_cache
 else:
 
     def clear_sqlite_crypto_cache() -> None:  # pragma: no cover
@@ -83,8 +83,8 @@ class PeerSyncDryRunTest(unittest.TestCase):
         inner_entries, id_b = self._make_inner_for_import_new_only()
         ensure_registry_storage(home=self.home_b)
 
-        with patch("secrets_kit.sync_merge.set_secret") as m_set, patch(
-            "secrets_kit.sync_merge.upsert_metadata"
+        with patch("secrets_kit.sync.merge.set_secret") as m_set, patch(
+            "secrets_kit.sync.merge.upsert_metadata"
         ) as m_up:
             stats = apply_peer_sync_import(
                 inner_entries=inner_entries,

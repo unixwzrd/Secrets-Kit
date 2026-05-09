@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import unittest
 
-from secrets_kit.cli_parser import build_parser
+from secrets_kit.cli.parser.base import build_parser
 
 PRIMARY_WITH_EXAMPLES = frozenset(
     {

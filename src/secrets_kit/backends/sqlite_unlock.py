@@ -13,8 +13,8 @@ from typing import Callable, Optional, Protocol
 import nacl.pwhash
 import nacl.secret
 
-from secrets_kit.keychain_backend import BackendError, _run_security
-from secrets_kit.models import now_utc_iso
+from secrets_kit.backends.security import BackendError, _run_security
+from secrets_kit.models.core import now_utc_iso
 
 UNLOCK_PASSPHRASE = "passphrase"
 UNLOCK_KEYCHAIN = "keychain"

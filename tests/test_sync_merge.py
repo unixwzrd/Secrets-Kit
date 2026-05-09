@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from secrets_kit.models import EntryMetadata
-from secrets_kit.sync_merge import merge_decision
+from secrets_kit.models.core import EntryMetadata
+from secrets_kit.sync.merge import merge_decision
 
 
 class SyncMergeTest(unittest.TestCase):

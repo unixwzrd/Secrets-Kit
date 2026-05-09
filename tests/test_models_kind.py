@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from secrets_kit.models import EntryMetadata, infer_entry_kind_from_name, validate_entry_kind
+from secrets_kit.models.core import EntryMetadata, infer_entry_kind_from_name, validate_entry_kind
 
 
 class ModelsKindTest(unittest.TestCase):

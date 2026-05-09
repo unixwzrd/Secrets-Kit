@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterator, Literal, Optional, Protocol
 
-from secrets_kit.models import EntryMetadata, Locator
+from secrets_kit.models.core import EntryMetadata, Locator
 
 SetAtomicity = Literal["atomic", "eventual", "best_effort"]
 
@@ -182,13 +182,13 @@ class BackendStore(ABC):
 
     @abstractmethod
     def resolve_by_locator(self, *, service: str, account: str, name: str) -> Optional[ResolvedEntry]:
-        """Load authority by runtime locator (normalize via :class:`~secrets_kit.models.Locator` in implementations).
+        """Load authority by runtime locator (normalize via :class:`~secrets_kit.models.core.Locator` in implementations).
 
         Same **resolved-within-handling** semantics as :meth:`resolve_by_entry_id` (see ADR).
         """
 
     def resolve_by_locator_obj(self, *, locator: Locator) -> Optional[ResolvedEntry]:
-        """Convenience: resolve using a normalized :class:`~secrets_kit.models.Locator`."""
+        """Convenience: resolve using a normalized :class:`~secrets_kit.models.core.Locator`."""
         loc = Locator.from_parts(service=locator.service, account=locator.account, name=locator.name)
         return self.resolve_by_locator(service=loc.service, account=loc.account, name=loc.name)
 
@@ -279,7 +279,7 @@ def parse_joint_payload_or_legacy(
 
 
 def _minimal_metadata_locator(*, service: str, account: str, name: str) -> EntryMetadata:
-    from secrets_kit.models import EntryMetadata, now_utc_iso
+    from secrets_kit.models.core import EntryMetadata, now_utc_iso
 
     ts = now_utc_iso()
     return EntryMetadata(
@@ -304,12 +304,12 @@ def resolve_backend_store(
     kek_keychain_path: Optional[str] = None,
 ) -> BackendStore:
     """Concrete :class:`BackendStore` for ``secure`` or ``sqlite`` (canonical ids)."""
-    from secrets_kit.keychain_backend import BACKEND_SQLITE, normalize_backend
+    from secrets_kit.backends.security import BACKEND_SQLITE, normalize_backend
     import os
 
     normalized = normalize_backend(backend)
     if normalized == BACKEND_SQLITE:
-        from secrets_kit.sqlite_backend import SqliteSecretStore, default_sqlite_db_path
+        from secrets_kit.backends.sqlite import SqliteSecretStore, default_sqlite_db_path
 
         db_path = path or default_sqlite_db_path()
         kc = kek_keychain_path
@@ -320,6 +320,6 @@ def resolve_backend_store(
             kc = os.path.expanduser(kc)
         return SqliteSecretStore(db_path=os.path.expanduser(db_path), kek_keychain_path=kc)
 
-    from secrets_kit.keychain_backend_store import KeychainBackendStore
+    from secrets_kit.backends.security_store import KeychainBackendStore
 
     return KeychainBackendStore(path=path)

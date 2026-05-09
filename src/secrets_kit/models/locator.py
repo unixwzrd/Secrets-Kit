@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 
-from secrets_kit.models import make_registry_key
+from secrets_kit.models.core import make_registry_key
 
 
 def locator_hash_hex(*, service: str, account: str, name: str) -> str:

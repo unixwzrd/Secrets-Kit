@@ -1,7 +1,7 @@
 # AGENTS.md — Secrets-Kit
 
 **Created**: 2026-05-02  
-**Updated**: 2026-05-07
+**Updated**: 2026-05-09
 
 Guidance for humans and coding agents working in this repository.
 

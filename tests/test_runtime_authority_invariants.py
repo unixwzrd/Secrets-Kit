@@ -11,8 +11,8 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
-from secrets_kit.backend_store import BackendStore, ResolvedEntry
-from secrets_kit.cli import (
+from secrets_kit.backends.base import BackendStore, ResolvedEntry
+from secrets_kit.cli.main import (
     cmd_backend_index,
     cmd_doctor,
     cmd_explain,
@@ -21,15 +21,15 @@ from secrets_kit.cli import (
     cmd_recover_registry,
     _apply_defaults,
 )
-from secrets_kit.cli_parser import build_parser
-from secrets_kit.keychain_backend import BACKEND_SQLITE, set_secret
-from secrets_kit.models import EntryMetadata
-from secrets_kit.registry import ensure_registry_storage, upsert_metadata
-from secrets_kit.runtime_authority import BACKEND_INTERFACE_EXPOSURE, backend_interface_exposure_complete
+from secrets_kit.cli.parser.base import build_parser
+from secrets_kit.backends.security import BACKEND_SQLITE, set_secret
+from secrets_kit.models.core import EntryMetadata
+from secrets_kit.registry.core import ensure_registry_storage, upsert_metadata
+from secrets_kit.runtime.authority import BACKEND_INTERFACE_EXPOSURE, backend_interface_exposure_complete
 from tests.leakage_needles import RUNTIME_INVARIANT_PLAINTEXT
 
 if importlib.util.find_spec("nacl") is not None:
-    from secrets_kit.sqlite_backend import clear_sqlite_crypto_cache
+    from secrets_kit.backends.sqlite import clear_sqlite_crypto_cache
 else:
 
     def clear_sqlite_crypto_cache() -> None:  # pragma: no cover

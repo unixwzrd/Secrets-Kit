@@ -167,7 +167,7 @@ def resolve_secret_store(
     """
     normalized = _validate_backend(backend=backend, path=path)
     if normalized == BACKEND_SQLITE:
-        from secrets_kit.sqlite_backend import SqliteSecretStore, default_sqlite_db_path
+        from secrets_kit.backends.sqlite import SqliteSecretStore, default_sqlite_db_path
 
         db_path = path or default_sqlite_db_path()
         kc = kek_keychain_path

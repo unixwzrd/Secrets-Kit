@@ -9,12 +9,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from secrets_kit.backend_store import INDEX_SCHEMA_VERSION, PAYLOAD_SCHEMA_VERSION, resolve_backend_store
-from secrets_kit.keychain_backend import BACKEND_SQLITE
-from secrets_kit.models import EntryMetadata
+from secrets_kit.backends.base import INDEX_SCHEMA_VERSION, PAYLOAD_SCHEMA_VERSION, resolve_backend_store
+from secrets_kit.backends.security import BACKEND_SQLITE
+from secrets_kit.models.core import EntryMetadata
 
 if importlib.util.find_spec("nacl") is not None:
-    from secrets_kit.sqlite_backend import clear_sqlite_crypto_cache
+    from secrets_kit.backends.sqlite import clear_sqlite_crypto_cache
 else:
 
     def clear_sqlite_crypto_cache() -> None:  # pragma: no cover

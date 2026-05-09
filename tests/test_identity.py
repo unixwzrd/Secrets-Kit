@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from secrets_kit.identity import IdentityError, init_identity, load_identity, load_identity_public_file
+from secrets_kit.identity.core import IdentityError, init_identity, load_identity, load_identity_public_file
 
 
 @unittest.skipUnless(importlib.util.find_spec("nacl") is not None, "requires PyNaCl")
@@ -32,7 +32,7 @@ class IdentityTest(unittest.TestCase):
             home = Path(d)
             init_identity(home=home)
             out = Path(d) / "pub.json"
-            from secrets_kit.identity import export_public_identity
+            from secrets_kit.identity.core import export_public_identity
 
             pub = export_public_identity(out=out, home=home)
             self.assertEqual(pub["format"], "seckit.identity_public")

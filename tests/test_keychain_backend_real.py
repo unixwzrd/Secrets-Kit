@@ -5,7 +5,7 @@ import shutil
 import sys
 import unittest
 
-from secrets_kit.keychain_backend import (
+from secrets_kit.backends.security import (
     check_security_cli,
     delete_keychain,
     delete_secret,

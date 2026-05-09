@@ -10,7 +10,7 @@ from pathlib import Path
 import yaml
 from typing import Dict, List, Optional
 
-from secrets_kit.models import (
+from secrets_kit.models.core import (
     EntryMetadata,
     infer_entry_kind_from_name,
     normalize_custom,

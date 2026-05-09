@@ -16,7 +16,7 @@ from typing import Any, Callable, Dict, Iterator, Optional, Tuple
 import nacl.exceptions
 import nacl.secret
 
-from secrets_kit.backend_store import (
+from secrets_kit.backends.base import (
     BACKEND_IMPL_VERSION,
     INDEX_SCHEMA_VERSION,
     PAYLOAD_SCHEMA_VERSION,
@@ -29,12 +29,12 @@ from secrets_kit.backend_store import (
     normalize_store_locator,
     parse_joint_payload_or_legacy,
 )
-from secrets_kit.keychain_backend import BackendError, backend_service_name
-from secrets_kit.keychain_inventory import GenpCandidate
-from secrets_kit.locator import locator_hash_hex, opaque_locator_hint
-from secrets_kit.models import EntryMetadata, ensure_entry_id, now_utc_iso
-from secrets_kit.registry import registry_dir
-from secrets_kit.sqlite_unlock import (
+from secrets_kit.backends.security import BackendError, backend_service_name
+from secrets_kit.backends.inventory import GenpCandidate
+from secrets_kit.models.locator import locator_hash_hex, opaque_locator_hint
+from secrets_kit.models.core import EntryMetadata, ensure_entry_id, now_utc_iso
+from secrets_kit.registry.core import registry_dir
+from secrets_kit.backends.sqlite_unlock import (
     UnlockProvider,
     _migrate_vault_meta_columns,
     build_sqlite_unlock_provider,

@@ -8,7 +8,7 @@ from pathlib import Path
 import tempfile
 from typing import Any, Dict, List, Optional
 
-from secrets_kit.models import EntryMetadata, ensure_entry_id, normalize_custom, now_utc_iso
+from secrets_kit.models.core import EntryMetadata, ensure_entry_id, normalize_custom, now_utc_iso
 
 _LEGACY_OPERATOR_BACKEND_TOKENS = frozenset({"icloud", "icloud-helper"})
 
@@ -193,7 +193,7 @@ def migrate_legacy_operator_backend_in_file(*, path: Path, payload: Dict[str, ob
 
     Called when loading ``defaults.json`` or legacy ``config.json`` so old installs self-heal.
     """
-    from secrets_kit.keychain_backend import BACKEND_SECURE
+    from secrets_kit.backends.security import BACKEND_SECURE
 
     raw = payload.get("backend")
     if raw is None:

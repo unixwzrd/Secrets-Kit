@@ -5,9 +5,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from secrets_kit.identity import IdentityError, export_public_identity, init_identity
-from secrets_kit.peers import add_peer_from_file, get_peer, list_peers, remove_peer
-from secrets_kit.registry import RegistryError
+from secrets_kit.identity.core import IdentityError, export_public_identity, init_identity
+from secrets_kit.identity.peers import add_peer_from_file, get_peer, list_peers, remove_peer
+from secrets_kit.registry.core import RegistryError
 
 
 @unittest.skipUnless(importlib.util.find_spec("nacl") is not None, "requires PyNaCl")

@@ -15,8 +15,8 @@ import nacl.secret
 import nacl.signing
 import nacl.utils
 
-from secrets_kit.identity import HostIdentity, fingerprint_from_verify_key
-from secrets_kit.models import now_utc_iso
+from secrets_kit.identity.core import HostIdentity, fingerprint_from_verify_key
+from secrets_kit.models.core import now_utc_iso
 
 BUNDLE_FORMAT = "seckit.peer_bundle"
 BUNDLE_VERSION = 1
