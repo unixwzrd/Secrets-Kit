@@ -1,19 +1,20 @@
 # Import layer rules
 
 **Created**: 2026-05-09  
-**Updated**: 2026-05-05
+**Updated**: 2026-05-10
 
 After the package restructure (Phase 1) and CLI extraction (Phase 2), dependencies should follow these directions:
 
 ## Allowed
 
-- `cli` → `sync`, `runtime`, `backends`, `registry`, `identity`, `models`, `utils`, `schemas`, `recovery`, top-level `importers`, etc.
+- `cli` → `sync`, `runtime`, `backends`, `registry`, `identity`, `models`, `utils`, `schemas`, `recovery`, top-level `importers`, `seckitd`, etc.
 - `cli.parser` → `cli.commands`, `cli.support`, `backends`, `models` (explicit handler imports; **no** `cli.main` for parser wiring).
 - `sync` → `models`, `backends`, `registry` (including `registry.resolve`), `identity`, `utils`, `importers`, `schemas`
 - `sync.envelope` — pure dict helpers only; **no** CLI, no network I/O.
 - `identity.enrollment` — public enrollment dict builders; **no** `schemas` imports (identity stays emitter-side).
 - `backends` → `models` (and internal backend cross-imports)
 - `registry` → `models`, `backends` (e.g. `registry.resolve` orchestrates store metadata reads)
+- **``seckitd``** → `schemas` (inbound wrapper validation), stdlib + subprocess only — **must not import** `secrets_kit.cli` (invoke the operator entrypoint via argv only).
 - `schemas` → `models` (helpers/normalizers only — mirror Pydantic types; **not** canonical runtime types). Phase 4 adds `schemas/enrollment.py` and `schemas/envelope.py` (Pydantic mirrors only; **no** `model_dump()` emitters in production paths).
 
 ## Forbidden (do not add new edges)

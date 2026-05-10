@@ -57,6 +57,7 @@ echo "== python compile check =="
 
 echo
 echo "== python tests =="
+# Full discover expects macOS Keychain for some backend tests; see docs/README.md (Testing and CI).
 PYTHONPATH=src "$PYTHON_BIN" -m unittest discover -s tests -v
 
 should_run_transport="no"

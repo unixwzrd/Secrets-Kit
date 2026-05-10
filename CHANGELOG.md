@@ -6,6 +6,12 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+### 2026-05-10 — Phase 5A: local `seckitd` (Unix socket, no network)
+
+- **Scope:** `src/secrets_kit/seckitd/` (paths, framing, protocol, server, client, subprocess bridge), `seckit daemon …` + `seckitd` script in [pyproject.toml](pyproject.toml); `seckit sync import -` reads stdin; [docs/plans/SECKITD_PHASE5.md](docs/plans/SECKITD_PHASE5.md); [docs/IMPORT_LAYER_RULES.md](docs/IMPORT_LAYER_RULES.md); [docs/plans/PHASED_REFACTOR_PLAN.md](docs/plans/PHASED_REFACTOR_PLAN.md); [tests/test_seckitd_phase5a.py](tests/test_seckitd_phase5a.py).
+- **What changed:** User-scoped Unix socket (0700 runtime dir, 0600 socket), one request per connection, length-prefixed JSON. Ops: `ping`, `status`, `submit_outbound` (local receipt only), `relay_inbound` (validate transport wrapper + `seckit sync import` on stdin). **Non-goals:** no TCP/API/MCP/relay/sync reconciliation.
+- **2026-05-05 follow-up (audit):** Phase 5 plan doc expanded (IPC authority, queue governance, resilience/export framing, future integrity notes, rollback); [docs/README.md](docs/README.md) testing/CI note; framing max-frame + `sync import` stdin parity tests; clearer `OSError` text when `file` is `-`.
+
 ### 2026-05-05 — Phase 4: enrollment + transport message wrapper (docs, `identity/enrollment`, `sync/envelope`, schemas)
 
 - **Scope:** [docs/plans/Architecture/PEER_ENROLLMENT_AND_BOOTSTRAP.md](docs/plans/Architecture/PEER_ENROLLMENT_AND_BOOTSTRAP.md) (transport plumbing, `host_id` vs `entry_id`); Phase 4 table in [docs/plans/PHASE_3_PAYLOAD_INVENTORY.md](docs/plans/PHASE_3_PAYLOAD_INVENTORY.md); [docs/IMPORT_LAYER_RULES.md](docs/IMPORT_LAYER_RULES.md); [docs/plans/PHASED_REFACTOR_PLAN.md](docs/plans/PHASED_REFACTOR_PLAN.md); `src/secrets_kit/identity/enrollment.py`, `src/secrets_kit/sync/envelope.py`, `src/secrets_kit/schemas/enrollment.py`, `src/secrets_kit/schemas/envelope.py`; [tests/test_phase4_enrollment_envelope.py](tests/test_phase4_enrollment_envelope.py).

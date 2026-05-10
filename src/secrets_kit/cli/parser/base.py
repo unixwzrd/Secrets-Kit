@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 
 from secrets_kit.cli.parser.groups import HELP_DB, HELP_KEYCHAIN_OVERRIDE, make_common_parent
 from secrets_kit.cli.help.formatter import CONFIG_COMMAND_DESCRIPTION, MAIN_HELP_EPILOG, SeckitHelpFormatter
@@ -14,6 +15,12 @@ from secrets_kit.cli.commands.config import (
     cmd_config_set,
     cmd_config_show,
     cmd_config_unset,
+)
+from secrets_kit.cli.commands.daemon import (
+    cmd_daemon_ping,
+    cmd_daemon_serve,
+    cmd_daemon_status,
+    cmd_daemon_submit_outbound,
 )
 from secrets_kit.cli.commands.diagnostics import (
     cmd_backend_index,
@@ -499,8 +506,22 @@ def build_parser() -> argparse.ArgumentParser:
     p_sync_ex.add_argument("--all", action="store_true")
     p_sync_ex.add_argument("--json", action="store_true")
     p_sync_ex.set_defaults(func=cmd_sync_export)
-    p_sync_im = sync_sub.add_parser("import", parents=[common], help="Import and merge a peer bundle")
-    p_sync_im.add_argument("file")
+    p_sync_im = sync_sub.add_parser(
+        "import",
+        parents=[common],
+        help="Import and merge a peer bundle",
+        epilog=(
+            "Use ``-`` as FILE to read bundle JSON from stdin (also used by ``seckitd`` relay inbound).\n"
+            "Examples:\n"
+            "  seckit sync import ./bundle.json --signer alice --yes\n"
+            "  cat bundle.json | seckit sync import - --signer alice --yes --backend sqlite --db ./vault.db"
+        ),
+        formatter_class=SeckitHelpFormatter,
+    )
+    p_sync_im.add_argument(
+        "file",
+        help="Path to bundle JSON, or '-' for stdin",
+    )
     p_sync_im.add_argument(
         "--signer",
         required=True,
@@ -561,5 +582,43 @@ def build_parser() -> argparse.ArgumentParser:
         help="Emit a single JSON object (includes recovered_entries and skip details); no table",
     )
     p_migrate_recover.set_defaults(func=cmd_recover_registry)
+
+    p_daemon = sub.add_parser(
+        "daemon",
+        help="Control local seckitd (Unix socket; Phase 5)",
+        epilog=(
+            "Run the daemon: ``seckitd`` or ``seckit daemon serve`` (same socket defaults).\n"
+            "Examples:\n"
+            "  seckitd --socket /tmp/seckitd.sock\n"
+            "  seckit daemon ping --socket /tmp/seckitd.sock\n"
+            "  seckit daemon submit-outbound --socket /tmp/seckitd.sock --payload-file ./blob.bin\n"
+        ),
+        formatter_class=SeckitHelpFormatter,
+    )
+    daemon_sub = p_daemon.add_subparsers(dest="daemon_command", required=True)
+    p_daemon_ping = daemon_sub.add_parser("ping", help="Ping local seckitd")
+    p_daemon_ping.add_argument("--socket", type=Path, default=None, help="Unix socket path (default: user runtime dir)")
+    p_daemon_ping.add_argument("--timeout", type=float, default=30.0, help="Socket timeout seconds")
+    p_daemon_ping.set_defaults(func=cmd_daemon_ping)
+    p_daemon_status = daemon_sub.add_parser("status", help="Daemon status JSON")
+    p_daemon_status.add_argument("--socket", type=Path, default=None)
+    p_daemon_status.add_argument("--timeout", type=float, default=30.0)
+    p_daemon_status.set_defaults(func=cmd_daemon_status)
+    p_daemon_submit = daemon_sub.add_parser(
+        "submit-outbound",
+        help="Submit an opaque outbound payload (local receipt only)",
+    )
+    p_daemon_submit.add_argument("--socket", type=Path, default=None)
+    p_daemon_submit.add_argument("--timeout", type=float, default=30.0)
+    p_daemon_submit.add_argument("--payload-file", required=True, help="File whose raw bytes are sent as base64")
+    p_daemon_submit.add_argument("--payload-type", dest="payload_type", default="", help="Advisory label only")
+    p_daemon_submit.add_argument("--client-ref", default="", help="Optional client reference string")
+    p_daemon_submit.set_defaults(func=cmd_daemon_submit_outbound)
+    p_daemon_serve = daemon_sub.add_parser(
+        "serve",
+        help="Run seckitd in the foreground (Unix socket listener)",
+    )
+    p_daemon_serve.add_argument("--socket", type=Path, default=None)
+    p_daemon_serve.set_defaults(func=cmd_daemon_serve)
 
     return parser

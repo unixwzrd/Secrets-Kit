@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Dict, List
 
@@ -69,7 +70,11 @@ def cmd_sync_export(*, args: argparse.Namespace) -> int:
 def cmd_sync_import(*, args: argparse.Namespace) -> int:
     try:
         ident = load_identity()
-        text = Path(args.file).expanduser().read_text(encoding="utf-8")
+        file_arg = str(args.file)
+        if file_arg == "-":
+            text = sys.stdin.read()
+        else:
+            text = Path(file_arg).expanduser().read_text(encoding="utf-8")
         payload = parse_bundle_file(text)
         signer = get_peer(alias=args.signer)
         inner = decrypt_bundle_for_recipient(
@@ -104,6 +109,8 @@ def cmd_sync_import(*, args: argparse.Namespace) -> int:
     except FileNotFoundError as exc:
         return _fatal(message=f"Peer sync: bundle file not found ({exc})", code=1)
     except OSError as exc:
+        if file_arg == "-":
+            return _fatal(message=f"Peer sync: cannot read bundle from stdin ({exc})", code=1)
         return _fatal(message=f"Peer sync: cannot read bundle file ({exc})", code=1)
     except ValidationError as exc:
         return _fatal(message=str(exc), code=1)

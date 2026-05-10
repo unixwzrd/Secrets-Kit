@@ -1,7 +1,7 @@
 # Secrets Kit documentation
 
 **Created:** 2026-03-10  
-**Updated:** 2026-05-08
+**Updated:** 2026-05-05
 
 Use this page as the map. The root [README](../README.md) stays short; detail lives here.
 
@@ -9,6 +9,7 @@ Use this page as the map. The root [README](../README.md) stays short; detail li
   - [Operators](#operators)
   - [CLI documentation set](#cli-documentation-set)
   - [Keychain backends and validation](#keychain-backends-and-validation)
+  - [Testing and CI](#testing-and-ci)
   - [Packaging and maintainers](#packaging-and-maintainers)
   - [Internal / planning (may move or trim)](#internal--planning-may-move-or-trim)
 
@@ -47,6 +48,10 @@ Use this page as the map. The root [README](../README.md) stays short; detail li
 | [CROSS_HOST_CHECKLIST.md](CROSS_HOST_CHECKLIST.md) | Operational checklist |
 | [LAUNCHD_VALIDATION.md](LAUNCHD_VALIDATION.md) | LaunchAgent/Daemon notes |
 
+## Testing and CI
+
+GitHub Actions runs `scripts/run_local_validation.sh` (full `unittest discover` on macOS). Some tests require **interactive Keychain** or **PyNaCl**; others use SQLite-only harnesses. On hosts where the default Keychain backend is unavailable, prefer a **narrow suite** (for example `tests.test_seckitd_phase5a`, `tests.test_sync_bundle`, `tests.test_import_layer_guards`, `tests.test_cli_help_consistency`) or follow [CROSS_HOST_VALIDATION.md](CROSS_HOST_VALIDATION.md) disposable-keychain patterns.
+
 ## Packaging and maintainers
 
 | Doc | Purpose |
@@ -63,5 +68,6 @@ Use this page as the map. The root [README](../README.md) stays short; detail li
 | [RUNTIME_SESSION_ADR.md](RUNTIME_SESSION_ADR.md) | Runtime session, ownership, same-host authority (pre-daemon) |
 | [IPC_SEMANTICS_ADR.md](IPC_SEMANTICS_ADR.md) | IPC trust boundary, transport mediator, optional relay semantics |
 | [METADATA_REGISTRY.md](METADATA_REGISTRY.md) | Registry schema |
+| [plans/SECKITD_PHASE5.md](plans/SECKITD_PHASE5.md) | Local `seckitd` Phase 5A scope, threat model, rollback reference |
 
 Other files under **`docs/plans/`** may be gitignored local notes.

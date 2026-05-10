@@ -21,7 +21,7 @@ Command taxonomy (see docs/CLI_REFERENCE.md):
   Configuration           config (compatibility alias: defaults), unlock, lock, keychain-status, version
   Inventory / diagnostics doctor, backend-index, rebuild-index, recover
   Migration / maintenance migrate, service
-  Peer / sync             identity, peer, sync
+  Peer / sync             identity, peer, sync, daemon (local seckitd)
   Advanced / internal     helper, journal, migrate recover-registry, and other compatibility aliases
 
 Command compatibility:

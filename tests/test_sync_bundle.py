@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import argparse
 import base64
 import importlib.util
+import io
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+
+from secrets_kit.models.core import ValidationError
 
 from secrets_kit.identity.core import init_identity, load_identity
 from secrets_kit.sync.bundle import (
@@ -206,6 +213,91 @@ class SyncBundleTest(unittest.TestCase):
     def test_corrupted_json(self) -> None:
         with self.assertRaises(SyncBundleError):
             parse_bundle_file("not json {")
+
+
+class SyncImportStdinParityTests(unittest.TestCase):
+    """Contract: ``-`` reads the same bytes as an on-disk file for ``parse_bundle_file``."""
+
+    def test_stdin_and_file_pass_identical_text_to_parse_bundle_file(self) -> None:
+        from secrets_kit.cli.commands import sync_bundle
+
+        bundle_text = json.dumps({"outer": "stub"})
+        ns_base = {
+            "signer": "alice",
+            "dry_run": False,
+            "yes": True,
+            "domain": None,
+            "domains": None,
+            "backend": "secure",
+            "keychain": None,
+            "db": None,
+        }
+
+        def _stop(_text: str) -> None:
+            raise ValidationError("stop-after-parse")
+
+        seen: list[str] = []
+
+        def capture(text: str) -> None:
+            seen.append(text)
+            _stop("")
+
+        fake_ident = SimpleNamespace(host_id="test-host")
+        with patch.object(sync_bundle, "load_identity", return_value=fake_ident):
+            with patch.object(sync_bundle, "parse_bundle_file", side_effect=capture):
+                with patch.object(sys.stderr, "write"):
+                    ns_stdin = argparse.Namespace(file="-", **ns_base)
+                    old_stdin = sys.stdin
+                    sys.stdin = io.StringIO(bundle_text)
+                    try:
+                        sync_bundle.cmd_sync_import(args=ns_stdin)
+                    finally:
+                        sys.stdin = old_stdin
+                    self.assertEqual(seen[-1], bundle_text)
+
+        seen.clear()
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", suffix=".json", delete=False) as tmp:
+            tmp.write(bundle_text)
+            path = tmp.name
+        try:
+            with patch.object(sync_bundle, "load_identity", return_value=fake_ident):
+                with patch.object(sync_bundle, "parse_bundle_file", side_effect=capture):
+                    with patch.object(sys.stderr, "write"):
+                        ns_file = argparse.Namespace(file=path, **ns_base)
+                        sync_bundle.cmd_sync_import(args=ns_file)
+            self.assertEqual(seen[-1], bundle_text)
+        finally:
+            Path(path).unlink(missing_ok=True)
+
+    def test_oserror_on_stdin_message_mentions_stdin(self) -> None:
+        from secrets_kit.cli.commands import sync_bundle
+
+        class _BadStdin:
+            def read(self) -> str:  # noqa: PLR6301
+                raise OSError("simulated read failure")
+
+        ns = argparse.Namespace(
+            file="-",
+            signer="alice",
+            dry_run=False,
+            yes=True,
+            domain=None,
+            domains=None,
+            backend="secure",
+            keychain=None,
+            db=None,
+        )
+        buf = io.StringIO()
+        old_stdin = sys.stdin
+        sys.stdin = _BadStdin()
+        fake_ident = SimpleNamespace(host_id="test-host")
+        try:
+            with patch.object(sync_bundle, "load_identity", return_value=fake_ident):
+                with patch.object(sys.stderr, "write", buf.write):
+                    sync_bundle.cmd_sync_import(args=ns)
+        finally:
+            sys.stdin = old_stdin
+        self.assertIn("stdin", buf.getvalue())
 
 
 if __name__ == "__main__":

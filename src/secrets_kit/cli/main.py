@@ -12,7 +12,7 @@ def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
     try:
-        if getattr(args, "command", None) not in ("config", "defaults"):
+        if getattr(args, "command", None) not in ("config", "defaults", "daemon"):
             _apply_defaults(args=args)
     except ValidationError as exc:
         return _fatal(message=str(exc), code=1)

@@ -20,6 +20,7 @@ dependencies = [
 [project.scripts]
 secrets-kit = "secrets_kit.cli.main:main"
 seckit = "secrets_kit.cli.main:main"
+seckitd = "secrets_kit.seckitd.main:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
