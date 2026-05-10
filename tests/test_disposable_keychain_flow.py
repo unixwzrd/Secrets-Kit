@@ -12,7 +12,8 @@ import tempfile
 import unittest
 from unittest import mock
 
-from secrets_kit.cli.main import cmd_export, cmd_get, cmd_import_env, cmd_set
+from secrets_kit.cli.commands.import_export import cmd_export, cmd_import_env
+from secrets_kit.cli.commands.secrets import cmd_get, cmd_set
 from secrets_kit.backends.security import delete_keychain, keychain_path, lock_keychain, make_temp_keychain
 
 

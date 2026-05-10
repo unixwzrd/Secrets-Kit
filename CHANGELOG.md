@@ -1,10 +1,15 @@
 # Secrets-Kit Changelog
 
 **Created**: 2026-03-10  
-**Updated**: 2026-05-09
+**Updated**: 2026-05-10
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+### 2026-05-10 — Phase 2: CLI extraction (`cli/commands/`, `cli/support/`, `registry/resolve.py`)
+
+- **Scope:** Move `cmd_*` handlers into `src/secrets_kit/cli/commands/*.py`; shared non-domain helpers into `src/secrets_kit/cli/support/*.py` (`defaults`, `interaction`, `args`, `metadata_selection`, `env_exec`, `version_info`, `peer_sync_errors`). Relocate **`_read_metadata`** verbatim to **`src/secrets_kit/registry/resolve.py`**; `sync.merge` and CLI use it—**no** `sync` → `cli` import. **`cli/main.py`** is **`main()`** only (parse, `_apply_defaults`, dispatch). **`cli/parser/base.py`** imports handlers and support symbols explicitly (**no** `cli.main` lazy import). Tests patch/import **defining** modules; add `tests/test_import_layer_guards.py` and `scripts/check_import_cycles.py` + `scripts/import_cycles_baseline.txt`. Update [docs/IMPORT_LAYER_RULES.md](docs/IMPORT_LAYER_RULES.md).
+- **What changed:** Operator-visible behavior, flags, JSON shapes, crypto, SQLite schema, registry on-disk format, and bundle formats are unchanged. Monkeypatch paths for moved symbols updated in tests.
 
 ### 2026-05-09 — Phase 1: subpackage layout (`models/`, `backends/`, `cli/`, etc.)
 

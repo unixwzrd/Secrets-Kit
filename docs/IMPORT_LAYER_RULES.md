@@ -1,31 +1,36 @@
-# Import layer rules (Phase 1)
+# Import layer rules
 
 **Created**: 2026-05-09  
-**Updated**: 2026-05-09
+**Updated**: 2026-05-10
 
-After the package restructure, dependencies should follow these directions:
+After the package restructure (Phase 1) and CLI extraction (Phase 2), dependencies should follow these directions:
 
 ## Allowed
 
 - `cli` → `sync`, `runtime`, `backends`, `registry`, `identity`, `models`, `utils`, `recovery`, top-level `importers`, etc.
-- `sync` → `models`, `backends`, `registry`, `identity`, `utils`, `importers`
+- `cli.parser` → `cli.commands`, `cli.support`, `backends`, `models` (explicit handler imports; **no** `cli.main` for parser wiring).
+- `sync` → `models`, `backends`, `registry` (including `registry.resolve`), `identity`, `utils`, `importers`
 - `backends` → `models` (and internal backend cross-imports)
-- `registry` → `models`
+- `registry` → `models`, `backends` (e.g. `registry.resolve` orchestrates store metadata reads)
 
 ## Forbidden (do not add new edges)
 
 - `models` → `cli` or `sync`
 - `backends` → `cli`
-- `registry` → `cli`
+- `registry` (core index helpers) → `cli`
+- **`registry.resolve`** → `cli` — shared metadata resolution must stay free of CLI/presentation.
+- **`sync`** → `cli` — use `registry.resolve` (or other domain modules) instead.
 
-## Documented exception (pre-existing, Phase 1)
+## Shared metadata resolution
 
-- **`sync` → `cli`**: `sync/merge.py` lazily imports `_read_metadata` from `secrets_kit.cli.main` inside `apply_peer_sync_import`, matching pre-refactor behavior. This is **technical debt**; remove when a small shared service/helper module is extracted (no new `sync` → `cli` imports).
+- **`registry/resolve.py`** owns **`_read_metadata`** (same symbol name as pre–Phase 2). CLI commands, `sync.merge`, and tests patch/import this module—not `cli.main`.
 
 ## Static import analysis note
 
-A simple AST pass over `src/secrets_kit` may report **cycles** that are broken at runtime by **lazy imports** (for example `cli.parser.base` importing `cli.main` inside `build_parser`, `sync.merge` importing `_read_metadata` inside `apply_peer_sync_import`, `backends.base.resolve_backend_store` importing concrete backends inside the function). This matches the pre-refactor design; do not fix by adding new top-level imports without an ADR.
+A simple AST pass over `src/secrets_kit` may report **cycles** that are broken at runtime by **lazy imports** inside functions (for example `backends.base.resolve_backend_store` importing concrete backends inside the function). Prefer explicit top-level imports in new code unless an ADR documents a lazy edge.
 
 ## Validation
 
-Regenerate a dependency overview with standard tooling (for example `pydeps` or `importlab` on `src/secrets_kit`) after large edits. Confirm no **new** import cycles vs the prior flat layout.
+- `python scripts/check_import_cycles.py` — lightweight SCC listing; compare to `scripts/import_cycles_baseline.txt` after large edits (**no new cycles** vs baseline).
+- `tests/test_import_layer_guards.py` — parser must not import `cli.main`; `sync/merge.py` and `registry/resolve.py` must not reference `secrets_kit.cli`.
+- Regenerate a dependency overview with standard tooling (for example `pydeps` or `importlab` on `src/secrets_kit`) after large edits when useful.

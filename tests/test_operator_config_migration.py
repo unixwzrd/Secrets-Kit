@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from secrets_kit.cli.main import _load_defaults
+from secrets_kit.cli.support.defaults import _load_defaults
 from secrets_kit.registry.core import load_defaults, migrate_legacy_operator_backend_in_file
 
 

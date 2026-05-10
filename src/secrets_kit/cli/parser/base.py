@@ -9,11 +9,41 @@ from secrets_kit.cli.help.formatter import CONFIG_COMMAND_DESCRIPTION, MAIN_HELP
 from secrets_kit.backends.security import BACKEND_CHOICES
 from secrets_kit.models.core import ENTRY_KIND_VALUES
 
+from secrets_kit.cli.commands.config import (
+    cmd_config_path,
+    cmd_config_set,
+    cmd_config_show,
+    cmd_config_unset,
+)
+from secrets_kit.cli.commands.diagnostics import (
+    cmd_backend_index,
+    cmd_doctor,
+    cmd_helper_status,
+    cmd_journal_append,
+    cmd_keychain_status,
+    cmd_lock,
+    cmd_rebuild_index,
+    cmd_unlock,
+    cmd_version,
+)
+from secrets_kit.cli.commands.identity import cmd_identity_export, cmd_identity_init, cmd_identity_show
+from secrets_kit.cli.commands.import_export import cmd_export, cmd_import_encrypted, cmd_import_env, cmd_import_file
+from secrets_kit.cli.commands.migrate import cmd_migrate_dotenv, cmd_migrate_metadata, cmd_recover_registry
+from secrets_kit.cli.commands.peers import cmd_peer_add, cmd_peer_list, cmd_peer_remove, cmd_peer_show
+from secrets_kit.cli.commands.secrets import cmd_delete, cmd_explain, cmd_get, cmd_list, cmd_run, cmd_set
+from secrets_kit.cli.commands.service_ops import cmd_service_copy
+from secrets_kit.cli.commands.sync_bundle import (
+    cmd_sync_export,
+    cmd_sync_import,
+    cmd_sync_inspect,
+    cmd_sync_verify,
+)
+from secrets_kit.cli.support.defaults import CONFIG_STORABLE_KEYS
+from secrets_kit.cli.support.version_info import _cli_version
+
 
 def build_parser() -> argparse.ArgumentParser:
-    """Construct CLI parser. Lazy-imports cli handlers to avoid import cycles."""
-    import secrets_kit.cli.main as cli
-
+    """Construct CLI parser."""
     parser = argparse.ArgumentParser(
         prog="seckit",
         description=(
@@ -24,7 +54,7 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=MAIN_HELP_EPILOG,
         formatter_class=SeckitHelpFormatter,
     )
-    parser.add_argument("-v", "--version", action="version", version=f"%(prog)s {cli._cli_version()}")
+    parser.add_argument("-v", "--version", action="version", version=f"%(prog)s {_cli_version()}")
     sub = parser.add_subparsers(
         dest="command",
         required=True,
@@ -38,7 +68,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     backend_choices = list(BACKEND_CHOICES)
     common = make_common_parent(backend_choices)
-    cfg_keys = sorted(cli._CONFIG_STORABLE_KEYS)
+    cfg_keys = sorted(CONFIG_STORABLE_KEYS)
 
     p_set = sub.add_parser(
         "set",
@@ -68,7 +98,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_set.add_argument("--domains")
     p_set.add_argument("--meta", action="append")
     p_set.add_argument("--allow-empty", action="store_true")
-    p_set.set_defaults(func=cli.cmd_set)
+    p_set.set_defaults(func=cmd_set)
 
     p_get = sub.add_parser(
         "get",
@@ -89,7 +119,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Materialize plaintext secret to stdout (elevated disclosure)",
     )
-    p_get.set_defaults(func=cli.cmd_get)
+    p_get.set_defaults(func=cmd_get)
 
     p_list = sub.add_parser(
         "list",
@@ -111,7 +141,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_list.add_argument("--tag")
     p_list.add_argument("--stale", type=int, help="Filter entries older than N days")
     p_list.add_argument("--format", choices=["table", "json"], default="table")
-    p_list.set_defaults(func=cli.cmd_list)
+    p_list.set_defaults(func=cmd_list)
 
     p_explain = sub.add_parser(
         "explain",
@@ -126,7 +156,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=SeckitHelpFormatter,
     )
     p_explain.add_argument("--name", required=True)
-    p_explain.set_defaults(func=cli.cmd_explain)
+    p_explain.set_defaults(func=cmd_explain)
 
     p_config = sub.add_parser(
         "config",
@@ -151,16 +181,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Merge defaults.json, legacy ~/.config/seckit/config.json, and SECKIT_* env overrides",
     )
-    p_config_show.set_defaults(func=cli.cmd_config_show)
+    p_config_show.set_defaults(func=cmd_config_show)
     p_config_set = config_sub.add_parser("set", help="Set one key in defaults.json")
     p_config_set.add_argument("key", choices=cfg_keys, metavar="KEY")
     p_config_set.add_argument("value", help="Value (use quotes if it contains spaces)")
-    p_config_set.set_defaults(func=cli.cmd_config_set)
+    p_config_set.set_defaults(func=cmd_config_set)
     p_config_unset = config_sub.add_parser("unset", help="Remove one key from defaults.json")
     p_config_unset.add_argument("key", choices=cfg_keys, metavar="KEY")
-    p_config_unset.set_defaults(func=cli.cmd_config_unset)
+    p_config_unset.set_defaults(func=cmd_config_unset)
     p_config_path = config_sub.add_parser("path", help="Print path to defaults.json")
-    p_config_path.set_defaults(func=cli.cmd_config_path)
+    p_config_path.set_defaults(func=cmd_config_path)
 
     p_delete = sub.add_parser(
         "delete",
@@ -175,7 +205,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_delete.add_argument("--name", required=True)
     p_delete.add_argument("--yes", action="store_true")
-    p_delete.set_defaults(func=cli.cmd_delete)
+    p_delete.set_defaults(func=cmd_delete)
 
     p_import = sub.add_parser(
         "import",
@@ -200,7 +230,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_import_env.add_argument("--upsert", action="store_true", help="Create new names and update existing values")
     p_import_env.add_argument("--allow-empty", action="store_true")
     p_import_env.add_argument("--yes", action="store_true")
-    p_import_env.set_defaults(func=cli.cmd_import_env)
+    p_import_env.set_defaults(func=cmd_import_env)
 
     p_import_file = import_sub.add_parser("file", help="Import secrets from JSON or YAML files")
     p_import_file.add_argument("--file", required=True)
@@ -214,7 +244,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_import_file.add_argument("--allow-overwrite", action="store_true")
     p_import_file.add_argument("--allow-empty", action="store_true")
     p_import_file.add_argument("--yes", action="store_true")
-    p_import_file.set_defaults(func=cli.cmd_import_file)
+    p_import_file.set_defaults(func=cmd_import_file)
 
     p_import_encrypted = import_sub.add_parser("encrypted-json", help="Import secrets from encrypted JSON export")
     p_import_encrypted.add_argument("--file", required=True)
@@ -227,7 +257,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_import_encrypted.add_argument("--allow-overwrite", action="store_true")
     p_import_encrypted.add_argument("--allow-empty", action="store_true")
     p_import_encrypted.add_argument("--yes", action="store_true")
-    p_import_encrypted.set_defaults(func=cli.cmd_import_encrypted)
+    p_import_encrypted.set_defaults(func=cmd_import_encrypted)
 
     p_export = sub.add_parser(
         "export",
@@ -252,7 +282,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_export.add_argument("--type", choices=["secret", "pii"])
     p_export.add_argument("--kind", choices=ENTRY_KIND_VALUES)
     p_export.add_argument("--all", action="store_true", help="Export all matching entries (elevated scope)")
-    p_export.set_defaults(func=cli.cmd_export)
+    p_export.set_defaults(func=cmd_export)
 
     p_run = sub.add_parser(
         "run",
@@ -274,7 +304,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--kind", choices=ENTRY_KIND_VALUES)
     p_run.add_argument("--all", action="store_true", help="Inject all matching entries (elevated scope)")
     p_run.add_argument("child_command", nargs=argparse.REMAINDER)
-    p_run.set_defaults(func=cli.cmd_run)
+    p_run.set_defaults(func=cmd_run)
 
     p_service = sub.add_parser("service", help="Manage service-scoped secret groups")
     service_sub = p_service.add_subparsers(dest="service_command", required=True)
@@ -292,7 +322,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_service_copy.add_argument("--kind", choices=ENTRY_KIND_VALUES)
     p_service_copy.add_argument("--overwrite", action="store_true")
     p_service_copy.add_argument("--dry-run", action="store_true")
-    p_service_copy.set_defaults(func=cli.cmd_service_copy)
+    p_service_copy.set_defaults(func=cmd_service_copy)
 
     p_doctor = sub.add_parser(
         "doctor",
@@ -307,7 +337,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_doctor.add_argument("--backend", choices=backend_choices)
     p_doctor.add_argument("--keychain", help=HELP_KEYCHAIN_OVERRIDE)
     p_doctor.add_argument("--db", help=HELP_DB)
-    p_doctor.set_defaults(func=cli.cmd_doctor)
+    p_doctor.set_defaults(func=cmd_doctor)
 
     p_backend_index = sub.add_parser(
         "backend-index",
@@ -320,14 +350,14 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=SeckitHelpFormatter,
     )
-    p_backend_index.set_defaults(func=cli.cmd_backend_index)
+    p_backend_index.set_defaults(func=cmd_backend_index)
 
     p_rebuild_index = sub.add_parser(
         "rebuild-index",
         parents=[common],
         help="Rebuild backend decrypt-free index from authority payloads (SQLite); repair hashes/hints",
     )
-    p_rebuild_index.set_defaults(func=cli.cmd_rebuild_index)
+    p_rebuild_index.set_defaults(func=cmd_rebuild_index)
 
     p_journal = sub.add_parser(
         "journal",
@@ -336,7 +366,7 @@ def build_parser() -> argparse.ArgumentParser:
     journal_sub = p_journal.add_subparsers(dest="journal_command", required=True)
     p_journal_append = journal_sub.add_parser("append", help="Append one JSON object line to registry_events.jsonl")
     p_journal_append.add_argument("event_json", metavar="JSON", help="Single JSON object (shell-quoted)")
-    p_journal_append.set_defaults(func=cli.cmd_journal_append)
+    p_journal_append.set_defaults(func=cmd_journal_append)
 
     p_unlock = sub.add_parser(
         "unlock",
@@ -347,7 +377,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_unlock.add_argument("--yes", action="store_true", help="Run without confirmation prompt")
     p_unlock.add_argument("--harden", action="store_true", help="Also apply a safer keychain timeout policy after unlock")
     p_unlock.add_argument("--timeout", type=int, default=3600, help="Timeout in seconds used with --harden (default: 3600)")
-    p_unlock.set_defaults(func=cli.cmd_unlock)
+    p_unlock.set_defaults(func=cmd_unlock)
 
     p_lock = sub.add_parser(
         "lock",
@@ -356,14 +386,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_lock.add_argument("--keychain", help=HELP_KEYCHAIN_OVERRIDE)
     p_lock.add_argument("--dry-run", action="store_true", help="Show the backend command without running it")
     p_lock.add_argument("--yes", action="store_true", help="Run without confirmation prompt")
-    p_lock.set_defaults(func=cli.cmd_lock)
+    p_lock.set_defaults(func=cmd_lock)
 
     p_keychain = sub.add_parser(
         "keychain-status",
         help="Report macOS Keychain accessibility and lock policy (Keychain-specific)",
     )
     p_keychain.add_argument("--keychain", help=HELP_KEYCHAIN_OVERRIDE)
-    p_keychain.set_defaults(func=cli.cmd_keychain_status)
+    p_keychain.set_defaults(func=cmd_keychain_status)
 
     p_recover = sub.add_parser(
         "recover",
@@ -392,7 +422,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Emit a single JSON object (includes recovered_entries and skip details); no table",
     )
-    p_recover.set_defaults(func=cli.cmd_recover_registry)
+    p_recover.set_defaults(func=cmd_recover_registry)
 
     p_version = sub.add_parser("version", help="Print the installed seckit version")
     vgrp = p_version.add_mutually_exclusive_group()
@@ -408,7 +438,7 @@ def build_parser() -> argparse.ArgumentParser:
         dest="version_json",
         help="Same as --info as JSON (sorted keys)",
     )
-    p_version.set_defaults(func=cli.cmd_version, version_info=False, version_json=False)
+    p_version.set_defaults(func=cmd_version, version_info=False, version_json=False)
 
     p_helper = sub.add_parser(
         "helper",
@@ -419,7 +449,7 @@ def build_parser() -> argparse.ArgumentParser:
         "status",
         help="Print JSON: backend_availability and helper fields (no bundled Mach-O)",
     )
-    p_helper_status.set_defaults(func=cli.cmd_helper_status)
+    p_helper_status.set_defaults(func=cmd_helper_status)
 
     p_migrate = sub.add_parser("migrate", help="Migrate existing secret files into seckit")
 
@@ -428,14 +458,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_id_init = id_sub.add_parser("init", help="Create or replace host signing/box key material")
     p_id_init.add_argument("--force", action="store_true")
     p_id_init.add_argument("--json", action="store_true")
-    p_id_init.set_defaults(func=cli.cmd_identity_init)
+    p_id_init.set_defaults(func=cmd_identity_init)
     p_id_show = id_sub.add_parser("show", help="Show local host id and fingerprints")
     p_id_show.add_argument("--json", action="store_true")
-    p_id_show.set_defaults(func=cli.cmd_identity_show)
+    p_id_show.set_defaults(func=cmd_identity_show)
     p_id_exp = id_sub.add_parser("export", help="Write public identity JSON for peer add")
     p_id_exp.add_argument("-o", "--out")
     p_id_exp.add_argument("--json", action="store_true")
-    p_id_exp.set_defaults(func=cli.cmd_identity_export)
+    p_id_exp.set_defaults(func=cmd_identity_export)
 
     p_peer = sub.add_parser("peer", help="Trusted peers for peer sync bundles")
     peer_sub = p_peer.add_subparsers(dest="peer_command", required=True)
@@ -443,17 +473,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_peer_add.add_argument("alias")
     p_peer_add.add_argument("export_path", metavar="PATH")
     p_peer_add.add_argument("--json", action="store_true")
-    p_peer_add.set_defaults(func=cli.cmd_peer_add)
+    p_peer_add.set_defaults(func=cmd_peer_add)
     p_peer_rm = peer_sub.add_parser("remove", help="Remove a peer alias")
     p_peer_rm.add_argument("alias")
     p_peer_rm.add_argument("--json", action="store_true")
-    p_peer_rm.set_defaults(func=cli.cmd_peer_remove)
+    p_peer_rm.set_defaults(func=cmd_peer_remove)
     p_peer_ls = peer_sub.add_parser("list", help="List trusted peers")
     p_peer_ls.add_argument("--json", action="store_true")
-    p_peer_ls.set_defaults(func=cli.cmd_peer_list)
+    p_peer_ls.set_defaults(func=cmd_peer_list)
     p_peer_sh = peer_sub.add_parser("show", help="Show one peer (JSON)")
     p_peer_sh.add_argument("alias")
-    p_peer_sh.set_defaults(func=cli.cmd_peer_show)
+    p_peer_sh.set_defaults(func=cmd_peer_show)
 
     p_sync = sub.add_parser("sync", help="Signed encrypted peer bundle export/import")
     sync_sub = p_sync.add_subparsers(dest="sync_command", required=True)
@@ -468,7 +498,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_sync_ex.add_argument("--kind", choices=ENTRY_KIND_VALUES)
     p_sync_ex.add_argument("--all", action="store_true")
     p_sync_ex.add_argument("--json", action="store_true")
-    p_sync_ex.set_defaults(func=cli.cmd_sync_export)
+    p_sync_ex.set_defaults(func=cmd_sync_export)
     p_sync_im = sync_sub.add_parser("import", parents=[common], help="Import and merge a peer bundle")
     p_sync_im.add_argument("file")
     p_sync_im.add_argument(
@@ -481,15 +511,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_sync_im.add_argument("--domains")
     p_sync_im.add_argument("--dry-run", action="store_true")
     p_sync_im.add_argument("--yes", action="store_true")
-    p_sync_im.set_defaults(func=cli.cmd_sync_import)
+    p_sync_im.set_defaults(func=cmd_sync_import)
     p_sync_vf = sync_sub.add_parser("verify", help="Verify bundle JSON signature and structure")
     p_sync_vf.add_argument("file")
     p_sync_vf.add_argument("--try-decrypt", action="store_true", help="Decrypt inner (requires local identity + --signer)")
     p_sync_vf.add_argument("--signer", metavar="ALIAS", help="Exporter peer alias (required with --try-decrypt)")
-    p_sync_vf.set_defaults(func=cli.cmd_sync_verify, try_decrypt=False)
+    p_sync_vf.set_defaults(func=cmd_sync_verify, try_decrypt=False)
     p_sync_insp = sync_sub.add_parser("inspect", help="Inspect bundle (manifest; no decryption)")
     p_sync_insp.add_argument("file")
-    p_sync_insp.set_defaults(func=cli.cmd_sync_inspect)
+    p_sync_insp.set_defaults(func=cmd_sync_inspect)
 
     migrate_sub = p_migrate.add_subparsers(dest="migrate_command", required=True)
     p_migrate_dotenv = migrate_sub.add_parser(
@@ -508,7 +538,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_migrate_dotenv.add_argument("--yes", action="store_true")
     p_migrate_dotenv.add_argument("--replace-with-placeholders", dest="replace_with_placeholders", action="store_true", default=True)
     p_migrate_dotenv.add_argument("--no-replace-with-placeholders", dest="replace_with_placeholders", action="store_false")
-    p_migrate_dotenv.set_defaults(func=cli.cmd_migrate_dotenv)
+    p_migrate_dotenv.set_defaults(func=cmd_migrate_dotenv)
 
     p_migrate_metadata = migrate_sub.add_parser(
         "metadata",
@@ -517,7 +547,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_migrate_metadata.add_argument("--dry-run", action="store_true")
     p_migrate_metadata.add_argument("--force", action="store_true")
-    p_migrate_metadata.set_defaults(func=cli.cmd_migrate_metadata)
+    p_migrate_metadata.set_defaults(func=cmd_migrate_metadata)
 
     p_migrate_recover = migrate_sub.add_parser(
         "recover-registry",
@@ -530,6 +560,6 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Emit a single JSON object (includes recovered_entries and skip details); no table",
     )
-    p_migrate_recover.set_defaults(func=cli.cmd_recover_registry)
+    p_migrate_recover.set_defaults(func=cmd_recover_registry)
 
     return parser

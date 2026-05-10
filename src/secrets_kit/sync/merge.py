@@ -9,6 +9,7 @@ from secrets_kit.importers import ImportCandidate
 from secrets_kit.backends.security import BackendError, get_secret, secret_exists, set_secret
 from secrets_kit.models.core import EntryMetadata, normalize_custom, normalize_domains
 from secrets_kit.registry.core import load_registry, upsert_metadata
+from secrets_kit.registry.resolve import _read_metadata
 
 SYNC_ORIGIN_CUSTOM_KEY = "seckit_sync_origin_host"
 
@@ -103,8 +104,6 @@ def apply_peer_sync_import(
     omitted, same as other CLI helpers). Use an explicit path in tests or
     tooling so imports do not depend on mutating ``HOME``.
     """
-    from secrets_kit.cli.main import _read_metadata
-
     stats = {"conflicts": 0, "created": 0, "skipped": 0, "unchanged": 0, "updated": 0}
     registry = load_registry(home=home)
 

@@ -12,15 +12,10 @@ from pathlib import Path
 from unittest import mock
 
 from secrets_kit.backends.base import BackendStore, ResolvedEntry
-from secrets_kit.cli.main import (
-    cmd_backend_index,
-    cmd_doctor,
-    cmd_explain,
-    cmd_get,
-    cmd_list,
-    cmd_recover_registry,
-    _apply_defaults,
-)
+from secrets_kit.cli.commands.diagnostics import cmd_backend_index, cmd_doctor
+from secrets_kit.cli.commands.migrate import cmd_recover_registry
+from secrets_kit.cli.commands.secrets import cmd_explain, cmd_get, cmd_list
+from secrets_kit.cli.support.defaults import _apply_defaults
 from secrets_kit.cli.parser.base import build_parser
 from secrets_kit.backends.security import BACKEND_SQLITE, set_secret
 from secrets_kit.models.core import EntryMetadata
