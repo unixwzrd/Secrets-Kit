@@ -1,16 +1,26 @@
 # Secrets-Kit Changelog
 
 **Created**: 2026-03-10  
-**Updated**: 2026-05-05
+**Updated**: 2026-05-11
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+### 2026-05-11 — Phase 5C: managed sync host documentation (protocol, metrics, provisioning)
+
+- **Scope:** [docs/plans/SYNC_HOST_PROTOCOL.md](docs/plans/SYNC_HOST_PROTOCOL.md) (authority, **no durable payload retention by default**, offline/no-MQ semantics, `account_id`/`customer_id`/`subscription_id`, pinned keys, onboarding concept, anti–general-messaging-platform); [docs/plans/SYNC_HOST_METRICS.md](docs/plans/SYNC_HOST_METRICS.md); [docs/SYNC_HOST_PROVISIONING.md](docs/SYNC_HOST_PROVISIONING.md); [docs/plans/SECKITD_PHASE5.md](docs/plans/SECKITD_PHASE5.md) §5C–5E; [docs/plans/Architecture/GLOSSARY.md](docs/plans/Architecture/GLOSSARY.md) **Sync host (managed)**; [docs/IPC_SEMANTICS_ADR.md](docs/IPC_SEMANTICS_ADR.md) operator vocabulary; [docs/plans/PHASED_REFACTOR_PLAN.md](docs/plans/PHASED_REFACTOR_PLAN.md); [docs/README.md](docs/README.md).
+- **What changed:** User-facing **sync host** defined vs internal **`relayd`**. **Non-goals:** no Stripe/automation, no code network listener, no `sync/bundle.py` changes.
 
 ### 2026-05-10 — Phase 5A: local `seckitd` (Unix socket, no network)
 
 - **Scope:** `src/secrets_kit/seckitd/` (paths, framing, protocol, server, client, subprocess bridge), `seckit daemon …` + `seckitd` script in [pyproject.toml](pyproject.toml); `seckit sync import -` reads stdin; [docs/plans/SECKITD_PHASE5.md](docs/plans/SECKITD_PHASE5.md); [docs/IMPORT_LAYER_RULES.md](docs/IMPORT_LAYER_RULES.md); [docs/plans/PHASED_REFACTOR_PLAN.md](docs/plans/PHASED_REFACTOR_PLAN.md); [tests/test_seckitd_phase5a.py](tests/test_seckitd_phase5a.py).
 - **What changed:** User-scoped Unix socket (0700 runtime dir, 0600 socket), one request per connection, length-prefixed JSON. Ops: `ping`, `status`, `submit_outbound` (local receipt only), `relay_inbound` (validate transport wrapper + `seckit sync import` on stdin). **Non-goals:** no TCP/API/MCP/relay/sync reconciliation.
 - **2026-05-05 follow-up (audit):** Phase 5 plan doc expanded (IPC authority, queue governance, resilience/export framing, future integrity notes, rollback); [docs/README.md](docs/README.md) testing/CI note; framing max-frame + `sync import` stdin parity tests; clearer `OSError` text when `file` is `-`.
+
+### 2026-05-05 — Phase 5B: `seckitd` local hardening (peer creds, IPC redaction, docs)
+
+- **Scope:** `src/secrets_kit/seckitd/peer_cred.py`, `ipc_redact.py`; wire in [`server.py`](src/secrets_kit/seckitd/server.py), [`protocol.py`](src/secrets_kit/seckitd/protocol.py), [`bridge.py`](src/secrets_kit/seckitd/bridge.py); [`docs/plans/SECKITD_PHASE5.md`](docs/plans/SECKITD_PHASE5.md) (5B vs relay stub numbering), [`docs/OPERATOR_LIFECYCLE.md`](docs/OPERATOR_LIFECYCLE.md), [`docs/SECURITY_MODEL.md`](docs/SECURITY_MODEL.md), [`docs/plans/PHASED_REFACTOR_PLAN.md`](docs/plans/PHASED_REFACTOR_PLAN.md), [`docs/plans/Architecture/GLOSSARY.md`](docs/plans/Architecture/GLOSSARY.md); [`tests/test_seckitd_phase5b.py`](tests/test_seckitd_phase5b.py); `seckit daemon serve` epilog for env vars.
+- **What changed:** After `accept()`, Unix stream peers must match daemon **euid** (Linux `SO_PEERCRED`, macOS/BSD `getpeereid`) unless **`SECKITD_INSECURE_SKIP_PEER_CRED=1`** (**unsafe**). `relay_inbound` IPC JSON **omits** subprocess tails on success by default; failure returns **redacted** stderr tail; **`SECKITD_VERBOSE_IPC=1`** enables verbose tails (**sensitive**). **Non-goals:** no network/MCP/relay product; no `sync/bundle.py` crypto changes.
 
 ### 2026-05-05 — Phase 4: enrollment + transport message wrapper (docs, `identity/enrollment`, `sync/envelope`, schemas)
 

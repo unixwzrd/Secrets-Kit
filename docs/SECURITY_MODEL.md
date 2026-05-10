@@ -135,11 +135,10 @@ The practical size limit for comment JSON is determined by what macOS will store
 
 Secrets-Kit does **not** implement Apple-managed Keychain replication. Cross-host work is **your** artifact (export, import, or peer bundle)—not OS sync of Keychain items.
 
+**Resilience, noisy export, uninstall:** Peer sync is the **primary** resilience path; full plaintext export is **explicit and high-friction**, not a default backup. Uninstall is **manual per host** with **no dark patterns**. See [OPERATOR_LIFECYCLE.md](OPERATOR_LIFECYCLE.md).
+
 ## Practical takeaway
 
 Use Secrets Kit when you want a more disciplined local workflow for tokens, passwords, API keys, and PII on macOS. Do not use it as an excuse to stop thinking about process isolation, machine trust, or downstream runtime behavior.
 
 ## [Back to README](../README.md)
-
-**Created**: 2026-03-01  
-**Updated**: 2026-05-07

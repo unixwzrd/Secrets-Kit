@@ -617,6 +617,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_daemon_serve = daemon_sub.add_parser(
         "serve",
         help="Run seckitd in the foreground (Unix socket listener)",
+        epilog=(
+            "Environment (Phase 5B):\n"
+            "  SECKITD_INSECURE_SKIP_PEER_CRED=1 — skip same-user socket peer checks (**unsafe**; containers only).\n"
+            "  SECKITD_VERBOSE_IPC=1 — include subprocess stdout/stderr tails in ``relay_inbound`` responses on success (**sensitive**).\n"
+            "See docs/plans/SECKITD_PHASE5.md."
+        ),
+        formatter_class=SeckitHelpFormatter,
     )
     p_daemon_serve.add_argument("--socket", type=Path, default=None)
     p_daemon_serve.set_defaults(func=cmd_daemon_serve)

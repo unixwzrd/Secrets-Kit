@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from secrets_kit.seckitd.framing import FramingError, frame_json, parse_json_object, read_frame
+from secrets_kit.seckitd.peer_cred import PeerCredentialError, verify_unix_peer_euid
 from secrets_kit.seckitd.protocol import DaemonState, handle_request
 
 
@@ -99,6 +100,14 @@ def _handle_connection(
     seckit_argv: Optional[List[str]],
     child_env: Optional[Dict[str, str]],
 ) -> None:
+    try:
+        verify_unix_peer_euid(conn)
+    except PeerCredentialError as exc:
+        try:
+            conn.sendall(frame_json({"ok": False, "error": str(exc)}))
+        except OSError:
+            pass
+        return
     try:
         body = read_frame(conn)
         request = parse_json_object(body)

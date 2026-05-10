@@ -1,9 +1,11 @@
 # ADR: IPC and local transport semantics (pre-daemon)
 
 **Created**: 2026-05-08  
-**Updated**: 2026-05-08  
+**Updated**: 2026-05-11  
 
 Normative semantics for **local IPC**, future **same-user `seckitd`** transport, and **optional future `relayd`** — **without** fixing a wire format or shipping a listener. **Materialization** terms come from [RUNTIME_AUTHORITY_ADR.md](RUNTIME_AUTHORITY_ADR.md). **Session** and ownership come from [RUNTIME_SESSION_ADR.md](RUNTIME_SESSION_ADR.md).
+
+Plan-phase sketch for managed **sync host** (operator wording) is in [plans/SYNC_HOST_PROTOCOL.md](plans/SYNC_HOST_PROTOCOL.md); it does not override this ADR.
 
 ## Purpose / scope guard
 
@@ -86,6 +88,10 @@ When specified later:
 - Relay carries **opaque encrypted blobs only**; **never** decrypts.
 - Relay metadata: **intentionally minimal**, **ephemeral registration** bias; relay **must not** evolve into **inventory** or **database-of-truth** for secrets.
 - Relay is **optional** participation and **not** a **trust authority**.
+
+### Operator vocabulary: sync host
+
+In operator-facing documentation, **sync host** means a managed **`relayd`-class** process: **best-effort opaque forwarding transport** only. **Peers** remain authoritative for registry state, merge resolution, secret ownership, identity truth, sync history, and delivery guarantees—the sync host **never** is.
 
 ## Non-goals (explicit)
 

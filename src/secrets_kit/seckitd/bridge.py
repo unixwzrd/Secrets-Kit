@@ -18,11 +18,11 @@ def default_seckit_argv() -> List[str]:
 
 @dataclass(frozen=True)
 class SubprocessResult:
-    """Structured result of a ``seckit`` child (no secret content)."""
+    """Structured result of a ``seckit`` child (decode only; IPC redaction is separate)."""
 
     returncode: int
-    stdout_tail: str
-    stderr_tail: str
+    stdout: str
+    stderr: str
 
 
 def run_sync_import_stdin(
@@ -57,6 +57,6 @@ def run_sync_import_stdin(
     err = proc.stderr.decode("utf-8", errors="replace")
     return SubprocessResult(
         returncode=int(proc.returncode or 0),
-        stdout_tail=out[-8000:],
-        stderr_tail=err[-8000:],
+        stdout=out,
+        stderr=err,
     )

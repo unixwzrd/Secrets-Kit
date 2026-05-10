@@ -13,6 +13,7 @@ from pydantic import ValidationError
 
 from secrets_kit.schemas.envelope import validate_transport_message_wrapper
 from secrets_kit.seckitd.bridge import default_seckit_argv, run_sync_import_stdin
+from secrets_kit.seckitd.ipc_redact import relay_subprocess_tails_for_ipc, verbose_ipc_enabled
 
 
 SECKITD_PROTOCOL_VERSION = 1
@@ -136,12 +137,18 @@ def _handle_relay_inbound(
         env=child_env,
     )
     ok = result.returncode == 0
+    stdout_tail, stderr_tail = relay_subprocess_tails_for_ipc(
+        ok=ok,
+        stdout=result.stdout,
+        stderr=result.stderr,
+        verbose_ipc=verbose_ipc_enabled(),
+    )
     return _ok(
         {
             "seckit_exit_code": result.returncode,
             "seckit_ok": ok,
-            "stdout_tail": result.stdout_tail,
-            "stderr_tail": result.stderr_tail,
+            "stdout_tail": stdout_tail,
+            "stderr_tail": stderr_tail,
         }
     )
 

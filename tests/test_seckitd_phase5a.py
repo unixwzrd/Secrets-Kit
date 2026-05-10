@@ -284,6 +284,8 @@ class SeckitdRelayInboundSqliteTests(unittest.TestCase):
             )
             self.assertTrue(r.get("ok"), msg=r)
             self.assertTrue(r["data"].get("seckit_ok"), msg=r)
+            self.assertEqual(r["data"].get("stdout_tail"), "")
+            self.assertEqual(r["data"].get("stderr_tail"), "")
             val_b = get_secret(
                 service="svc5",
                 account="dev",
