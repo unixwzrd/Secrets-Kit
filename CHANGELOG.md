@@ -1,12 +1,16 @@
 # Secrets-Kit Changelog
 
 **Created**: 2026-03-10  
-**Updated**: 2026-05-10
+**Updated**: 2026-05-05
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-### 2026-05-10 — Phase 2: CLI extraction (`cli/commands/`, `cli/support/`, `registry/resolve.py`)
+### 2026-05-05 — Phase 3: model/backend contract stabilization (`schemas/`, inventory, BackendStore doc)
+
+- **Scope:** [docs/plans/PHASE_3_PAYLOAD_INVENTORY.md](docs/plans/PHASE_3_PAYLOAD_INVENTORY.md); [docs/BACKEND_STORE_CONTRACT.md](docs/BACKEND_STORE_CONTRACT.md); `pydantic==2.13.2` in [pyproject.toml](pyproject.toml); `src/secrets_kit/schemas/` (`base`, `metadata`, `index`, `backend`, `sync_bundle`, `identity_public`, `runtime` stub); optional `SECKIT_VALIDATE_REGISTRY_METADATA` path in [registry/core.py](src/secrets_kit/registry/core.py); [docs/IMPORT_LAYER_RULES.md](docs/IMPORT_LAYER_RULES.md), [docs/plans/PHASED_REFACTOR_PLAN.md](docs/plans/PHASED_REFACTOR_PLAN.md); tests in [tests/test_schemas_phase3.py](tests/test_schemas_phase3.py).
+- **What changed:** Mirror schemas validate dict shapes for tests and drift detection only (`model_dump` is **not** a production emitter). Default registry load behavior is unchanged; strict mirror validation is opt-in via env. Operator-visible JSON, crypto, and persistence formats are unchanged.
+
 
 - **Scope:** Move `cmd_*` handlers into `src/secrets_kit/cli/commands/*.py`; shared non-domain helpers into `src/secrets_kit/cli/support/*.py` (`defaults`, `interaction`, `args`, `metadata_selection`, `env_exec`, `version_info`, `peer_sync_errors`). Relocate **`_read_metadata`** verbatim to **`src/secrets_kit/registry/resolve.py`**; `sync.merge` and CLI use it—**no** `sync` → `cli` import. **`cli/main.py`** is **`main()`** only (parse, `_apply_defaults`, dispatch). **`cli/parser/base.py`** imports handlers and support symbols explicitly (**no** `cli.main` lazy import). Tests patch/import **defining** modules; add `tests/test_import_layer_guards.py` and `scripts/check_import_cycles.py` + `scripts/import_cycles_baseline.txt`. Update [docs/IMPORT_LAYER_RULES.md](docs/IMPORT_LAYER_RULES.md).
 - **What changed:** Operator-visible behavior, flags, JSON shapes, crypto, SQLite schema, registry on-disk format, and bundle formats are unchanged. Monkeypatch paths for moved symbols updated in tests.

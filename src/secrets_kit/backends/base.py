@@ -136,15 +136,23 @@ class BackendStore(ABC):
     Only adapters implement payload encryption, row layout, and comment formats. All work here
     is **protected authority handling**: adapters may **resolve** full authority (including
     in-memory plaintext) without **materialization** until a caller crosses the boundary to
-    operators, child processes, filesystems, or IPC (see ``docs/RUNTIME_AUTHORITY_ADR.md``).
+    operators, child processes, filesystems, or IPC (see ``docs/RUNTIME_AUTHORITY_ADR.md`` and
+    ``docs/BACKEND_STORE_CONTRACT.md``).
 
     **Enumeration vs resolution**
 
     - :meth:`iter_index` — decrypt-free **index** surface; must not decrypt ciphertext or parse
       rich comment JSON. Output stays **inside** safe-index semantics (no secret plaintext).
+      Rows must not expose operator-sensitive metadata (tags, domains, kinds, detailed source)
+      in the :class:`IndexRow` itself; those appear only after **resolution**.
     - :meth:`resolve_by_entry_id` / :meth:`resolve_by_locator` — **authority** (secret + metadata)
       for in-process consumers; **does not** by itself **materialize** to the operator.
     - :meth:`iter_unlocked` — heavy scan with decrypt; must not be used to implement ``iter_index``.
+
+    **Corruption and repair**
+
+    Adapters set :class:`IndexRow` corruption fields when index/state inconsistencies are detected.
+    Operators use diagnostics/``rebuild_index`` per capability; see ``docs/BACKEND_STORE_CONTRACT.md``.
     """
 
     @abstractmethod
@@ -205,6 +213,9 @@ class BackendStore(ABC):
         """Decrypt-free index scan; must not decrypt payloads or parse rich metadata from comments.
 
         Index rows are **index-only** / safe-index surfaces — not **materialization** paths.
+        Implementations must populate version fields consistently (index/payload/backend impl)
+        and use ``corrupt`` / ``corrupt_reason`` / ``last_validation_at`` when the adapter
+        detects damaged or inconsistent state without breaking the iterator contract.
         """
 
     @abstractmethod

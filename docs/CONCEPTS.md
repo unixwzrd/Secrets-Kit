@@ -50,4 +50,4 @@ Prefer **`--json`** and structured fields over parsing tables or help text. See 
 
 ## Glossary pointer
 
-Extended term list: [Secrets-Kit-Glossary-of-Terms.md](Secrets-Kit-Glossary-of-Terms.md).
+Extended term list: [Secrets-Kit-Glossary-of-Terms.md](plans/Architecture/GLOSSARY.md).

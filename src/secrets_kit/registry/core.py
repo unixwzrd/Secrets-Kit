@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 import tempfile
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from secrets_kit.models.core import EntryMetadata, ensure_entry_id, normalize_custom, now_utc_iso
+
+_VALIDATE_REGISTRY_METADATA = os.environ.get("SECKIT_VALIDATE_REGISTRY_METADATA") == "1"
 
 _LEGACY_OPERATOR_BACKEND_TOKENS = frozenset({"icloud", "icloud-helper"})
 
@@ -222,6 +224,11 @@ def load_registry(*, home: Optional[Path] = None) -> Dict[str, EntryMetadata]:
     Authoritative tags, source, kind, domains, etc. live in the backend store only.
 
     **v1 (legacy):** full :class:`EntryMetadata` blobs are read once, rewritten as v2 on load.
+
+    When the environment variable ``SECKIT_VALIDATE_REGISTRY_METADATA=1`` is set at process
+    start, each row is additionally checked against :mod:`secrets_kit.schemas.metadata`
+    mirrors after load-time parsing (see ``docs/plans/PHASE_3_PAYLOAD_INVENTORY.md``).
+    Default is off (no extra validation).
     """
     rpath = ensure_registry_storage(home=home)
     _check_secure_perms(path=rpath, max_mode=0o600)
@@ -233,7 +240,12 @@ def load_registry(*, home: Optional[Path] = None) -> Dict[str, EntryMetadata]:
         if not isinstance(item, dict):
             continue
         if file_ver <= LEGACY_REGISTRY_FILE_VERSION:
-            full = EntryMetadata.from_dict(item)
+            if _VALIDATE_REGISTRY_METADATA:
+                from secrets_kit.schemas.metadata import parse_full_registry_metadata_with_schema_check
+
+                full = parse_full_registry_metadata_with_schema_check(item)
+            else:
+                full = EntryMetadata.from_dict(item)
             sync = _peer_origin_from_metadata(full)
             slim = EntryMetadata(
                 name=full.name,
@@ -246,6 +258,10 @@ def load_registry(*, home: Optional[Path] = None) -> Dict[str, EntryMetadata]:
             )
             mapping[slim.key()] = slim
         else:
+            if _VALIDATE_REGISTRY_METADATA:
+                from secrets_kit.schemas.metadata import validate_slim_registry_entry
+
+                validate_slim_registry_entry(item)
             keys = set(item.keys())
             if not keys <= _REGISTRY_ENTRY_ALLOWED_KEYS:
                 raise RegistryError(

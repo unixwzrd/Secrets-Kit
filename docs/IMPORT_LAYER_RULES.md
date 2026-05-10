@@ -1,25 +1,27 @@
 # Import layer rules
 
 **Created**: 2026-05-09  
-**Updated**: 2026-05-10
+**Updated**: 2026-05-05
 
 After the package restructure (Phase 1) and CLI extraction (Phase 2), dependencies should follow these directions:
 
 ## Allowed
 
-- `cli` → `sync`, `runtime`, `backends`, `registry`, `identity`, `models`, `utils`, `recovery`, top-level `importers`, etc.
+- `cli` → `sync`, `runtime`, `backends`, `registry`, `identity`, `models`, `utils`, `schemas`, `recovery`, top-level `importers`, etc.
 - `cli.parser` → `cli.commands`, `cli.support`, `backends`, `models` (explicit handler imports; **no** `cli.main` for parser wiring).
-- `sync` → `models`, `backends`, `registry` (including `registry.resolve`), `identity`, `utils`, `importers`
+- `sync` → `models`, `backends`, `registry` (including `registry.resolve`), `identity`, `utils`, `importers`, `schemas`
 - `backends` → `models` (and internal backend cross-imports)
 - `registry` → `models`, `backends` (e.g. `registry.resolve` orchestrates store metadata reads)
+- `schemas` → `models` (helpers/normalizers only — mirror Pydantic types; **not** canonical runtime types)
 
 ## Forbidden (do not add new edges)
 
-- `models` → `cli` or `sync`
+- `models` → `cli` or `sync` or `schemas`
 - `backends` → `cli`
 - `registry` (core index helpers) → `cli`
 - **`registry.resolve`** → `cli` — shared metadata resolution must stay free of CLI/presentation.
 - **`sync`** → `cli` — use `registry.resolve` (or other domain modules) instead.
+- **`schemas`** → `cli` — keep boundary validation out of CLI package; CLI may import `schemas` only if a future refactor explicitly documents it (Phase 3: avoid).
 
 ## Shared metadata resolution
 
