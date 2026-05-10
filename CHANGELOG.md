@@ -6,6 +6,11 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+### 2026-05-05 — Phase 4: enrollment + transport message wrapper (docs, `identity/enrollment`, `sync/envelope`, schemas)
+
+- **Scope:** [docs/plans/Architecture/PEER_ENROLLMENT_AND_BOOTSTRAP.md](docs/plans/Architecture/PEER_ENROLLMENT_AND_BOOTSTRAP.md) (transport plumbing, `host_id` vs `entry_id`); Phase 4 table in [docs/plans/PHASE_3_PAYLOAD_INVENTORY.md](docs/plans/PHASE_3_PAYLOAD_INVENTORY.md); [docs/IMPORT_LAYER_RULES.md](docs/IMPORT_LAYER_RULES.md); [docs/plans/PHASED_REFACTOR_PLAN.md](docs/plans/PHASED_REFACTOR_PLAN.md); `src/secrets_kit/identity/enrollment.py`, `src/secrets_kit/sync/envelope.py`, `src/secrets_kit/schemas/enrollment.py`, `src/secrets_kit/schemas/envelope.py`; [tests/test_phase4_enrollment_envelope.py](tests/test_phase4_enrollment_envelope.py).
+- **What changed:** Public enrollment **dict** builders (optional `relay_endpoints`); minimal **transport message** wrapper helpers separate from bundle v1; Pydantic mirrors (`extra="forbid"`, enrollment denylist). **Non-goals:** No daemon/network product, no `sync/bundle.py` crypto/manifest changes, no `correlation_id` or `priority`, no `sync/replay.py` / `sync/routing.py` / `identity/trust.py`. `payload_type` is advisory; relay-visible subset excludes it.
+
 ### 2026-05-05 — Phase 3: model/backend contract stabilization (`schemas/`, inventory, BackendStore doc)
 
 - **Scope:** [docs/plans/PHASE_3_PAYLOAD_INVENTORY.md](docs/plans/PHASE_3_PAYLOAD_INVENTORY.md); [docs/BACKEND_STORE_CONTRACT.md](docs/BACKEND_STORE_CONTRACT.md); `pydantic==2.13.2` in [pyproject.toml](pyproject.toml); `src/secrets_kit/schemas/` (`base`, `metadata`, `index`, `backend`, `sync_bundle`, `identity_public`, `runtime` stub); optional `SECKIT_VALIDATE_REGISTRY_METADATA` path in [registry/core.py](src/secrets_kit/registry/core.py); [docs/IMPORT_LAYER_RULES.md](docs/IMPORT_LAYER_RULES.md), [docs/plans/PHASED_REFACTOR_PLAN.md](docs/plans/PHASED_REFACTOR_PLAN.md); tests in [tests/test_schemas_phase3.py](tests/test_schemas_phase3.py).

@@ -10,9 +10,11 @@ After the package restructure (Phase 1) and CLI extraction (Phase 2), dependenci
 - `cli` → `sync`, `runtime`, `backends`, `registry`, `identity`, `models`, `utils`, `schemas`, `recovery`, top-level `importers`, etc.
 - `cli.parser` → `cli.commands`, `cli.support`, `backends`, `models` (explicit handler imports; **no** `cli.main` for parser wiring).
 - `sync` → `models`, `backends`, `registry` (including `registry.resolve`), `identity`, `utils`, `importers`, `schemas`
+- `sync.envelope` — pure dict helpers only; **no** CLI, no network I/O.
+- `identity.enrollment` — public enrollment dict builders; **no** `schemas` imports (identity stays emitter-side).
 - `backends` → `models` (and internal backend cross-imports)
 - `registry` → `models`, `backends` (e.g. `registry.resolve` orchestrates store metadata reads)
-- `schemas` → `models` (helpers/normalizers only — mirror Pydantic types; **not** canonical runtime types)
+- `schemas` → `models` (helpers/normalizers only — mirror Pydantic types; **not** canonical runtime types). Phase 4 adds `schemas/enrollment.py` and `schemas/envelope.py` (Pydantic mirrors only; **no** `model_dump()` emitters in production paths).
 
 ## Forbidden (do not add new edges)
 
