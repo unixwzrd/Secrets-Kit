@@ -6,6 +6,21 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+### 2026-05-12 — Phase 6A follow-up: capability flags + hash conflict diagnostics
+
+- **Scope:** `src/secrets_kit/backends/base.py`, `schemas/backend.py`, SQLite/Keychain adapters; `sync/canonical_record.py`, `sync/merge.py`; `docs/plans/PHASE6A_RECONCILIATION.md`, `docs/PEER_SYNC.md`; tests.
+- **What changed:** **`supports_peer_lineage_merge`** / **`supports_reconcile_transaction`** on :class:`BackendCapabilities` (SQLite true, Keychain false). Import stats **`hash_conflict_details`** lists structured wire-hash mismatch evidence (no secrets). **`metadata_stripped_for_peer_hash_verify`** / **`computed_peer_row_content_hash`** helpers.
+
+### 2026-05-11 — Phase 6A: canonical hash, SQLite `content_hash`, transactional apply
+
+- **Scope:** `src/secrets_kit/sync/canonical_record.py`; `src/secrets_kit/sync/merge.py`; `src/secrets_kit/backends/sqlite.py`; `src/secrets_kit/cli/commands/sync_bundle.py`; `tests/reconciliation/`; [docs/plans/PHASE6A_DEFERRED_TRIGGERS.md](docs/plans/PHASE6A_DEFERRED_TRIGGERS.md); [docs/plans/PHASE6A_RECONCILIATION.md](docs/plans/PHASE6A_RECONCILIATION.md).
+- **What changed:** Top-level **`content_hash`** on bundle rows (export + optional verify); **SHA-256** canonical record; equal-generation **declared hash** divergence → conflict; **entry_id-first** SQLite authority; **rename + set** and **tombstone** applies under **`run_reconcile_transaction`**; import stats **`hash_conflicts`**. Wire verify uses only top-level `content_hash` (not metadata-only); ignores injected sync-origin custom key when hashing.
+
+### 2026-05-05 — Phase 6A (core): peer sync merge ladder, tombstones, replay suppression (SQLite-first)
+
+- **Scope:** [docs/plans/PHASE6A_RECONCILIATION.md](docs/plans/PHASE6A_RECONCILIATION.md); `src/secrets_kit/sync/merge.py` (`merge_decision_v2`, bundle row `disposition` / `generation` / `tombstone_generation`); `src/secrets_kit/importers.py` (`ImportCandidate` extended); `src/secrets_kit/models/lineage.py`; `src/secrets_kit/backends/sqlite.py` (`read_lineage_snapshot`, `bump_tombstone_lineage`); `src/secrets_kit/cli/commands/sync_bundle.py` (SQLite export annotates lineage fields); tests under `tests/reconciliation/`.
+- **What changed:** Deterministic **tombstone** application when `incoming.tombstone_generation >= local.generation` (SQLite); **replay_suppressed** for stale **active** after local delete; **generation** ordering for active rows when bundle carries lineage; legacy `(updated_at, origin)` merge when lineage fields absent; **entry_id** conflict only in lineage mode. Tombstone delete resolves locator via `entry_id` when the peer metadata renamed. **Non-goals in this slice:** content-hash column, canonical hash module, `BackendStore` transactional apply API, triggers/history tables.
+
 ### 2026-05-12 — Phase 5D: runtime stabilization (loopback coordinator, observability, SQLite debug tooling)
 
 - **Scope:** `src/secrets_kit/seckitd/runtime_session.py`, `loopback_transport.py`, `runtime_log.py`; wire in [`protocol.py`](src/secrets_kit/seckitd/protocol.py), [`server.py`](src/secrets_kit/seckitd/server.py); [`cli/commands/daemon.py`](src/secrets_kit/cli/commands/daemon.py), [`cli/commands/diagnostics.py`](src/secrets_kit/cli/commands/diagnostics.py) (`sqlite-inspect`); [`backends/sqlite.py`](src/secrets_kit/backends/sqlite.py) (`SECKIT_SQLITE_PLAINTEXT_DEBUG`); tests [`test_runtime_session.py`](tests/test_runtime_session.py), [`test_seckitd_phase5d.py`](tests/test_seckitd_phase5d.py), [`test_sqlite_plaintext_debug.py`](tests/test_sqlite_plaintext_debug.py), [`test_runtime_log.py`](tests/test_runtime_log.py); relay replay smoke in [`test_seckitd_phase5a.py`](tests/test_seckitd_phase5a.py); [docs/plans/SECKITD_PHASE5.md](docs/plans/SECKITD_PHASE5.md), [docs/plans/PHASE5D_DEPLOYMENT_VALIDATION.md](docs/plans/PHASE5D_DEPLOYMENT_VALIDATION.md), [docs/plans/PHASE5D_RUNTIME_INTEGRATION.md](docs/plans/PHASE5D_RUNTIME_INTEGRATION.md), [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md), [docs/plans/PHASED_REFACTOR_PLAN.md](docs/plans/PHASED_REFACTOR_PLAN.md), [docs/README.md](docs/README.md), [cli/help/formatter.py](src/secrets_kit/cli/help/formatter.py).

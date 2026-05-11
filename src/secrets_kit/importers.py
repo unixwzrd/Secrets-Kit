@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 
 import yaml
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional
 
 from secrets_kit.models.core import (
     EntryMetadata,
@@ -22,12 +22,23 @@ from secrets_kit.models.core import (
 )
 
 
+SyncDisposition = Literal["active", "tombstone"]
+
+
 @dataclass
 class ImportCandidate:
     """One import candidate with value and metadata."""
 
     metadata: EntryMetadata
     value: str
+    #: Peer sync: ``tombstone`` means propagate delete (Phase 6A).
+    disposition: SyncDisposition = "active"
+    #: Monotonic generation when using SQLite lineage merge; ``None`` if absent (legacy merge).
+    generation: Optional[int] = None
+    #: Tombstone event generation when ``disposition == \"tombstone\"``; optional in legacy bundles.
+    tombstone_generation: Optional[int] = None
+    #: Optional row-level integrity hash (SHA-256 hex); may duplicate ``metadata.content_hash``.
+    content_hash: Optional[str] = None
 
 
 def _parse_dotenv_value(*, raw: str) -> str:

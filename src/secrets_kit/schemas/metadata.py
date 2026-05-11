@@ -42,6 +42,7 @@ class EntryMetadataCanonicalDict(BaseSchema):
     domains: List[str]
     custom: Dict[str, Any]
     entry_id: str
+    content_hash: str = ""
 
     @field_validator("domains", mode="before")
     @classmethod

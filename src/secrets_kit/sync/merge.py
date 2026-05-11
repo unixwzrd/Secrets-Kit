@@ -2,27 +2,57 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Set
+from typing import Any, Dict, List, Literal, Optional, Set
 
 from secrets_kit.importers import ImportCandidate
-from secrets_kit.backends.security import BackendError, get_secret, secret_exists, set_secret
-from secrets_kit.models.core import EntryMetadata, normalize_custom, normalize_domains
-from secrets_kit.registry.core import load_registry, upsert_metadata
+from secrets_kit.backends.security import (
+    BACKEND_SQLITE,
+    BackendError,
+    delete_secret,
+    get_secret,
+    is_sqlite_backend,
+    normalize_backend,
+    secret_exists,
+    set_secret,
+)
+from secrets_kit.models.core import EntryMetadata, ensure_entry_id, make_registry_key, normalize_custom, normalize_domains
+from secrets_kit.models.lineage import LineageSnapshot
+from secrets_kit.sync.canonical_record import computed_peer_row_content_hash, verify_incoming_row_content_hash
+from secrets_kit.backends.base import normalize_store_locator
+from secrets_kit.registry.core import delete_metadata, load_registry, upsert_metadata
 from secrets_kit.registry.resolve import _read_metadata
 
 SYNC_ORIGIN_CUSTOM_KEY = "seckit_sync_origin_host"
 
 
 def effective_origin_host(*, meta: EntryMetadata, default_host_id: str) -> str:
-    """Host id that last wrote this metadata (for vector-clock style merge)."""
+    """Host id that last wrote this metadata (legacy merge tie-break)."""
     raw = meta.custom.get(SYNC_ORIGIN_CUSTOM_KEY) if meta.custom else None
     if isinstance(raw, str) and raw.strip():
         return raw.strip()
     return default_host_id
 
 
-MergeAction = Literal["import", "skip", "unchanged", "conflict"]
+MergeAction = Literal["import", "skip", "unchanged", "conflict", "replay_suppressed"]
+
+
+def sync_lineage_eligible(cand: ImportCandidate) -> bool:
+    """True when incoming row carries Phase 6A lineage fields (SQLite ladder)."""
+    if cand.disposition == "tombstone":
+        return cand.tombstone_generation is not None
+    return cand.generation is not None
+
+
+def _entry_id_conflict(*, local_meta: Optional[EntryMetadata], incoming: ImportCandidate) -> bool:
+    if local_meta is None:
+        return False
+    a = (local_meta.entry_id or "").strip()
+    b = (incoming.metadata.entry_id or "").strip()
+    if not a or not b:
+        return False
+    return a != b
 
 
 def merge_decision(
@@ -33,7 +63,7 @@ def merge_decision(
     incoming_value: str,
     incoming_origin_host: str,
     local_host_id: str,
-) -> MergeAction:
+) -> Literal["import", "skip", "unchanged", "conflict"]:
     """Compare ``updated_at`` then ``origin_host``; equal timestamps + differing values → conflict."""
     if local_meta is None or local_value is None:
         return "import"
@@ -51,6 +81,75 @@ def merge_decision(
     if tup_inc < tup_loc:
         return "skip"
     if local_value == incoming_value:
+        return "unchanged"
+    return "conflict"
+
+
+def merge_decision_v2(
+    *,
+    local_meta: Optional[EntryMetadata],
+    local_value: Optional[str],
+    local_lineage: Optional[LineageSnapshot],
+    incoming: ImportCandidate,
+    incoming_origin_host: str,
+    local_host_id: str,
+    sqlite_lineage_merge: bool,
+) -> MergeAction:
+    """Phase 6A merge: tombstone authority, generation ordering, replay suppression; then legacy."""
+    use_ladder = sqlite_lineage_merge and sync_lineage_eligible(incoming)
+    if use_ladder and _entry_id_conflict(local_meta=local_meta, incoming=incoming):
+        return "conflict"
+
+    if not use_ladder:
+        raw = merge_decision(
+            local_meta=local_meta,
+            local_value=local_value,
+            incoming_meta=incoming.metadata,
+            incoming_value=incoming.value if incoming.disposition == "active" else "",
+            incoming_origin_host=incoming_origin_host,
+            local_host_id=local_host_id,
+        )
+        return raw  # type: ignore[return-value]
+
+    if incoming.disposition == "tombstone":
+        inc_t = int(incoming.tombstone_generation)
+        if local_lineage is None:
+            return "unchanged"
+        if local_lineage.deleted:
+            loc_t = int(local_lineage.tombstone_generation)
+            if inc_t < loc_t:
+                return "skip"
+            if inc_t == loc_t:
+                return "unchanged"
+            return "import"
+        loc_g = int(local_lineage.generation)
+        if inc_t >= loc_g:
+            return "import"
+        return "skip"
+
+    if incoming.generation is None:
+        return "skip"
+    inc_g = int(incoming.generation)
+    if local_lineage is None:
+        return "import"
+    if local_lineage.deleted:
+        return "replay_suppressed"
+
+    loc_g = int(local_lineage.generation)
+    if inc_g > loc_g:
+        return "import"
+    if inc_g < loc_g:
+        return "skip"
+
+    loc_h = ""
+    if local_meta is not None:
+        loc_h = (local_meta.content_hash or "").strip().lower()
+    inc_h = (incoming.content_hash or incoming.metadata.content_hash or "").strip().lower()
+    if loc_h and inc_h and loc_h != inc_h:
+        return "conflict"
+
+    lv = local_value if local_value is not None else ""
+    if lv == incoming.value:
         return "unchanged"
     return "conflict"
 
@@ -84,7 +183,44 @@ def import_candidate_from_sync_row(row: Dict[str, object], *, default_origin: st
     custom = dict(meta.custom)
     custom[SYNC_ORIGIN_CUSTOM_KEY] = origin
     meta.custom = normalize_custom(custom)
-    return ImportCandidate(metadata=meta, value=value)
+
+    disp_raw = row.get("disposition", "active")
+    disp = str(disp_raw).strip().lower()
+    if disp not in ("active", "tombstone"):
+        disp = "active"
+
+    def _opt_int(key: str) -> Optional[int]:
+        if key not in row:
+            return None
+        v = row[key]
+        if v is None or v == "":
+            return None
+        try:
+            return int(v)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return None
+
+    def _opt_str_hash(key: str) -> Optional[str]:
+        if key not in row:
+            return None
+        v = row[key]
+        if v is None:
+            return None
+        s = str(v).strip().lower()
+        return s or None
+
+    row_hash = _opt_str_hash("content_hash")
+    meta_hash = (meta.content_hash or "").strip().lower() or None
+    eff_hash = row_hash or meta_hash
+
+    return ImportCandidate(
+        metadata=meta,
+        value=value,
+        disposition="tombstone" if disp == "tombstone" else "active",
+        generation=_opt_int("generation"),
+        tombstone_generation=_opt_int("tombstone_generation"),
+        content_hash=eff_hash,
+    )
 
 
 def apply_peer_sync_import(
@@ -97,15 +233,33 @@ def apply_peer_sync_import(
     kek_keychain_path: Optional[str],
     domain_filter: Optional[List[str]] = None,
     home: Optional[Path] = None,
-) -> Dict[str, int]:
+) -> Dict[str, Any]:
     """Apply deterministic merge for decrypted bundle entries.
+
+    Returns counters plus optional ``hash_conflict_details`` (list of diagnostic dicts; no secret values).
 
     ``home`` selects the metadata registry tree (``HOME/.config/seckit`` when
     omitted, same as other CLI helpers). Use an explicit path in tests or
     tooling so imports do not depend on mutating ``HOME``.
     """
-    stats = {"conflicts": 0, "created": 0, "skipped": 0, "unchanged": 0, "updated": 0}
+    stats = {
+        "conflicts": 0,
+        "created": 0,
+        "skipped": 0,
+        "unchanged": 0,
+        "updated": 0,
+        "replay_suppressed": 0,
+        "tombstone_applied": 0,
+        "hash_conflicts": 0,
+        "hash_conflict_details": [],
+    }
     registry = load_registry(home=home)
+    nb = normalize_backend(backend)
+    sqlite_store = None
+    if nb == BACKEND_SQLITE and path:
+        from secrets_kit.backends.sqlite import SqliteSecretStore
+
+        sqlite_store = SqliteSecretStore(db_path=path, kek_keychain_path=kek_keychain_path)
 
     filter_set: Optional[Set[str]] = None
     if domain_filter:
@@ -122,55 +276,111 @@ def apply_peer_sync_import(
                 stats["skipped"] += 1
                 continue
 
-        res = _read_metadata(
-            service=cand.metadata.service,
-            account=cand.metadata.account,
-            name=cand.metadata.name,
-            registry=registry,
-            path=path,
-            backend=backend,
-            kek_keychain_path=kek_keychain_path,
+        if cand.disposition == "active":
+            declared = str(raw.get("content_hash", "") or "").strip()
+            if declared and not verify_incoming_row_content_hash(
+                secret=cand.value,
+                metadata=cand.metadata,
+                row_content_hash=declared,
+            ):
+                stats["hash_conflicts"] += 1
+                stats["conflicts"] += 1
+                computed = computed_peer_row_content_hash(secret=cand.value, metadata=cand.metadata)
+                details = stats["hash_conflict_details"]
+                if isinstance(details, list):
+                    details.append(
+                        {
+                            "reason": "content_hash_mismatch",
+                            "declared_content_hash": declared.lower(),
+                            "computed_content_hash": computed.lower(),
+                            "entry_id": (cand.metadata.entry_id or "").strip(),
+                            "service": cand.metadata.service,
+                            "account": cand.metadata.account,
+                            "name": cand.metadata.name,
+                            "generation": cand.generation,
+                            "tombstone_generation": cand.tombstone_generation,
+                        }
+                    )
+                continue
+
+        eid = (cand.metadata.entry_id or "").strip()
+        sqlite_merge = is_sqlite_backend(backend) and sqlite_store is not None
+
+        resolved_by_eid = None
+        if sqlite_merge and eid:
+            assert sqlite_store is not None
+            resolved_by_eid = sqlite_store.resolve_by_entry_id(entry_id=eid)
+
+        if resolved_by_eid is not None:
+            store_meta = resolved_by_eid.metadata
+            local_val: Optional[str] = resolved_by_eid.secret
+            reg_key_cand = cand.metadata.key()
+            reg_key_store = store_meta.key()
+        else:
+            res = _read_metadata(
+                service=cand.metadata.service,
+                account=cand.metadata.account,
+                name=cand.metadata.name,
+                registry=registry,
+                path=path,
+                backend=backend,
+                kek_keychain_path=kek_keychain_path,
+            )
+            store_meta = res["metadata"] if res and isinstance(res.get("metadata"), EntryMetadata) else None
+            reg_key_cand = cand.metadata.key()
+            reg_key_store = store_meta.key() if store_meta is not None else reg_key_cand
+            local_val = None
+            if store_meta and secret_exists(
+                service=cand.metadata.service,
+                account=cand.metadata.account,
+                name=cand.metadata.name,
+                path=path,
+                backend=backend,
+                kek_keychain_path=kek_keychain_path,
+            ):
+                try:
+                    local_val = get_secret(
+                        service=cand.metadata.service,
+                        account=cand.metadata.account,
+                        name=cand.metadata.name,
+                        path=path,
+                        backend=backend,
+                        kek_keychain_path=kek_keychain_path,
+                    )
+                except BackendError:
+                    local_val = None
+
+        registry_entry = registry.get(reg_key_cand) or (
+            registry.get(reg_key_store) if reg_key_store != reg_key_cand else None
         )
-        store_meta = res["metadata"] if res and isinstance(res.get("metadata"), EntryMetadata) else None
-        reg_key = cand.metadata.key()
-        registry_entry = registry.get(reg_key)
         local_meta = stronger_metadata_for_sync(
             a=registry_entry,
             b=store_meta,
             local_host_id=local_host_id,
         )
-        local_val: Optional[str] = None
-        if local_meta and secret_exists(
-            service=cand.metadata.service,
-            account=cand.metadata.account,
-            name=cand.metadata.name,
-            path=path,
-            backend=backend,
-            kek_keychain_path=kek_keychain_path,
-        ):
-            try:
-                local_val = get_secret(
-                    service=cand.metadata.service,
-                    account=cand.metadata.account,
-                    name=cand.metadata.name,
-                    path=path,
-                    backend=backend,
-                    kek_keychain_path=kek_keychain_path,
-                )
-            except BackendError:
-                local_val = None
 
         incoming_origin = str(raw.get("origin_host", "") or "").strip()
         if not incoming_origin:
             incoming_origin = effective_origin_host(meta=cand.metadata, default_host_id="")
 
-        decision = merge_decision(
+        local_lineage: Optional[LineageSnapshot] = None
+        if sqlite_merge and (sync_lineage_eligible(cand) or cand.disposition == "tombstone"):
+            assert sqlite_store is not None
+            local_lineage = sqlite_store.read_lineage_snapshot(
+                entry_id=eid if eid else None,
+                service=cand.metadata.service,
+                account=cand.metadata.account,
+                name=cand.metadata.name,
+            )
+
+        decision = merge_decision_v2(
             local_meta=local_meta,
             local_value=local_val,
-            incoming_meta=cand.metadata,
-            incoming_value=cand.value,
+            local_lineage=local_lineage,
+            incoming=cand,
             incoming_origin_host=incoming_origin,
             local_host_id=local_host_id,
+            sqlite_lineage_merge=sqlite_merge,
         )
 
         if decision == "skip":
@@ -182,25 +392,119 @@ def apply_peer_sync_import(
         if decision == "conflict":
             stats["conflicts"] += 1
             continue
+        if decision == "replay_suppressed":
+            stats["replay_suppressed"] += 1
+            continue
+
+        if cand.disposition == "tombstone":
+            if dry_run:
+                stats["tombstone_applied"] += 1
+                continue
+            if sqlite_store is not None and local_lineage is not None and local_lineage.deleted:
+                bump = cand.tombstone_generation
+
+                def _bump_only(conn: object) -> None:
+                    assert sqlite_store is not None
+                    if bump is not None:
+                        sqlite_store._bump_tombstone_lineage_conn(  # type: ignore[attr-defined]
+                            conn,
+                            entry_id=local_lineage.entry_id,
+                            tombstone_generation=bump,
+                        )
+
+                sqlite_store.run_reconcile_transaction(_bump_only)
+                stats["tombstone_applied"] += 1
+                continue
+            del_svc, del_acct, del_nm = cand.metadata.service, cand.metadata.account, cand.metadata.name
+            if local_lineage is not None:
+                del_svc, del_acct, del_nm = local_lineage.service, local_lineage.account, local_lineage.name
+            elif sqlite_store is not None and (cand.metadata.entry_id or "").strip():
+                snap = sqlite_store.read_lineage_snapshot(entry_id=(cand.metadata.entry_id or "").strip())
+                if snap is not None:
+                    del_svc, del_acct, del_nm = snap.service, snap.account, snap.name
+            reg_del_key = make_registry_key(service=del_svc, account=del_acct, name=del_nm)
+
+            if sqlite_store is not None:
+
+                def _del_row(conn: object) -> None:
+                    assert sqlite_store is not None
+                    sqlite_store._delete_entry_locator_conn(  # type: ignore[attr-defined]
+                        conn,
+                        service=del_svc,
+                        account=del_acct,
+                        name=del_nm,
+                    )
+
+                sqlite_store.run_reconcile_transaction(_del_row)
+            else:
+                delete_secret(
+                    service=del_svc,
+                    account=del_acct,
+                    name=del_nm,
+                    path=path,
+                    backend=backend,
+                    kek_keychain_path=kek_keychain_path,
+                )
+            delete_metadata(service=del_svc, account=del_acct, name=del_nm, home=home)
+            registry.pop(reg_del_key, None)
+            stats["tombstone_applied"] += 1
+            continue
 
         exists = local_val is not None
         if dry_run:
             stats["updated" if exists else "created"] += 1
             continue
 
-        set_secret(
+        loc = normalize_store_locator(
             service=cand.metadata.service,
             account=cand.metadata.account,
             name=cand.metadata.name,
-            value=cand.value,
-            label=cand.metadata.name,
-            comment=cand.metadata.to_keychain_comment(),
-            path=path,
-            backend=backend,
-            kek_keychain_path=kek_keychain_path,
         )
-        upsert_metadata(metadata=cand.metadata, home=home)
-        registry[cand.metadata.key()] = cand.metadata
+        meta_persist = ensure_entry_id(cand.metadata)
+        meta_persist = replace(meta_persist, name=loc.name, service=loc.service, account=loc.account)
+
+        if sqlite_store is not None:
+            need_rename = False
+            if eid and local_lineage is not None and not local_lineage.deleted:
+                need_rename = (
+                    local_lineage.service != loc.service
+                    or local_lineage.account != loc.account
+                    or local_lineage.name != loc.name
+                )
+
+            def _apply_active(conn: object) -> None:
+                assert sqlite_store is not None
+                if need_rename:
+                    sqlite_store._rename_entry_conn(  # type: ignore[attr-defined]
+                        conn,
+                        entry_id=eid,
+                        new_service=loc.service,
+                        new_account=loc.account,
+                        new_name=loc.name,
+                    )
+                sqlite_store._set_entry_conn(conn, loc=loc, secret=cand.value, meta=meta_persist)  # type: ignore[attr-defined]
+
+            sqlite_store.run_reconcile_transaction(_apply_active)
+        else:
+            set_secret(
+                service=cand.metadata.service,
+                account=cand.metadata.account,
+                name=cand.metadata.name,
+                value=cand.value,
+                label=cand.metadata.name,
+                comment=meta_persist.to_keychain_comment(),
+                path=path,
+                backend=backend,
+                kek_keychain_path=kek_keychain_path,
+            )
+
+        if resolved_by_eid is not None:
+            old_key = resolved_by_eid.metadata.key()
+            if old_key != meta_persist.key():
+                registry.pop(old_key, None)
+
+        upsert_metadata(metadata=meta_persist, home=home)
+        registry[meta_persist.key()] = meta_persist
         stats["updated" if exists else "created"] += 1
 
     return stats

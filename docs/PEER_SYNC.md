@@ -1,7 +1,7 @@
 # Peer sync bundles (Phase 1B)
 
 **Created**: 2026-05-05  
-**Updated**: 2026-05-06
+**Updated**: 2026-05-12
 
 Manual, **offline** exchange of selected secrets between hosts: **signed** (Ed25519) **and encrypted** (X25519 Box for per-recipient CEK wrap, NaCl SecretBox for the payload). **No network, daemon, or sync engine** is part of this phase—only files you copy yourself (`scp`, USB, Syncthing folder, etc.).
 
@@ -28,7 +28,9 @@ New **`manifest`** keys **must not** be ignored if they could change algorithms,
 
 ## Merge rules (import)
 
-For each entry, compare `(updated_at, origin_host)` lexicographically. **Origin** is the exporting host’s id for that row (stored in metadata custom key `seckit_sync_origin_host` after import). Ties with the same value → **unchanged**; ties with different values → **conflict** (skipped, counted in stats). **Strictly newer** incoming row → **import**; **older** → **skip**.
+For each entry, compare `(updated_at, origin_host)` lexicographically. **Origin** is the exporting host’s id for that row (stored in metadata custom key `seckit_sync_origin_host` after import). **Ties** with the same value → **unchanged**; ties with different values → **conflict** (skipped, counted in stats). **Strictly newer** incoming row → **import**; **older** → **skip**.
+
+**SQLite Phase 6A:** When bundle rows carry **`generation`**, **`tombstone_generation`**, or **`disposition: tombstone`**, and the backend is SQLite with durable index lineage, merge uses **tombstone authority**, **generation ordering**, **replay suppression**, optional **`content_hash`** verification, and **`entry_id`-stable rename**. See [PHASE6A_RECONCILIATION.md](plans/PHASE6A_RECONCILIATION.md). Import JSON may include **`hash_conflict_details`** when a declared row hash does not verify.
 
 `export_id` is **not** a replay cache—re-import policy is **only** per-entry merge.
 

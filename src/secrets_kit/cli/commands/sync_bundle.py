@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from dataclasses import replace
 from pathlib import Path
 from typing import Dict, List
 
@@ -15,6 +16,7 @@ from secrets_kit.models.core import ValidationError
 from secrets_kit.registry.core import RegistryError
 from secrets_kit.sync.bundle import SyncBundleError, build_bundle, decrypt_bundle_for_recipient, inspect_bundle, parse_bundle_file, verify_bundle_structure
 from secrets_kit.sync.merge import apply_peer_sync_import, effective_origin_host
+from secrets_kit.sync.canonical_record import compute_record_content_hash
 
 from secrets_kit.cli.support.args import _backend_access_kwargs
 from secrets_kit.cli.support.interaction import _confirm, _fatal
@@ -40,7 +42,29 @@ def cmd_sync_export(*, args: argparse.Namespace) -> int:
                 **_backend_access_kwargs(args),
             )
             oh = effective_origin_host(meta=meta, default_host_id=ident.host_id)
-            entries.append({"metadata": meta.to_dict(), "origin_host": oh, "value": value})
+            entry: Dict[str, object] = {"metadata": meta.to_dict(), "origin_host": oh, "value": value}
+            entry["content_hash"] = compute_record_content_hash(
+                secret=value,
+                metadata=replace(meta, content_hash=""),
+            )
+            try:
+                from secrets_kit.backends.base import resolve_backend_store
+
+                store = resolve_backend_store(**_backend_access_kwargs(args))
+                if hasattr(store, "read_lineage_snapshot"):
+                    ls = store.read_lineage_snapshot(
+                        entry_id=(meta.entry_id or "").strip() or None,
+                        service=meta.service,
+                        account=meta.account,
+                        name=meta.name,
+                    )
+                    if ls is not None and not ls.deleted:
+                        entry["disposition"] = "active"
+                        entry["generation"] = ls.generation
+                        entry["tombstone_generation"] = ls.tombstone_generation
+            except (BackendError, OSError, TypeError, ValueError):
+                pass
+            entries.append(entry)
         bundle = build_bundle(
             identity=ident,
             recipient_records=recipients,

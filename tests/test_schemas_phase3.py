@@ -104,6 +104,8 @@ class SchemaMirrorTest(unittest.TestCase):
             supports_transactional_set=True,
             supports_selective_resolve=True,
             set_atomicity="atomic",
+            supports_peer_lineage_merge=True,
+            supports_reconcile_transaction=True,
         )
         BackendSecurityPostureDict.model_validate(asdict(posture))
         BackendCapabilitiesDict.model_validate(asdict(caps))

@@ -70,6 +70,8 @@ class EntryMetadata:
     custom: Dict[str, Any] = field(default_factory=dict)
     #: Immutable sync identity (UUID); generated on first persist when empty.
     entry_id: str = ""
+    #: SHA-256 hex of canonical record (secret + metadata without this field); optional until populated.
+    content_hash: str = ""
 
     def key(self) -> str:
         """Return unique registry key."""
@@ -103,6 +105,7 @@ class EntryMetadata:
             domains=normalize_domains(payload.get("domains", [])),
             custom=normalize_custom(payload.get("custom", {})),
             entry_id=str(payload.get("entry_id", "")),
+            content_hash=str(payload.get("content_hash", "")),
         )
 
     def to_keychain_comment(self) -> str:

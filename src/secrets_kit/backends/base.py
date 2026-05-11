@@ -50,6 +50,10 @@ class BackendCapabilities:
     """True when point lookup / resolution by entry_id or locator is efficient (vs scan-only backends)."""
     supports_selective_resolve: bool
     set_atomicity: SetAtomicity
+    supports_peer_lineage_merge: bool
+    """True when durable ``generation`` / ``tombstone_generation`` / ``deleted`` index supports Phase 6A merge (SQLite)."""
+    supports_reconcile_transaction: bool
+    """True when multi-step peer reconcile (e.g. rename + set, tombstone) can commit in one IMMEDIATE transaction."""
 
 
 @dataclass(frozen=True)

@@ -82,6 +82,8 @@ class KeychainBackendStore(BackendStore):
             supports_transactional_set=False,
             supports_selective_resolve=True,
             set_atomicity="best_effort",
+            supports_peer_lineage_merge=False,
+            supports_reconcile_transaction=False,
         )
 
     def rebuild_index(self) -> None:

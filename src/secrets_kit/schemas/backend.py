@@ -25,6 +25,8 @@ class BackendCapabilitiesDict(BaseSchema):
     supports_transactional_set: bool
     supports_selective_resolve: bool
     set_atomicity: SetAtomicity
+    supports_peer_lineage_merge: bool
+    supports_reconcile_transaction: bool
 
 
 def validate_security_posture_dict(data: Dict[str, Any]) -> BackendSecurityPostureDict:
