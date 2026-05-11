@@ -1,9 +1,7 @@
 # Security Model
 
 **Created**: 2026-03-10  
-**Updated**: 2026-05-05  
-
-- [Security Model](#security-model)
+**Updated**: 2026-05-12
   - [Three layers (contract)](#three-layers-contract)
   - [Where values live](#where-values-live)
   - [How entries are identified](#how-entries-are-identified)
@@ -42,6 +40,10 @@ Operator commands **`seckit backend-index`** and **`seckit doctor`** can surface
 - operator defaults live in `~/.config/seckit/defaults.json`
 
 The registry exists so the tool can track inventory locally without becoming the source of truth for metadata across hosts.
+
+## SQLite plaintext debug mode (non-production)
+
+When **`SECKIT_SQLITE_PLAINTEXT_DEBUG=1`**, the SQLite backend writes joint payload bytes **without** NaCl `SecretBox` encryption (rows use `crypto_version=0`). This mode is for **development, automated tests, and forensic inspection** on **disposable** database files only. **Do not** point it at production vaults. A warning is printed on first store open. See [plans/SECKITD_PHASE5.md](plans/SECKITD_PHASE5.md) (Phase 5D).
 
 ## How entries are identified
 

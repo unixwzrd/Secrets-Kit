@@ -56,10 +56,27 @@ def cmd_daemon_submit_outbound(*, args: argparse.Namespace) -> int:
         payload["payload_type"] = args.payload_type
     if args.client_ref:
         payload["client_ref"] = args.client_ref
+    rk = getattr(args, "route_key", "") or ""
+    if rk.strip():
+        payload["route_key"] = rk.strip()
     try:
         resp = ipc_call(socket_path=path, request=payload, timeout_s=args.timeout)
     except OSError as exc:
         return _fatal(message=f"daemon submit-outbound: cannot connect ({exc})", code=1)
+    print(json.dumps(resp, indent=2, sort_keys=True))
+    return 0 if resp.get("ok") else 1
+
+
+def cmd_daemon_sync_status(*, args: argparse.Namespace) -> int:
+    path = _socket_path(args)
+    try:
+        resp = ipc_call(
+            socket_path=path,
+            request={"op": "sync_status"},
+            timeout_s=args.timeout,
+        )
+    except OSError as exc:
+        return _fatal(message=f"daemon sync-status: cannot connect ({exc})", code=1)
     print(json.dumps(resp, indent=2, sort_keys=True))
     return 0 if resp.get("ok") else 1
 

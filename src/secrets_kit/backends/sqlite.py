@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import socket
 import sqlite3
+import sys
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, Optional, Tuple
@@ -42,10 +43,29 @@ from secrets_kit.backends.sqlite_unlock import (
 )
 
 CRYPTO_VERSION = 1
+PLAINTEXT_DEBUG_CRYPTO_VERSION = 0
 SQLITE_USER_VERSION_V2 = 2
+_SQLITE_PLAINTEXT_DEBUG_WARNED = False
 
 # Process-local cache: (abs_db_path, provider_kind, keychain_tag) -> DEK bytes
 _master_key_by_db: Dict[tuple[str, str, str], bytes] = {}
+
+
+def _sqlite_plaintext_debug_enabled() -> bool:
+    """Opt-in **non-production** mode: store joint payload bytes without SecretBox."""
+    return os.environ.get("SECKIT_SQLITE_PLAINTEXT_DEBUG", "").strip().lower() in ("1", "true", "yes")
+
+
+def _warn_sqlite_plaintext_debug_once() -> None:
+    global _SQLITE_PLAINTEXT_DEBUG_WARNED
+    if not _sqlite_plaintext_debug_enabled() or _SQLITE_PLAINTEXT_DEBUG_WARNED:
+        return
+    _SQLITE_PLAINTEXT_DEBUG_WARNED = True
+    print(
+        "WARNING: SECKIT_SQLITE_PLAINTEXT_DEBUG is set — joint payloads stored WITHOUT encryption. "
+        "Development/testing/forensics only; not for production secrets.",
+        file=sys.stderr,
+    )
 
 
 def clear_sqlite_crypto_cache() -> None:
@@ -258,6 +278,7 @@ class SqliteSecretStore(BackendStore):
         self._unlock_provider = unlock_provider or build_sqlite_unlock_provider(
             kek_keychain_path=kek_keychain_path,
         )
+        _warn_sqlite_plaintext_debug_once()
 
     def _master_cache_key(self) -> tuple[str, str, str]:
         prov = self._unlock_provider
@@ -279,6 +300,13 @@ class SqliteSecretStore(BackendStore):
 
     # --- BackendStore ---
     def security_posture(self) -> BackendSecurityPosture:
+        if _sqlite_plaintext_debug_enabled():
+            return BackendSecurityPosture(
+                metadata_encrypted=False,
+                safe_index_supported=True,
+                requires_unlock_for_metadata=True,
+                supports_secure_delete=False,
+            )
         return BackendSecurityPosture(
             metadata_encrypted=True,
             safe_index_supported=True,
@@ -391,7 +419,7 @@ class SqliteSecretStore(BackendStore):
                 SELECT entry_id, locator_hash, locator_hint, service, account, name, updated_at,
                        deleted, deleted_at, generation, tombstone_generation, backend_version,
                        corrupt, corrupt_reason, last_validation_at,
-                       ciphertext, nonce
+                       ciphertext, nonce, crypto_version
                 FROM secrets
                 """
             )
@@ -441,21 +469,24 @@ class SqliteSecretStore(BackendStore):
             SELECT entry_id, locator_hash, locator_hint, service, account, name, updated_at,
                    deleted, deleted_at, generation, tombstone_generation, backend_version,
                    corrupt, corrupt_reason, last_validation_at,
-                   ciphertext, nonce
+                   ciphertext, nonce, crypto_version
             FROM secrets WHERE service = ? AND account = ? AND name = ?
             """,
             (loc.service, loc.account, loc.name),
         ).fetchone()
 
     def _decrypt_resolved(self, conn: sqlite3.Connection, row: Tuple[Any, ...]) -> ResolvedEntry:
-        key = self._unlock_key(conn)
-        box = nacl.secret.SecretBox(key)
-        ciphertext, nonce = row[-2], row[-1]
-        try:
-            plain = box.decrypt(ciphertext, nonce)
-        except nacl.exceptions.CryptoError as exc:
-            raise BackendError("decryption failed (wrong passphrase or corrupted data)") from exc
-        meta_slice = row[:-2]
+        meta_slice = row[:-3]
+        ciphertext, nonce, crypto_ver = row[-3], row[-2], row[-1]
+        if int(crypto_ver) == PLAINTEXT_DEBUG_CRYPTO_VERSION:
+            plain = bytes(ciphertext)
+        else:
+            key = self._unlock_key(conn)
+            box = nacl.secret.SecretBox(key)
+            try:
+                plain = box.decrypt(ciphertext, nonce)
+            except nacl.exceptions.CryptoError as exc:
+                raise BackendError("decryption failed (wrong passphrase or corrupted data)") from exc
         (
             _entry_id,
             _locator_hash,
@@ -482,6 +513,18 @@ class SqliteSecretStore(BackendStore):
         )
         return ResolvedEntry(secret=secret_val, metadata=meta)
 
+    def _materialize_payload_storage(
+        self, conn: sqlite3.Connection, body: bytes
+    ) -> Tuple[bytes, bytes, int]:
+        """Return (ciphertext, nonce, crypto_version) for the joint payload bytes."""
+        if _sqlite_plaintext_debug_enabled():
+            return body, b"\x00" * 24, PLAINTEXT_DEBUG_CRYPTO_VERSION
+        key = self._unlock_key(conn)
+        box = nacl.secret.SecretBox(key)
+        enc = box.encrypt(body)
+        nonce_b, ciphertext_b = enc[:24], enc[24:]
+        return ciphertext_b, nonce_b, CRYPTO_VERSION
+
     def set_entry(
         self,
         *,
@@ -501,10 +544,7 @@ class SqliteSecretStore(BackendStore):
         lhash = locator_hash_hex(service=loc.service, account=loc.account, name=loc.name)
         conn = self._conn()
         try:
-            key = self._unlock_key(conn)
-            box = nacl.secret.SecretBox(key)
-            enc = box.encrypt(body)
-            nonce, ciphertext = enc[:24], enc[24:]
+            ciphertext, nonce, crypto_v = self._materialize_payload_storage(conn, body)
             updated_at = meta.updated_at
             origin = _origin_host()
             existing = self._read_row_full(conn, loc.service, loc.account, loc.name)
@@ -516,8 +556,7 @@ class SqliteSecretStore(BackendStore):
                     entry_id = _eid
                 meta = replace(meta, entry_id=entry_id)
                 body2 = build_joint_payload_bytes(secret=secret, metadata=meta)
-                enc2 = box.encrypt(body2)
-                nonce2, ciphertext2 = enc2[:24], enc2[24:]
+                ciphertext2, nonce2, crypto_v2 = self._materialize_payload_storage(conn, body2)
                 conn.execute(
                     """
                     UPDATE secrets SET
@@ -537,7 +576,7 @@ class SqliteSecretStore(BackendStore):
                         BACKEND_IMPL_VERSION,
                         ciphertext2,
                         nonce2,
-                        CRYPTO_VERSION,
+                        crypto_v2,
                         now_utc_iso(),
                         loc.service,
                         loc.account,
@@ -566,7 +605,7 @@ class SqliteSecretStore(BackendStore):
                         BACKEND_IMPL_VERSION,
                         ciphertext,
                         nonce,
-                        CRYPTO_VERSION,
+                        crypto_v,
                     ),
                 )
             conn.commit()
@@ -608,7 +647,7 @@ class SqliteSecretStore(BackendStore):
                 SELECT entry_id, locator_hash, locator_hint, service, account, name, updated_at,
                        deleted, deleted_at, generation, tombstone_generation, backend_version,
                        corrupt, corrupt_reason, last_validation_at,
-                       ciphertext, nonce
+                       ciphertext, nonce, crypto_version
                 FROM secrets WHERE entry_id = ?
                 """,
                 (entry_id,),
@@ -647,7 +686,7 @@ class SqliteSecretStore(BackendStore):
                 "modified_at_raw": "",
                 "sqlite_updated_at": str(row[6]),
                 "origin_host": _origin_host(),
-                "crypto_version": CRYPTO_VERSION,
+                "crypto_version": int(row[-1]),
                 "raw": "",
             }
         finally:
@@ -698,12 +737,12 @@ class SqliteSecretStore(BackendStore):
                 SELECT entry_id, locator_hash, locator_hint, service, account, name,
                        updated_at, deleted, deleted_at, generation, tombstone_generation, backend_version,
                        corrupt, corrupt_reason, last_validation_at,
-                       ciphertext, nonce
+                       ciphertext, nonce, crypto_version
                 FROM secrets WHERE deleted = 0
                 """
             )
             for row in cur.fetchall():
-                idx = self._row_to_index_from_full_prefix(row[:-2])
+                idx = self._row_to_index_from_full_prefix(row[:-3])
                 try:
                     resolved = self._decrypt_resolved(conn, row)
                 except BackendError:
@@ -722,7 +761,7 @@ class SqliteSecretStore(BackendStore):
                 SELECT entry_id, locator_hash, locator_hint, service, account, name, updated_at,
                        deleted, deleted_at, generation, tombstone_generation, backend_version,
                        corrupt, corrupt_reason, last_validation_at,
-                       ciphertext, nonce
+                       ciphertext, nonce, crypto_version
                 FROM secrets WHERE entry_id = ?
                 """,
                 (entry_id,),
@@ -741,10 +780,7 @@ class SqliteSecretStore(BackendStore):
                 updated_at=now_utc_iso(),
             )
             body = build_joint_payload_bytes(secret=resolved.secret, metadata=meta)
-            key = self._unlock_key(conn)
-            box = nacl.secret.SecretBox(key)
-            enc = box.encrypt(body)
-            nonce, ciphertext = enc[:24], enc[24:]
+            ciphertext, nonce, crypto_v = self._materialize_payload_storage(conn, body)
             conn.execute("DELETE FROM secrets WHERE entry_id = ?", (entry_id,))
             conn.execute(
                 """
@@ -768,7 +804,7 @@ class SqliteSecretStore(BackendStore):
                     BACKEND_IMPL_VERSION,
                     ciphertext,
                     nonce,
-                    CRYPTO_VERSION,
+                    crypto_v,
                 ),
             )
             conn.commit()

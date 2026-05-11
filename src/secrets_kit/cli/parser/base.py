@@ -21,6 +21,7 @@ from secrets_kit.cli.commands.daemon import (
     cmd_daemon_serve,
     cmd_daemon_status,
     cmd_daemon_submit_outbound,
+    cmd_daemon_sync_status,
 )
 from secrets_kit.cli.commands.diagnostics import (
     cmd_backend_index,
@@ -30,6 +31,7 @@ from secrets_kit.cli.commands.diagnostics import (
     cmd_keychain_status,
     cmd_lock,
     cmd_rebuild_index,
+    cmd_sqlite_inspect,
     cmd_unlock,
     cmd_version,
 )
@@ -359,6 +361,23 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_backend_index.set_defaults(func=cmd_backend_index)
 
+    p_sqlite_inspect = sub.add_parser(
+        "sqlite-inspect",
+        parents=[common],
+        help="SQLite debug: JSON index dump; optional unlock summaries (secret lengths only, no values)",
+        epilog=(
+            "Requires ``--backend sqlite`` and ``--db``. For ``--summaries``, the store must be unlockable.\n"
+            "See SECKIT_SQLITE_PLAINTEXT_DEBUG in docs/plans/SECKITD_PHASE5.md (Phase 5D)."
+        ),
+        formatter_class=SeckitHelpFormatter,
+    )
+    p_sqlite_inspect.add_argument(
+        "--summaries",
+        action="store_true",
+        help="Include per-row unlock summaries (secret byte length, locator fields); requires decrypt",
+    )
+    p_sqlite_inspect.set_defaults(func=cmd_sqlite_inspect)
+
     p_rebuild_index = sub.add_parser(
         "rebuild-index",
         parents=[common],
@@ -604,6 +623,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_daemon_status.add_argument("--socket", type=Path, default=None)
     p_daemon_status.add_argument("--timeout", type=float, default=30.0)
     p_daemon_status.set_defaults(func=cmd_daemon_status)
+    p_daemon_sync = daemon_sub.add_parser(
+        "sync-status",
+        help="Loopback runtime / coordinator snapshot (Phase 5D; requires SECKITD_RUNTIME_LOOPBACK on daemon)",
+    )
+    p_daemon_sync.add_argument("--socket", type=Path, default=None)
+    p_daemon_sync.add_argument("--timeout", type=float, default=30.0)
+    p_daemon_sync.set_defaults(func=cmd_daemon_sync_status)
     p_daemon_submit = daemon_sub.add_parser(
         "submit-outbound",
         help="Submit an opaque outbound payload (local receipt only)",
@@ -613,6 +639,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_daemon_submit.add_argument("--payload-file", required=True, help="File whose raw bytes are sent as base64")
     p_daemon_submit.add_argument("--payload-type", dest="payload_type", default="", help="Advisory label only")
     p_daemon_submit.add_argument("--client-ref", default="", help="Optional client reference string")
+    p_daemon_submit.add_argument(
+        "--route-key",
+        default="",
+        help="Optional route key for loopback coordinator (default route when empty); "
+        "only used when daemon runs with SECKITD_RUNTIME_LOOPBACK=1",
+    )
     p_daemon_submit.set_defaults(func=cmd_daemon_submit_outbound)
     p_daemon_serve = daemon_sub.add_parser(
         "serve",
@@ -621,6 +653,8 @@ def build_parser() -> argparse.ArgumentParser:
             "Environment (Phase 5B):\n"
             "  SECKITD_INSECURE_SKIP_PEER_CRED=1 — skip same-user socket peer checks (**unsafe**; containers only).\n"
             "  SECKITD_VERBOSE_IPC=1 — include subprocess stdout/stderr tails in ``relay_inbound`` responses on success (**sensitive**).\n"
+            "Environment (Phase 5D):\n"
+            "  SECKITD_RUNTIME_LOOPBACK=1 — enable in-process loopback transport + coordinator ticker (testing; **non-authoritative**).\n"
             "See docs/plans/SECKITD_PHASE5.md."
         ),
         formatter_class=SeckitHelpFormatter,

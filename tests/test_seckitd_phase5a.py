@@ -286,6 +286,18 @@ class SeckitdRelayInboundSqliteTests(unittest.TestCase):
             self.assertTrue(r["data"].get("seckit_ok"), msg=r)
             self.assertEqual(r["data"].get("stdout_tail"), "")
             self.assertEqual(r["data"].get("stderr_tail"), "")
+            r2 = ipc_call(
+                socket_path=sock,
+                request={
+                    "op": "relay_inbound",
+                    "signer": "a",
+                    "wrapper": wrap,
+                    "payload_text": bundle_text,
+                },
+                timeout_s=120.0,
+            )
+            self.assertTrue(r2.get("ok"), msg=r2)
+            self.assertTrue(r2["data"].get("seckit_ok"), msg=r2)
             val_b = get_secret(
                 service="svc5",
                 account="dev",

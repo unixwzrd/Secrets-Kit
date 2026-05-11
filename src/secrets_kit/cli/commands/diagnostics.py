@@ -8,6 +8,7 @@ import sys
 from dataclasses import asdict
 
 from secrets_kit.backends.security import (
+    BACKEND_SQLITE,
     BackendError,
     check_security_cli,
     doctor_roundtrip,
@@ -145,6 +146,43 @@ def cmd_doctor(*, args: argparse.Namespace) -> int:
     if status["metadata_keychain_drift"] or status["entries_using_registry_fallback"]:
         return _fatal(message="metadata/keychain drift detected", code=1)
     return 0
+
+
+def cmd_sqlite_inspect(*, args: argparse.Namespace) -> int:
+    if _backend_arg(args) != BACKEND_SQLITE:
+        return _fatal(message="sqlite-inspect requires --backend sqlite", code=1)
+    spath = _store_path(args)
+    if not spath:
+        return _fatal(message="sqlite-inspect requires --db PATH", code=1)
+    try:
+        from secrets_kit.backends.sqlite import SqliteSecretStore
+
+        store = SqliteSecretStore(db_path=spath, kek_keychain_path=_kek_keychain_arg(args))
+        payload: dict = {
+            "index_rows": [r.to_safe_dict() for r in store.iter_index()],
+            "backend_security_posture": asdict(store.security_posture()),
+        }
+        if getattr(args, "summaries", False):
+            summaries = []
+            for idx, resolved in store.iter_unlocked():
+                summaries.append(
+                    {
+                        "entry_id": idx.entry_id,
+                        "deleted": idx.deleted,
+                        "locator_hash": idx.locator_hash,
+                        "secret_byte_len": len(resolved.secret.encode("utf-8")),
+                        "service": resolved.metadata.service,
+                        "account": resolved.metadata.account,
+                        "name": resolved.metadata.name,
+                        "generation": idx.generation,
+                        "tombstone_generation": idx.tombstone_generation,
+                    }
+                )
+            payload["unlock_summaries"] = summaries
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+    except (BackendError, ValidationError, RegistryError, OSError) as exc:
+        return _fatal(message=str(exc), code=1)
 
 
 def cmd_backend_index(*, args: argparse.Namespace) -> int:

@@ -19,7 +19,7 @@ Typical paths (under ~/.config/seckit/, dir mode 0700, files 0600 unless noted):
 Command taxonomy (see docs/CLI_REFERENCE.md):
   Everyday operations     set, get, list, explain, run, export, import, delete
   Configuration           config (compatibility alias: defaults), unlock, lock, keychain-status, version
-  Inventory / diagnostics doctor, backend-index, rebuild-index, recover
+  Inventory / diagnostics doctor, backend-index, sqlite-inspect, rebuild-index, recover
   Migration / maintenance migrate, service
   Peer / sync             identity, peer, sync, daemon (local seckitd)
   Advanced / internal     helper, journal, migrate recover-registry, and other compatibility aliases

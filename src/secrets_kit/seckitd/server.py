@@ -6,12 +6,19 @@ import os
 import signal
 import socket
 import threading
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from secrets_kit.seckitd.framing import FramingError, frame_json, parse_json_object, read_frame
+from secrets_kit.seckitd.loopback_transport import LoopbackTransport
 from secrets_kit.seckitd.peer_cred import PeerCredentialError, verify_unix_peer_euid
 from secrets_kit.seckitd.protocol import DaemonState, handle_request
+
+
+def runtime_loopback_enabled() -> bool:
+    v = os.environ.get("SECKITD_RUNTIME_LOOPBACK", "").strip().lower()
+    return v in ("1", "true", "yes")
 
 
 def ensure_runtime_dir(path: Path) -> None:
@@ -50,6 +57,27 @@ def serve_forever(
     sock.listen(8)
     state = DaemonState()
     _stop = False
+    ticker_stop: Optional[threading.Event] = None
+    ticker_thread: Optional[threading.Thread] = None
+    if runtime_loopback_enabled():
+        state.loopback = LoopbackTransport()
+        ticker_stop = threading.Event()
+
+        def _tick_loop() -> None:
+            while not ticker_stop.is_set():
+                if stop_flag is not None and stop_flag.is_set():
+                    break
+                if _stop:
+                    break
+                try:
+                    assert state.loopback is not None
+                    state.runtime.tick(state.loopback)
+                except Exception:
+                    pass
+                time.sleep(0.05)
+
+        ticker_thread = threading.Thread(target=_tick_loop, daemon=True)
+        ticker_thread.start()
 
     def _handle_signal(signum: int, frame: Any) -> None:
         nonlocal _stop
@@ -79,6 +107,10 @@ def serve_forever(
                 child_env=child_env,
             )
     finally:
+        if ticker_stop is not None:
+            ticker_stop.set()
+        if ticker_thread is not None:
+            ticker_thread.join(timeout=2.0)
         if main_thread and old_int is not None and old_term is not None:
             signal.signal(signal.SIGINT, old_int)
             signal.signal(signal.SIGTERM, old_term)

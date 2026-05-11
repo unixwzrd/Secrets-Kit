@@ -1,7 +1,7 @@
 # Secrets Kit documentation
 
 **Created:** 2026-03-10  
-**Updated:** 2026-05-11
+**Updated:** 2026-05-12
 
 Use this page as the map. The root [README](../README.md) stays short; detail lives here.
 
@@ -72,6 +72,8 @@ GitHub Actions runs `scripts/run_local_validation.sh` (full `unittest discover` 
 | [METADATA_REGISTRY.md](METADATA_REGISTRY.md) | Registry schema |
 | [plans/SYNC_HOST_PROTOCOL.md](plans/SYNC_HOST_PROTOCOL.md) | Managed sync host sketch (authority, persistence, offline, pinned keys) |
 | [plans/SYNC_HOST_METRICS.md](plans/SYNC_HOST_METRICS.md) | Sync host metrics allowed vs forbidden |
+| [plans/PHASE5D_RUNTIME_INTEGRATION.md](plans/PHASE5D_RUNTIME_INTEGRATION.md) | Phase 5D charter (runtime stabilization; anti–daemon-authority creep) |
+| [plans/PHASE5D_DEPLOYMENT_VALIDATION.md](plans/PHASE5D_DEPLOYMENT_VALIDATION.md) | Multi-node / loopback operational checklist (no product network listener) |
 | [plans/SECKITD_PHASE5.md](plans/SECKITD_PHASE5.md) | Local `seckitd` Phase 5A–5E scope, threat model, rollback reference |
 
 Other files under **`docs/plans/`** may be gitignored local notes.

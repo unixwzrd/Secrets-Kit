@@ -14,6 +14,9 @@ from pydantic import ValidationError
 from secrets_kit.schemas.envelope import validate_transport_message_wrapper
 from secrets_kit.seckitd.bridge import default_seckit_argv, run_sync_import_stdin
 from secrets_kit.seckitd.ipc_redact import relay_subprocess_tails_for_ipc, verbose_ipc_enabled
+from secrets_kit.seckitd.loopback_transport import LoopbackTransport
+from secrets_kit.seckitd.runtime_log import runtime_log
+from secrets_kit.seckitd.runtime_session import OutboundRuntimeCoordinator
 
 
 SECKITD_PROTOCOL_VERSION = 1
@@ -25,11 +28,16 @@ def _now_iso() -> str:
 
 @dataclass
 class DaemonState:
-    """Minimal in-memory state (Phase 5A — no persistent queue)."""
+    """In-memory state (Phase 5A receipt log; Phase 5D optional loopback runtime)."""
 
     started_monotonic: float = field(default_factory=time.monotonic)
     started_iso: str = field(default_factory=_now_iso)
     outbound_log: List[Dict[str, Any]] = field(default_factory=list)
+    runtime: OutboundRuntimeCoordinator = field(default_factory=OutboundRuntimeCoordinator)
+    loopback: Optional[LoopbackTransport] = None
+
+    def runtime_loopback_active(self) -> bool:
+        return self.loopback is not None
 
 
 def handle_request(
@@ -53,15 +61,21 @@ def handle_request(
         )
     if op == "status":
         uptime = time.monotonic() - state.started_monotonic
-        return _ok(
-            {
-                "protocol_version": SECKITD_PROTOCOL_VERSION,
-                "pid": os.getpid(),
-                "started_at": state.started_iso,
-                "uptime_seconds": round(uptime, 3),
-                "outbound_artifacts_logged": len(state.outbound_log),
-            }
-        )
+        data: Dict[str, Any] = {
+            "protocol_version": SECKITD_PROTOCOL_VERSION,
+            "pid": os.getpid(),
+            "started_at": state.started_iso,
+            "uptime_seconds": round(uptime, 3),
+            "outbound_artifacts_logged": len(state.outbound_log),
+            "runtime_loopback_enabled": state.runtime_loopback_active(),
+        }
+        if state.loopback is not None:
+            data["runtime"] = state.runtime.snapshot_status()
+        else:
+            data["runtime"] = None
+        return _ok(data)
+    if op == "sync_status":
+        return _handle_sync_status(state=state)
     if op == "submit_outbound":
         return _handle_submit_outbound(state=state, request=request)
     if op == "relay_inbound":
@@ -73,8 +87,32 @@ def handle_request(
     return _err(f"unknown op: {op!r}")
 
 
+def _handle_sync_status(*, state: DaemonState) -> Dict[str, Any]:
+    uptime = time.monotonic() - state.started_monotonic
+    body: Dict[str, Any] = {
+        "protocol_version": SECKITD_PROTOCOL_VERSION,
+        "pid": os.getpid(),
+        "started_at": state.started_iso,
+        "uptime_seconds": round(uptime, 3),
+        "outbound_artifacts_logged": len(state.outbound_log),
+        "runtime_loopback_enabled": state.runtime_loopback_active(),
+        "coordinator": state.runtime.snapshot_status() if state.loopback is not None else None,
+    }
+    if state.loopback is not None:
+        body["loopback"] = {
+            "connected": state.loopback.connected,
+            "bytes_sent": state.loopback.bytes_sent,
+            "chunks_delivered": len(state.loopback.chunks),
+            "connect_calls": state.loopback.connect_calls,
+            "disconnect_calls": state.loopback.disconnect_calls,
+        }
+    else:
+        body["loopback"] = None
+    return _ok(body)
+
+
 def _handle_submit_outbound(*, state: DaemonState, request: Mapping[str, Any]) -> Dict[str, Any]:
-    allowed = {"op", "payload_b64", "payload_type", "client_ref"}
+    allowed = {"op", "payload_b64", "payload_type", "client_ref", "route_key"}
     extra = set(request.keys()) - allowed
     if extra:
         return _err(f"unexpected keys: {sorted(extra)}")
@@ -87,20 +125,49 @@ def _handle_submit_outbound(*, state: DaemonState, request: Mapping[str, Any]) -
     payload_type_m = request.get("payload_type")
     if payload_type_m is not None and not isinstance(payload_type_m, str):
         return _err("payload_type must be a string when present")
-    rid = str(uuid.uuid4())
+    route_key = request.get("route_key")
+    if route_key is not None and not isinstance(route_key, str):
+        return _err("route_key must be a string when present")
+    rk = (route_key or "").strip() or "default"
+    rid: str
+    received_at: str
+    if state.loopback is not None:
+        try:
+            item = state.runtime.enqueue(
+                payload_b64=payload_b64,
+                route_key=rk,
+                payload_type=payload_type_m,
+                client_ref=client_ref,
+            )
+        except RuntimeError as exc:
+            return _err(str(exc))
+        rid = item.local_id
+        received_at = item.received_at_iso
+        runtime_log(
+            category="ipc",
+            event="submit_outbound_enqueued",
+            route_key=rk,
+            local_id=rid,
+            size_b64=len(payload_b64),
+        )
+    else:
+        rid = str(uuid.uuid4())
+        received_at = _now_iso()
     rec = {
-        "received_at": _now_iso(),
+        "received_at": received_at,
         "local_id": rid,
         "payload_type": payload_type_m,
         "size_b64": len(payload_b64),
         "client_ref": client_ref,
+        "route_key": rk,
     }
     state.outbound_log.append(rec)
     return _ok(
         {
             "local_receipt": True,
             "local_id": rid,
-            "received_at": rec["received_at"],
+            "received_at": received_at,
+            "route_key": rk,
             "note": "daemon accepted locally; remote delivery not implied",
         }
     )

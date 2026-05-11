@@ -1,10 +1,15 @@
 # Secrets-Kit Changelog
 
 **Created**: 2026-03-10  
-**Updated**: 2026-05-11
+**Updated**: 2026-05-12
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+### 2026-05-12 — Phase 5D: runtime stabilization (loopback coordinator, observability, SQLite debug tooling)
+
+- **Scope:** `src/secrets_kit/seckitd/runtime_session.py`, `loopback_transport.py`, `runtime_log.py`; wire in [`protocol.py`](src/secrets_kit/seckitd/protocol.py), [`server.py`](src/secrets_kit/seckitd/server.py); [`cli/commands/daemon.py`](src/secrets_kit/cli/commands/daemon.py), [`cli/commands/diagnostics.py`](src/secrets_kit/cli/commands/diagnostics.py) (`sqlite-inspect`); [`backends/sqlite.py`](src/secrets_kit/backends/sqlite.py) (`SECKIT_SQLITE_PLAINTEXT_DEBUG`); tests [`test_runtime_session.py`](tests/test_runtime_session.py), [`test_seckitd_phase5d.py`](tests/test_seckitd_phase5d.py), [`test_sqlite_plaintext_debug.py`](tests/test_sqlite_plaintext_debug.py), [`test_runtime_log.py`](tests/test_runtime_log.py); relay replay smoke in [`test_seckitd_phase5a.py`](tests/test_seckitd_phase5a.py); [docs/plans/SECKITD_PHASE5.md](docs/plans/SECKITD_PHASE5.md), [docs/plans/PHASE5D_DEPLOYMENT_VALIDATION.md](docs/plans/PHASE5D_DEPLOYMENT_VALIDATION.md), [docs/plans/PHASE5D_RUNTIME_INTEGRATION.md](docs/plans/PHASE5D_RUNTIME_INTEGRATION.md), [docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md), [docs/plans/PHASED_REFACTOR_PLAN.md](docs/plans/PHASED_REFACTOR_PLAN.md), [docs/README.md](docs/README.md), [cli/help/formatter.py](src/secrets_kit/cli/help/formatter.py).
+- **What changed:** Optional **`SECKITD_RUNTIME_LOOPBACK=1`** in-process transport + bounded-retry coordinator ticker; IPC **`sync_status`**, `submit_outbound` **`route_key`**, structured **`runtime_log`** lines (no payloads); **`seckit daemon sync-status`** and **`seckit sqlite-inspect`**. **`SECKIT_SQLITE_PLAINTEXT_DEBUG`** for non-production SQLite joint-plaintext rows. **Non-goals:** no durable outbound queue, no daemon merge authority, no `sync/bundle.py` crypto redesign, no production sync-host protocol.
 
 ### 2026-05-11 — Phase 5C: managed sync host documentation (protocol, metrics, provisioning)
 
