@@ -243,6 +243,33 @@ class Phase6aMergeTest(unittest.TestCase):
             "conflict",
         )
 
+    def test_incoming_metadata_rename_same_entry_id_higher_gen_imports(self) -> None:
+        """Bundle may carry a new locator in metadata while preserving entry_id (rename continuity)."""
+        loc_meta = _meta(entry_id="e1", name="K")
+        loc = LineageSnapshot(
+            entry_id="e1",
+            service="s",
+            account="a",
+            name="K",
+            generation=2,
+            tombstone_generation=0,
+            deleted=False,
+        )
+        inc_meta = _meta(entry_id="e1", name="K2")
+        inc = _cand(meta=inc_meta, value="nv", disposition="active", generation=5)
+        self.assertEqual(
+            merge_decision_v2(
+                local_meta=loc_meta,
+                local_value="old",
+                local_lineage=loc,
+                incoming=inc,
+                incoming_origin_host="h2",
+                local_host_id="h1",
+                sqlite_lineage_merge=True,
+            ),
+            "import",
+        )
+
     def test_entry_id_mismatch_conflict(self) -> None:
         loc_meta = _meta(entry_id="e1")
         inc_meta = _meta(entry_id="e2")

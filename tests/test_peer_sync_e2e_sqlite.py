@@ -164,6 +164,103 @@ class PeerSyncE2ESqliteTest(unittest.TestCase):
         self.assertEqual(reg_b["e2esvc::dev::API_TOKEN"].service, "e2esvc")
         self.assertEqual(reg_b["e2esvc::dev::API_TOKEN"].name, "API_TOKEN")
 
+    def test_import_bundle_carries_sqlite_lineage_fields(self) -> None:
+        """E2E: inner entry includes Phase 6A lineage; import still succeeds on SQLite."""
+        init_identity(home=self.home_a)
+        init_identity(home=self.home_b)
+        pub_a = self.shared / "a_lin.pub.json"
+        pub_b = self.shared / "b_lin.pub.json"
+        export_public_identity(out=pub_a, home=self.home_a)
+        export_public_identity(out=pub_b, home=self.home_b)
+        add_peer_from_file(alias="b", path=pub_b, home=self.home_a)
+        add_peer_from_file(alias="a", path=pub_a, home=self.home_b)
+
+        ensure_registry_storage(home=self.home_a)
+        secret_value = "token-with-lineage-on-wire"
+        set_secret(
+            service="e2esvc",
+            account="dev",
+            name="LINEAGE_KEY",
+            value=secret_value,
+            path=str(self.db_a),
+            backend=BACKEND_SQLITE,
+        )
+        meta = EntryMetadata(
+            name="LINEAGE_KEY",
+            service="e2esvc",
+            account="dev",
+            entry_type="secret",
+            entry_kind="generic",
+        )
+        upsert_metadata(metadata=meta, home=self.home_a)
+
+        id_a = load_identity(home=self.home_a)
+        id_b = load_identity(home=self.home_b)
+        peer_b = get_peer(alias="b", home=self.home_a)
+        st_a = SqliteSecretStore(db_path=str(self.db_a), kek_keychain_path=None)
+        res_a = st_a.resolve_by_locator(service="e2esvc", account="dev", name="LINEAGE_KEY")
+        self.assertIsNotNone(res_a)
+        meta_a = res_a.metadata
+        value_a = get_secret(
+            service="e2esvc",
+            account="dev",
+            name="LINEAGE_KEY",
+            path=str(self.db_a),
+            backend=BACKEND_SQLITE,
+        )
+        ls = st_a.read_lineage_snapshot(
+            entry_id=(meta_a.entry_id or "").strip() or None,
+            service="e2esvc",
+            account="dev",
+            name="LINEAGE_KEY",
+        )
+        self.assertIsNotNone(ls)
+        self.assertFalse(ls.deleted)
+        entry: dict = {
+            "metadata": meta_a.to_dict(),
+            "origin_host": id_a.host_id,
+            "value": value_a,
+            "disposition": "active",
+            "generation": ls.generation,
+            "tombstone_generation": ls.tombstone_generation,
+        }
+        bundle = build_bundle(
+            identity=id_a,
+            recipient_records=[(peer_b.fingerprint, peer_b.box_public())],
+            entries=[entry],
+        )
+        payload = parse_bundle_file(json.dumps(bundle))
+        inner = decrypt_bundle_for_recipient(
+            payload=payload,
+            identity=id_b,
+            trusted_signer=id_a.verify_key,
+        )
+        ensure_registry_storage(home=self.home_b)
+        clear_sqlite_crypto_cache()
+        try:
+            stats = apply_peer_sync_import(
+                inner_entries=list(inner["entries"]),
+                local_host_id=id_b.host_id,
+                dry_run=False,
+                path=str(self.db_b),
+                backend=BACKEND_SQLITE,
+                kek_keychain_path=None,
+                domain_filter=None,
+                home=self.home_b,
+            )
+        finally:
+            clear_sqlite_crypto_cache()
+        self.assertGreaterEqual(stats["created"], 1)
+        self.assertEqual(stats.get("conflicts", 0), 0)
+        val_b = get_secret(
+            service="e2esvc",
+            account="dev",
+            name="LINEAGE_KEY",
+            path=str(self.db_b),
+            backend=BACKEND_SQLITE,
+        )
+        self.assertEqual(val_b, secret_value)
+
     def test_wrong_recipient_cannot_decrypt(self) -> None:
         init_identity(home=self.home_a)
         init_identity(home=self.home_b)

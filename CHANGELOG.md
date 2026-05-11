@@ -6,6 +6,11 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+### 2026-05-12 — Phase 6A test matrix: convergence, canonical record, e2e lineage
+
+- **Scope:** `tests/reconciliation/test_phase6a_convergence.py`, `test_canonical_record.py`; `test_phase6a_merge.py` (rename metadata case); `tests/test_peer_sync_e2e_sqlite.py`; `docs/plans/PHASE6A_DEFERRED_TRIGGERS.md`, `PHASE6A_RECONCILIATION.md`.
+- **What changed:** Integration coverage for stale-gen **skip**, **duplicate** echo **unchanged**, **tombstone** replay; canonical hash invariants; merge **rename** decision; e2e bundle with **generation** / **tombstone_generation** on inner entry.
+
 ### 2026-05-12 — Phase 6A follow-up: capability flags + hash conflict diagnostics
 
 - **Scope:** `src/secrets_kit/backends/base.py`, `schemas/backend.py`, SQLite/Keychain adapters; `sync/canonical_record.py`, `sync/merge.py`; `docs/plans/PHASE6A_RECONCILIATION.md`, `docs/PEER_SYNC.md`; tests.
