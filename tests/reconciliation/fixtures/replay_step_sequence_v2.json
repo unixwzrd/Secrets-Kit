@@ -1,0 +1,21 @@
+{
+  "local_host_id": "fixture-replay-host-multi",
+  "initial_secret": {
+    "service": "fixsvc",
+    "account": "fixacct",
+    "name": "fixkey",
+    "value": "seed-value"
+  },
+  "steps": [
+    {
+      "origin_host": "peer-a",
+      "value": "next-value",
+      "generation_increment": 1
+    },
+    {
+      "origin_host": "peer-b",
+      "value": "next-value-2",
+      "generation_increment": 1
+    }
+  ]
+}

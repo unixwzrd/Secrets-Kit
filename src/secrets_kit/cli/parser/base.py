@@ -557,6 +557,11 @@ def build_parser() -> argparse.ArgumentParser:
         parents=[common],
         help="Read-only PRAGMA + lineage-shaped invariant report (report-only; no auto-fix)",
     )
+    p_rec_vf.add_argument(
+        "--strict-content-hash",
+        action="store_true",
+        help="Also report active rows with empty content_hash (informational)",
+    )
     p_rec_vf.set_defaults(func=cmd_reconcile_verify)
 
     p_sync = sub.add_parser("sync", help="Signed encrypted peer bundle export/import")

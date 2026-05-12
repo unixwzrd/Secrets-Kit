@@ -12,7 +12,8 @@ from typing import Any, Dict, List, Tuple
 from secrets_kit.backends.security import BACKEND_SQLITE, set_secret
 from secrets_kit.registry.core import ensure_registry_storage, upsert_metadata
 from secrets_kit.sync.canonical_record import compute_record_content_hash
-from secrets_kit.sync.merge import apply_peer_sync_import
+
+from tests.support.ops_reconcile import lineage_projection, run_import_sequence
 
 if importlib.util.find_spec("nacl") is not None:
     from secrets_kit.backends.sqlite import SqliteSecretStore, clear_sqlite_crypto_cache
@@ -45,8 +46,7 @@ def _run_once() -> Tuple[List[Tuple[object, ...]], List[Dict[str, Any]]]:
             "generation": ls.generation + 1,
             "content_hash": ch,
         }
-        trace: List[Dict[str, Any]] = []
-        apply_peer_sync_import(
+        _, trace = run_import_sequence(
             inner_entries=[row],
             local_host_id="host-a",
             dry_run=False,
@@ -54,19 +54,9 @@ def _run_once() -> Tuple[List[Tuple[object, ...]], List[Dict[str, Any]]]:
             backend=BACKEND_SQLITE,
             kek_keychain_path=None,
             home=home,
-            trace_out=trace,
         )
-        conn = SqliteSecretStore(db_path=str(db), kek_keychain_path=None)._conn()
-        try:
-            cur = conn.execute(
-                """
-                SELECT entry_id, generation, tombstone_generation, deleted
-                FROM secrets ORDER BY entry_id
-                """
-            )
-            proj = [tuple(x) for x in cur.fetchall()]
-        finally:
-            conn.close()
+        full = lineage_projection(db)
+        proj = [(t[0], t[4], t[5], t[6]) for t in full]
         return proj, trace
     finally:
         clear_sqlite_crypto_cache()

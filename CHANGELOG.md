@@ -6,6 +6,11 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+### 2026-05-12 — Phase 6A operational hardening: test helpers, fixtures, verify, relay boundaries, smoke docs
+
+- **Scope:** `tests/support/ops_reconcile.py`; `tests/reconciliation/fixtures/*.json`, `test_operational_fixture_replay.py`; `tests/reconciliation/test_sqlite_verify_operational.py`; `sync/sqlite_verify.py` (``secrets_row_locator_collision``, optional ``content_hash_empty_on_active``); `cli` reconcile ``verify --strict-content-hash``; `scripts/replay_import_sequence.py`, `scripts/reconcile_two_db_compare.sh`; `tests/test_relay_operational_boundaries.py`; `docs/plans/PHASE6A_MULTI_NODE_SMOKE.md`, `PHASE6A_OPERATIONAL_GUARANTEES.md`; `PHASE6A_RECONCILIATION.md` cross-links; stabilization tests wired to helpers.
+- **What changed:** Mechanical **projection/import** helpers for reconciliation tests; **JSON-driven** deterministic replay fixtures; read-only verify **corruption/info** codes; **mocked** relay IPC tests confirming structured tails and no merge authority; **manual** replay CLI and **two-DB compare** shell; operator docs for **primitive** multi-peer smoke and **authority** boundaries (incl. replay/rollback/non-goals, `peer_sync_remote_smoke.sh` pointer); relay tests for **slow** import and **partial** stdout.
+
 ### 2026-05-12 — Phase 6A stabilization: reasons, trace, reconcile CLI, verify, tests
 
 - **Scope:** `src/secrets_kit/sync/reconcile_reasons.py`, `merge.py` (`merge_explanation_v2`, `explain_incoming_sync_row`, `apply_peer_sync_import` trace), `sync/sqlite_verify.py`, `backends/sqlite.py` (`fetch_entry_reconcile_index`), `cli/commands/reconcile_tools.py`, `cli/parser/base.py`, `cli/commands/sync_bundle.py` (`--reconcile-trace`), `cli/commands/diagnostics.py` (doctor hint); `tests/reconciliation/test_stabilization_*.py`; `docs/plans/PHASE6A_RECONCILIATION.md`, `docs/PEER_SYNC.md`, `docs/SECURITY_MODEL.md`.

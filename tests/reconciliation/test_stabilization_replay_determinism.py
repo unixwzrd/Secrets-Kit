@@ -14,27 +14,14 @@ from secrets_kit.registry.core import ensure_registry_storage, upsert_metadata
 from secrets_kit.sync.canonical_record import compute_record_content_hash
 from secrets_kit.sync.merge import apply_peer_sync_import
 
+from tests.support.ops_reconcile import assert_lineage_projection_equal, lineage_projection
+
 if importlib.util.find_spec("nacl") is not None:
     from secrets_kit.backends.sqlite import SqliteSecretStore, clear_sqlite_crypto_cache
 else:
 
     def clear_sqlite_crypto_cache() -> None:  # pragma: no cover
         pass
-
-
-def _secrets_projection(db: Path) -> List[Tuple[object, ...]]:
-    st = SqliteSecretStore(db_path=str(db), kek_keychain_path=None)
-    conn = st._conn()
-    try:
-        cur = conn.execute(
-            """
-            SELECT entry_id, service, account, name, generation, tombstone_generation, deleted
-            FROM secrets ORDER BY entry_id
-            """
-        )
-        return [tuple(row) for row in cur.fetchall()]
-    finally:
-        conn.close()
 
 
 def _scenario_bundle_order(*, order_ba: bool) -> List[Tuple[object, ...]]:
@@ -79,7 +66,7 @@ def _scenario_bundle_order(*, order_ba: bool) -> List[Tuple[object, ...]]:
             kek_keychain_path=None,
             home=home,
         )
-        return _secrets_projection(db)
+        return lineage_projection(db)
     finally:
         clear_sqlite_crypto_cache()
         if "SECKIT_SQLITE_PASSPHRASE" in os.environ:
@@ -92,8 +79,7 @@ class StabilizationReplayDeterminismTest(unittest.TestCase):
     def test_two_entry_bundle_order_permutation_same_lineage_projection(self) -> None:
         p_ab = _scenario_bundle_order(order_ba=False)
         p_ba = _scenario_bundle_order(order_ba=True)
-        strip = lambda rows: sorted([t[1:] for t in rows])  # ignore entry_id (UUID)
-        self.assertEqual(strip(p_ab), strip(p_ba))
+        assert_lineage_projection_equal(p_ab, p_ba, ignore_entry_id=True)
 
 
 if __name__ == "__main__":

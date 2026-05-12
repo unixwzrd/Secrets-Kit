@@ -124,6 +124,9 @@ def cmd_reconcile_verify(*, args: argparse.Namespace) -> int:
     p = kwargs["path"]
     if not p:
         return _fatal(message="reconcile verify requires SQLite db path", code=1)
-    report = sqlite_reconcile_verify(db_path=str(p))
+    report = sqlite_reconcile_verify(
+        db_path=str(p),
+        strict_content_hash=bool(getattr(args, "strict_content_hash", False)),
+    )
     print(json.dumps(report, indent=2, sort_keys=True))
     return 0 if report.get("ok") else 1

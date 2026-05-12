@@ -8,8 +8,16 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 
-def sqlite_reconcile_verify(*, db_path: str) -> Dict[str, Any]:
+def sqlite_reconcile_verify(
+    *,
+    db_path: str,
+    strict_content_hash: bool = False,
+) -> Dict[str, Any]:
     """Run PRAGMA checks and lineage-shaped row invariants. Does not mutate the database.
+
+    Args:
+        db_path: Path to the SQLite database.
+        strict_content_hash: When ``True``, report non-deleted rows with empty ``content_hash`` (informational).
 
     Returns:
         Dictionary with ``ok`` (bool), ``issues`` (list of dicts with stable ``code`` keys),
@@ -53,7 +61,7 @@ def sqlite_reconcile_verify(*, db_path: str) -> Dict[str, Any]:
 
         cur = conn.execute(
             """
-            SELECT entry_id, service, account, name, deleted, generation, tombstone_generation
+            SELECT entry_id, service, account, name, deleted, generation, tombstone_generation, content_hash
             FROM secrets
             """
         )
@@ -62,6 +70,8 @@ def sqlite_reconcile_verify(*, db_path: str) -> Dict[str, Any]:
             deleted = int(r[4])
             gen = int(r[5])
             tgen = int(r[6])
+            ch_raw = r[7]
+            ch = str(ch_raw).strip() if ch_raw is not None else ""
             if gen < 1:
                 issues.append(
                     {
@@ -86,6 +96,35 @@ def sqlite_reconcile_verify(*, db_path: str) -> Dict[str, Any]:
                         "tombstone_generation": tgen,
                     }
                 )
+            if strict_content_hash and not deleted and not ch:
+                issues.append(
+                    {
+                        "code": "content_hash_empty_on_active",
+                        "entry_id": eid,
+                        "service": str(r[1]),
+                        "account": str(r[2]),
+                        "name": str(r[3]),
+                    }
+                )
+
+        dup_rows = conn.execute(
+            """
+            SELECT service, account, name, COUNT(*) AS n
+            FROM secrets
+            GROUP BY service, account, name
+            HAVING COUNT(*) > 1
+            """
+        ).fetchall()
+        for row in dup_rows:
+            issues.append(
+                {
+                    "code": "secrets_row_locator_collision",
+                    "service": str(row[0]),
+                    "account": str(row[1]),
+                    "name": str(row[2]),
+                    "count": int(row[3]),
+                }
+            )
     finally:
         conn.close()
 
