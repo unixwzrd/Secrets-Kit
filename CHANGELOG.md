@@ -6,6 +6,11 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+### 2026-05-12 — Phase 6B0 + 6B: disposable peer bootstrap and operational validation runbooks
+
+- **Scope:** `scripts/install.sh` (thin `exec` wrapper), `scripts/bootstrap_peer.sh` (peer-root layout, Python selection PATH → `CONDA_PREFIX`, `repo/` + `pip install -e`, pinned `--git` + `--branch` / `--ref`, `env.sh` with `HOME` = peer isolation), `scripts/reset_peer.sh`, `scripts/bootstrap_vm_smoke.sh`; `docs/plans/PHASE6B0_PEER_BOOTSTRAP.md`, `docs/plans/PHASE6B_OPERATIONAL_VALIDATION.md` (ten ugly-condition runbooks); `docs/README.md` links.
+- **What changed:** Operator-facing **relocatable peer roots** with explicit venv contract, **no** auto-update / self-update, **manual trust** after `identity init` / public export to `state/public/`; runbooks for restart, duplicate, tombstone, relay loss, SQLite snapshot, stale lineage, diagnosis, convergence, checklist. **Non-goals:** orchestration, fleet CI/CD (future note only in 6B0 doc).
+
 ### 2026-05-12 — Phase 6A operational hardening: test helpers, fixtures, verify, relay boundaries, smoke docs
 
 - **Scope:** `tests/support/ops_reconcile.py`; `tests/reconciliation/fixtures/*.json`, `test_operational_fixture_replay.py`; `tests/reconciliation/test_sqlite_verify_operational.py`; `sync/sqlite_verify.py` (``secrets_row_locator_collision``, optional ``content_hash_empty_on_active``); `cli` reconcile ``verify --strict-content-hash``; `scripts/replay_import_sequence.py`, `scripts/reconcile_two_db_compare.sh`; `tests/test_relay_operational_boundaries.py`; `docs/plans/PHASE6A_MULTI_NODE_SMOKE.md`, `PHASE6A_OPERATIONAL_GUARANTEES.md`; `PHASE6A_RECONCILIATION.md` cross-links; stabilization tests wired to helpers.

@@ -75,5 +75,7 @@ GitHub Actions runs `scripts/run_local_validation.sh` (full `unittest discover` 
 | [plans/PHASE5D_RUNTIME_INTEGRATION.md](plans/PHASE5D_RUNTIME_INTEGRATION.md) | Phase 5D charter (runtime stabilization; anti–daemon-authority creep) |
 | [plans/PHASE5D_DEPLOYMENT_VALIDATION.md](plans/PHASE5D_DEPLOYMENT_VALIDATION.md) | Multi-node / loopback operational checklist (no product network listener) |
 | [plans/SECKITD_PHASE5.md](plans/SECKITD_PHASE5.md) | Local `seckitd` Phase 5A–5E scope, threat model, rollback reference |
+| [plans/PHASE6B0_PEER_BOOTSTRAP.md](plans/PHASE6B0_PEER_BOOTSTRAP.md) | Disposable peer bootstrap: `install.sh`, `bootstrap_peer.sh`, `env.sh`, reset/smoke |
+| [plans/PHASE6B_OPERATIONAL_VALIDATION.md](plans/PHASE6B_OPERATIONAL_VALIDATION.md) | Ugly-condition runbooks after 6B0; SQLite + trace as evidence |
 
 Other files under **`docs/plans/`** may be gitignored local notes.

@@ -672,4 +672,6 @@ docs/archive/
 src/secrets_kit/native_helper_bundled/seckit-keychain-helper
 src/secrets_kit/native_helper_bundled/*.zip
 docs/plans/*
+!docs/plans/PHASE6B0_PEER_BOOTSTRAP.md
+!docs/plans/PHASE6B_OPERATIONAL_VALIDATION.md
 .gitignore
