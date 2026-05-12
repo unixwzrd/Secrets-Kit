@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "seckit"
-version = "1.2.0"
+version = "1.2.0a"
 description = "Local macOS CLI for handling secrets and PII without leaving them scattered in plain-text files"
 readme = "README.md"
 requires-python = ">=3.9"
