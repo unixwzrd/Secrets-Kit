@@ -1,6 +1,6 @@
 # Cross-Host Validation Checklist
 
-**Updated:** 2026-05-06
+**Updated:** 2026-05-12
 
 Use this checklist in two passes:
 
@@ -128,17 +128,12 @@ Use this checklist in two passes:
 
 ## D. Helper status and backend selection
 
-- [ ] Check that `seckit helper status` reports Python-only wheels (`helper.installed` false; `helper.path` null; no bundled Mach-O)
+- [ ] Check that `seckit helper status` reports a Python-only install (`helper.installed` false; `helper.path` null)
   ```bash
   cd /path/to/secrets-kit
   seckit helper status
   ```
   Expect **`backend_availability`** with **`secure`**, **`local`**, and **`sqlite`** only.
-- [ ] `scripts/build_bundled_helper_for_wheel.sh` exits non-zero (stub; historical)
-  ```bash
-  cd /path/to/secrets-kit
-  bash scripts/build_bundled_helper_for_wheel.sh
-  ```
 - [ ] Check that `seckit set/get/explain --backend local` still work (disposable keychain or login keychain per your checklist section)
   ```bash
   cd /path/to/secrets-kit

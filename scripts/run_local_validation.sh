@@ -42,7 +42,6 @@ fi
 
 echo "== syntax checks =="
 bash -n \
-  scripts/build_bundled_helper_for_wheel.sh \
   scripts/package_release_wheels.sh \
   scripts/release_preflight.sh \
   scripts/seckit_cross_host_prepare.sh \

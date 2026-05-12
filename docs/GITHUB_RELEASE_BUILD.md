@@ -1,9 +1,9 @@
 # GitHub Actions release: macOS wheels (Python only)
 
 **Created**: 2026-05-02  
-**Updated**: 2026-05-07
+**Updated**: 2026-05-12
 
-Secrets-Kit wheels ship **Python + package data** only. The former Swift **`seckit-keychain-helper`** was **removed** (macOS killed it at launch). The CLI uses the macOS **`security`** binary for **`--backend secure`**.
+Secrets-Kit **wheels and sdist** ship **Python + package data** only (no bundled native app or helper). For **`--backend secure`**, the CLI uses the macOS **`security`** binary.
 
 ## Universal2 vs many macOS runners
 
@@ -31,8 +31,6 @@ bash scripts/package_release_wheels.sh
 \```
 
 Then tag `vX.Y.Z`, push, or upload `dist/*` to PyPI / GitHub Release.
-
-`scripts/build_bundled_helper_for_wheel.sh` is a **stub** that exits with an error (historical path only). **`scripts/notarize_bundled_helper.sh`** is **stubbed** the same way — wheels do not ship a helper binary.
 
 ## References
 

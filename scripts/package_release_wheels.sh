@@ -30,7 +30,7 @@ if [[ ! -f "$ROOT/setup.cfg" ]] || ! grep -q 'plat_name' "$ROOT/setup.cfg"; then
   exit 1
 fi
 
-echo "==> Building Python-only wheels (security CLI / sqlite backends; no bundled Mach-O)"
+echo "==> Building Python release wheels (package only)"
 
 python3 -m pip install -U pip setuptools wheel build
 

@@ -6,6 +6,11 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+### 2026-05-12 — Remove stub helper build/notarize scripts
+
+- **Scope:** deleted `scripts/build_bundled_helper_for_wheel.sh`, `scripts/notarize_bundled_helper.sh`; `scripts/run_local_validation.sh`, `scripts/package_release_wheels.sh`, `docs/GITHUB_RELEASE_BUILD.md`, `docs/CROSS_HOST_CHECKLIST.md`, `CHANGELOG.md`.
+- **What changed:** Dropped historical **stub** entry points for the removed native helper; **local validation** no longer syntax-checks those files. Release docs/checklist updated so maintainers are not pointed at deleted scripts.
+
 ### 2026-05-12 — Phase 6B0 + 6B: disposable peer bootstrap and operational validation runbooks
 
 - **Scope:** `scripts/install.sh` (thin `exec` wrapper), `scripts/bootstrap_peer.sh` (peer-root layout, Python selection PATH → `CONDA_PREFIX`, `repo/` + `pip install -e`, pinned `--git` + `--branch` / `--ref`, `env.sh` with `HOME` = peer isolation), `scripts/reset_peer.sh`, `scripts/bootstrap_vm_smoke.sh`; `docs/plans/PHASE6B0_PEER_BOOTSTRAP.md`, `docs/plans/PHASE6B_OPERATIONAL_VALIDATION.md` (ten ugly-condition runbooks); `docs/README.md` links.
