@@ -6,6 +6,11 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+### 2026-05-12 — Phase 6A stabilization: reasons, trace, reconcile CLI, verify, tests
+
+- **Scope:** `src/secrets_kit/sync/reconcile_reasons.py`, `merge.py` (`merge_explanation_v2`, `explain_incoming_sync_row`, `apply_peer_sync_import` trace), `sync/sqlite_verify.py`, `backends/sqlite.py` (`fetch_entry_reconcile_index`), `cli/commands/reconcile_tools.py`, `cli/parser/base.py`, `cli/commands/sync_bundle.py` (`--reconcile-trace`), `cli/commands/diagnostics.py` (doctor hint); `tests/reconciliation/test_stabilization_*.py`; `docs/plans/PHASE6A_RECONCILIATION.md`, `docs/PEER_SYNC.md`, `docs/SECURITY_MODEL.md`.
+- **What changed:** Semi-stable **`reason`** strings alongside merge **`decision`**; optional **secret-safe** import trace on stderr; **read-only** `seckit reconcile inspect|lineage|explain|verify` (verify is report-only, no repair); SQLite-focused invariant helper; stabilization tests (failure injection rollback, restart-style replay, ordering, convergence).
+
 ### 2026-05-12 — Phase 6A test matrix: convergence, canonical record, e2e lineage
 
 - **Scope:** `tests/reconciliation/test_phase6a_convergence.py`, `test_canonical_record.py`; `test_phase6a_merge.py` (rename metadata case); `tests/test_peer_sync_e2e_sqlite.py`; `docs/plans/PHASE6A_DEFERRED_TRIGGERS.md`, `PHASE6A_RECONCILIATION.md`.

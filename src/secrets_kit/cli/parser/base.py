@@ -39,6 +39,12 @@ from secrets_kit.cli.commands.identity import cmd_identity_export, cmd_identity_
 from secrets_kit.cli.commands.import_export import cmd_export, cmd_import_encrypted, cmd_import_env, cmd_import_file
 from secrets_kit.cli.commands.migrate import cmd_migrate_dotenv, cmd_migrate_metadata, cmd_recover_registry
 from secrets_kit.cli.commands.peers import cmd_peer_add, cmd_peer_list, cmd_peer_remove, cmd_peer_show
+from secrets_kit.cli.commands.reconcile_tools import (
+    cmd_reconcile_explain,
+    cmd_reconcile_inspect,
+    cmd_reconcile_lineage,
+    cmd_reconcile_verify,
+)
 from secrets_kit.cli.commands.secrets import cmd_delete, cmd_explain, cmd_get, cmd_list, cmd_run, cmd_set
 from secrets_kit.cli.commands.service_ops import cmd_service_copy
 from secrets_kit.cli.commands.sync_bundle import (
@@ -511,6 +517,48 @@ def build_parser() -> argparse.ArgumentParser:
     p_peer_sh.add_argument("alias")
     p_peer_sh.set_defaults(func=cmd_peer_show)
 
+    p_rec = sub.add_parser(
+        "reconcile",
+        help="Read-only Phase 6A reconciliation diagnostics (SQLite lineage; no repair)",
+    )
+    rec_sub = p_rec.add_subparsers(dest="reconcile_command", required=True, metavar="SUBCOMMAND")
+    p_rec_insp = rec_sub.add_parser(
+        "inspect",
+        parents=[common],
+        help="Dump SQLite index row + capability flags for an entry_id (no secret values)",
+    )
+    p_rec_insp.add_argument("--entry-id", required=True, dest="entry_id")
+    p_rec_insp.set_defaults(func=cmd_reconcile_inspect)
+    p_rec_lin = rec_sub.add_parser(
+        "lineage",
+        parents=[common],
+        help="Lineage-oriented view of SQLite index fields for an entry_id",
+    )
+    p_rec_lin.add_argument("--entry-id", required=True, dest="entry_id")
+    p_rec_lin.set_defaults(func=cmd_reconcile_lineage)
+    p_rec_ex = rec_sub.add_parser(
+        "explain",
+        parents=[common],
+        help="Classify one bundle row JSON against local state (stdin, '-', or --bundle-row PATH)",
+    )
+    p_rec_ex.add_argument(
+        "--bundle-row",
+        metavar="PATH",
+        help="JSON file with one inner entries[] object; omit or '-' to read stdin",
+    )
+    p_rec_ex.add_argument(
+        "--local-host-id",
+        default="explain-local",
+        help="Host id used as default_origin for the synthetic ImportCandidate (default: explain-local)",
+    )
+    p_rec_ex.set_defaults(func=cmd_reconcile_explain)
+    p_rec_vf = rec_sub.add_parser(
+        "verify",
+        parents=[common],
+        help="Read-only PRAGMA + lineage-shaped invariant report (report-only; no auto-fix)",
+    )
+    p_rec_vf.set_defaults(func=cmd_reconcile_verify)
+
     p_sync = sub.add_parser("sync", help="Signed encrypted peer bundle export/import")
     sync_sub = p_sync.add_subparsers(dest="sync_command", required=True)
     p_sync_ex = sync_sub.add_parser("export", parents=[common], help="Export registry secrets to a peer bundle")
@@ -551,6 +599,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_sync_im.add_argument("--domains")
     p_sync_im.add_argument("--dry-run", action="store_true")
     p_sync_im.add_argument("--yes", action="store_true")
+    p_sync_im.add_argument(
+        "--reconcile-trace",
+        action="store_true",
+        help="Emit secret-safe JSONL classification rows to stderr (decision, reason, lineage fields)",
+    )
     p_sync_im.set_defaults(func=cmd_sync_import)
     p_sync_vf = sync_sub.add_parser("verify", help="Verify bundle JSON signature and structure")
     p_sync_vf.add_argument("file")

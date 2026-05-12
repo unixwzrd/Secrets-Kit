@@ -45,6 +45,10 @@ def cmd_doctor(*, args: argparse.Namespace) -> int:
         "metadata_keychain_drift": [],
         "entries_using_registry_fallback": [],
         "rotation_warnings": [],
+        "reconcile_read_only_tools": (
+            "seckit reconcile inspect|lineage|explain|verify — SQLite lineage diagnostics; "
+            "report-only (no auto-repair)"
+        ),
     }
     if is_secure_backend(backend):
         if check_security_cli():

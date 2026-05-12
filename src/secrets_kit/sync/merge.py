@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Set
+from typing import Any, Dict, List, Literal, Optional, Set, Tuple
 
 from secrets_kit.importers import ImportCandidate
 from secrets_kit.backends.security import (
@@ -23,6 +23,7 @@ from secrets_kit.sync.canonical_record import computed_peer_row_content_hash, ve
 from secrets_kit.backends.base import normalize_store_locator
 from secrets_kit.registry.core import delete_metadata, load_registry, upsert_metadata
 from secrets_kit.registry.resolve import _read_metadata
+from secrets_kit.sync.reconcile_reasons import MergeAction, MergeExplain, ReconcileReason, hash_preview
 
 SYNC_ORIGIN_CUSTOM_KEY = "seckit_sync_origin_host"
 
@@ -33,9 +34,6 @@ def effective_origin_host(*, meta: EntryMetadata, default_host_id: str) -> str:
     if isinstance(raw, str) and raw.strip():
         return raw.strip()
     return default_host_id
-
-
-MergeAction = Literal["import", "skip", "unchanged", "conflict", "replay_suppressed"]
 
 
 def sync_lineage_eligible(cand: ImportCandidate) -> bool:
@@ -85,7 +83,7 @@ def merge_decision(
     return "conflict"
 
 
-def merge_decision_v2(
+def merge_explanation_v2(
     *,
     local_meta: Optional[EntryMetadata],
     local_value: Optional[str],
@@ -94,11 +92,29 @@ def merge_decision_v2(
     incoming_origin_host: str,
     local_host_id: str,
     sqlite_lineage_merge: bool,
-) -> MergeAction:
-    """Phase 6A merge: tombstone authority, generation ordering, replay suppression; then legacy."""
+) -> MergeExplain:
+    """Pure classification with stable ``reason`` (no I/O)."""
     use_ladder = sqlite_lineage_merge and sync_lineage_eligible(incoming)
+    inc_disp: Literal["active", "tombstone"] = incoming.disposition
+    ldel = local_lineage.deleted if local_lineage is not None else None
+    lg = int(local_lineage.generation) if local_lineage is not None else None
+    ltg = int(local_lineage.tombstone_generation) if local_lineage is not None else None
+    ig = incoming.generation
+    itg = incoming.tombstone_generation
+
     if use_ladder and _entry_id_conflict(local_meta=local_meta, incoming=incoming):
-        return "conflict"
+        return MergeExplain(
+            decision="conflict",
+            reason=ReconcileReason.ENTRY_ID_MISMATCH,
+            sqlite_lineage_merge=sqlite_lineage_merge,
+            incoming_disposition=inc_disp,
+            local_deleted=ldel,
+            local_generation=lg,
+            local_tombstone_generation=ltg,
+            incoming_generation=ig,
+            incoming_tombstone_generation=itg,
+            use_lineage_ladder=True,
+        )
 
     if not use_ladder:
         raw = merge_decision(
@@ -109,49 +125,211 @@ def merge_decision_v2(
             incoming_origin_host=incoming_origin_host,
             local_host_id=local_host_id,
         )
-        return raw  # type: ignore[return-value]
+        reason_map = {
+            "import": ReconcileReason.LEGACY_IMPORT,
+            "skip": ReconcileReason.LEGACY_SKIP,
+            "unchanged": ReconcileReason.LEGACY_UNCHANGED,
+            "conflict": ReconcileReason.LEGACY_CONFLICT,
+        }
+        return MergeExplain(
+            decision=raw,  # type: ignore[arg-type]
+            reason=reason_map[raw],
+            sqlite_lineage_merge=sqlite_lineage_merge,
+            incoming_disposition=inc_disp,
+            use_lineage_ladder=False,
+        )
 
     if incoming.disposition == "tombstone":
-        inc_t = int(incoming.tombstone_generation)
+        inc_t = int(incoming.tombstone_generation or 0)
         if local_lineage is None:
-            return "unchanged"
+            return MergeExplain(
+                decision="unchanged",
+                reason=ReconcileReason.TOMBSTONE_NO_LOCAL_ROW,
+                sqlite_lineage_merge=sqlite_lineage_merge,
+                incoming_disposition=inc_disp,
+                incoming_tombstone_generation=inc_t,
+                use_lineage_ladder=True,
+            )
         if local_lineage.deleted:
             loc_t = int(local_lineage.tombstone_generation)
             if inc_t < loc_t:
-                return "skip"
+                return MergeExplain(
+                    decision="skip",
+                    reason=ReconcileReason.TOMBSTONE_SKIP_STALE_VS_TOMBSTONE,
+                    sqlite_lineage_merge=sqlite_lineage_merge,
+                    incoming_disposition=inc_disp,
+                    local_deleted=True,
+                    local_generation=int(local_lineage.generation),
+                    local_tombstone_generation=loc_t,
+                    incoming_tombstone_generation=inc_t,
+                    use_lineage_ladder=True,
+                )
             if inc_t == loc_t:
-                return "unchanged"
-            return "import"
+                return MergeExplain(
+                    decision="unchanged",
+                    reason=ReconcileReason.TOMBSTONE_UNCHANGED_EQUAL,
+                    sqlite_lineage_merge=sqlite_lineage_merge,
+                    incoming_disposition=inc_disp,
+                    local_deleted=True,
+                    local_generation=int(local_lineage.generation),
+                    local_tombstone_generation=loc_t,
+                    incoming_tombstone_generation=inc_t,
+                    use_lineage_ladder=True,
+                )
+            return MergeExplain(
+                decision="import",
+                reason=ReconcileReason.TOMBSTONE_BUMP_NEWER,
+                sqlite_lineage_merge=sqlite_lineage_merge,
+                incoming_disposition=inc_disp,
+                local_deleted=True,
+                local_generation=int(local_lineage.generation),
+                local_tombstone_generation=loc_t,
+                incoming_tombstone_generation=inc_t,
+                use_lineage_ladder=True,
+            )
         loc_g = int(local_lineage.generation)
         if inc_t >= loc_g:
-            return "import"
-        return "skip"
+            return MergeExplain(
+                decision="import",
+                reason=ReconcileReason.TOMBSTONE_WINS_ACTIVE,
+                sqlite_lineage_merge=sqlite_lineage_merge,
+                incoming_disposition=inc_disp,
+                local_deleted=False,
+                local_generation=loc_g,
+                incoming_tombstone_generation=inc_t,
+                use_lineage_ladder=True,
+            )
+        return MergeExplain(
+            decision="skip",
+            reason=ReconcileReason.TOMBSTONE_SKIP_STALE_VS_ACTIVE,
+            sqlite_lineage_merge=sqlite_lineage_merge,
+            incoming_disposition=inc_disp,
+            local_deleted=False,
+            local_generation=loc_g,
+            incoming_tombstone_generation=inc_t,
+            use_lineage_ladder=True,
+        )
 
     if incoming.generation is None:
-        return "skip"
+        return MergeExplain(
+            decision="skip",
+            reason=ReconcileReason.ACTIVE_SKIP_MISSING_GENERATION,
+            sqlite_lineage_merge=sqlite_lineage_merge,
+            incoming_disposition=inc_disp,
+            local_deleted=ldel,
+            local_generation=lg,
+            local_tombstone_generation=ltg,
+            use_lineage_ladder=True,
+        )
     inc_g = int(incoming.generation)
     if local_lineage is None:
-        return "import"
+        return MergeExplain(
+            decision="import",
+            reason=ReconcileReason.ACTIVE_IMPORT_NO_LOCAL_LINEAGE,
+            sqlite_lineage_merge=sqlite_lineage_merge,
+            incoming_disposition=inc_disp,
+            incoming_generation=inc_g,
+            use_lineage_ladder=True,
+        )
     if local_lineage.deleted:
-        return "replay_suppressed"
+        return MergeExplain(
+            decision="replay_suppressed",
+            reason=ReconcileReason.LOCAL_DELETED_REPLAY_SUPPRESSED,
+            sqlite_lineage_merge=sqlite_lineage_merge,
+            incoming_disposition=inc_disp,
+            local_deleted=True,
+            local_generation=int(local_lineage.generation),
+            local_tombstone_generation=int(local_lineage.tombstone_generation),
+            incoming_generation=inc_g,
+            use_lineage_ladder=True,
+        )
 
     loc_g = int(local_lineage.generation)
-    if inc_g > loc_g:
-        return "import"
-    if inc_g < loc_g:
-        return "skip"
-
     loc_h = ""
     if local_meta is not None:
         loc_h = (local_meta.content_hash or "").strip().lower()
     inc_h = (incoming.content_hash or incoming.metadata.content_hash or "").strip().lower()
+    if inc_g > loc_g:
+        return MergeExplain(
+            decision="import",
+            reason=ReconcileReason.NEWER_GENERATION_IMPORT,
+            sqlite_lineage_merge=sqlite_lineage_merge,
+            incoming_disposition=inc_disp,
+            local_deleted=False,
+            local_generation=loc_g,
+            incoming_generation=inc_g,
+            local_content_hash_preview=hash_preview(loc_h),
+            incoming_content_hash_preview=hash_preview(inc_h),
+            use_lineage_ladder=True,
+        )
+    if inc_g < loc_g:
+        return MergeExplain(
+            decision="skip",
+            reason=ReconcileReason.STALE_GENERATION,
+            sqlite_lineage_merge=sqlite_lineage_merge,
+            incoming_disposition=inc_disp,
+            local_deleted=False,
+            local_generation=loc_g,
+            incoming_generation=inc_g,
+            use_lineage_ladder=True,
+        )
     if loc_h and inc_h and loc_h != inc_h:
-        return "conflict"
-
+        return MergeExplain(
+            decision="conflict",
+            reason=ReconcileReason.CONTENT_HASH_MISMATCH_EQUAL_GEN,
+            sqlite_lineage_merge=sqlite_lineage_merge,
+            incoming_disposition=inc_disp,
+            local_deleted=False,
+            local_generation=loc_g,
+            incoming_generation=inc_g,
+            local_content_hash_preview=hash_preview(loc_h),
+            incoming_content_hash_preview=hash_preview(inc_h),
+            use_lineage_ladder=True,
+        )
     lv = local_value if local_value is not None else ""
     if lv == incoming.value:
-        return "unchanged"
-    return "conflict"
+        return MergeExplain(
+            decision="unchanged",
+            reason=ReconcileReason.EQUAL_GEN_SAME_VALUE,
+            sqlite_lineage_merge=sqlite_lineage_merge,
+            incoming_disposition=inc_disp,
+            local_deleted=False,
+            local_generation=loc_g,
+            incoming_generation=inc_g,
+            use_lineage_ladder=True,
+        )
+    return MergeExplain(
+        decision="conflict",
+        reason=ReconcileReason.EQUAL_GEN_VALUE_CONFLICT,
+        sqlite_lineage_merge=sqlite_lineage_merge,
+        incoming_disposition=inc_disp,
+        local_deleted=False,
+        local_generation=loc_g,
+        incoming_generation=inc_g,
+        use_lineage_ladder=True,
+    )
+
+
+def merge_decision_v2(
+    *,
+    local_meta: Optional[EntryMetadata],
+    local_value: Optional[str],
+    local_lineage: Optional[LineageSnapshot],
+    incoming: ImportCandidate,
+    incoming_origin_host: str,
+    local_host_id: str,
+    sqlite_lineage_merge: bool,
+) -> MergeAction:
+    """Phase 6A merge action; see ``merge_explanation_v2`` for stable reason codes."""
+    return merge_explanation_v2(
+        local_meta=local_meta,
+        local_value=local_value,
+        local_lineage=local_lineage,
+        incoming=incoming,
+        incoming_origin_host=incoming_origin_host,
+        local_host_id=local_host_id,
+        sqlite_lineage_merge=sqlite_lineage_merge,
+    ).decision
 
 
 def stronger_metadata_for_sync(
@@ -233,10 +411,13 @@ def apply_peer_sync_import(
     kek_keychain_path: Optional[str],
     domain_filter: Optional[List[str]] = None,
     home: Optional[Path] = None,
+    trace_out: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Apply deterministic merge for decrypted bundle entries.
 
     Returns counters plus optional ``hash_conflict_details`` (list of diagnostic dicts; no secret values).
+
+    When ``trace_out`` is a list, appends one secret-safe dict per classified row (decision, reason, lineage fields).
 
     ``home`` selects the metadata registry tree (``HOME/.config/seckit`` when
     omitted, same as other CLI helpers). Use an explicit path in tests or
@@ -290,7 +471,7 @@ def apply_peer_sync_import(
                 if isinstance(details, list):
                     details.append(
                         {
-                            "reason": "content_hash_mismatch",
+                            "reason": ReconcileReason.CONTENT_HASH_MISMATCH,
                             "declared_content_hash": declared.lower(),
                             "computed_content_hash": computed.lower(),
                             "entry_id": (cand.metadata.entry_id or "").strip(),
@@ -299,6 +480,23 @@ def apply_peer_sync_import(
                             "name": cand.metadata.name,
                             "generation": cand.generation,
                             "tombstone_generation": cand.tombstone_generation,
+                        }
+                    )
+                if trace_out is not None:
+                    trace_out.append(
+                        {
+                            "entry_id": (cand.metadata.entry_id or "").strip(),
+                            "service": cand.metadata.service,
+                            "account": cand.metadata.account,
+                            "name": cand.metadata.name,
+                            "decision": "conflict",
+                            "reason": ReconcileReason.CONTENT_HASH_MISMATCH,
+                            "sqlite_lineage_merge": bool(is_sqlite_backend(backend) and sqlite_store is not None),
+                            "incoming_disposition": "active",
+                            "incoming_generation": cand.generation,
+                            "incoming_tombstone_generation": cand.tombstone_generation,
+                            "local_content_hash": hash_preview(computed),
+                            "incoming_content_hash": hash_preview(declared),
                         }
                     )
                 continue
@@ -373,7 +571,7 @@ def apply_peer_sync_import(
                 name=cand.metadata.name,
             )
 
-        decision = merge_decision_v2(
+        explain = merge_explanation_v2(
             local_meta=local_meta,
             local_value=local_val,
             local_lineage=local_lineage,
@@ -382,6 +580,16 @@ def apply_peer_sync_import(
             local_host_id=local_host_id,
             sqlite_lineage_merge=sqlite_merge,
         )
+        decision = explain.decision
+        if trace_out is not None:
+            trace_out.append(
+                explain.to_trace_dict(
+                    entry_id=eid,
+                    service=cand.metadata.service,
+                    account=cand.metadata.account,
+                    name=cand.metadata.name,
+                )
+            )
 
         if decision == "skip":
             stats["skipped"] += 1
@@ -508,3 +716,176 @@ def apply_peer_sync_import(
         stats["updated" if exists else "created"] += 1
 
     return stats
+
+
+def explain_incoming_sync_row(
+    *,
+    raw_row: Dict[str, object],
+    local_host_id: str,
+    path: Optional[str],
+    backend: str,
+    kek_keychain_path: Optional[str],
+    home: Optional[Path] = None,
+) -> Tuple[MergeExplain, Dict[str, Any]]:
+    """Read-only: classify one bundle row against current local state (no mutations)."""
+    cand = import_candidate_from_sync_row(raw_row, default_origin=local_host_id)
+    if cand.disposition == "active":
+        declared = str(raw_row.get("content_hash", "") or "").strip()
+        if declared and not verify_incoming_row_content_hash(
+            secret=cand.value,
+            metadata=cand.metadata,
+            row_content_hash=declared,
+        ):
+            computed = computed_peer_row_content_hash(secret=cand.value, metadata=cand.metadata)
+            explain = MergeExplain(
+                decision="conflict",
+                reason=ReconcileReason.CONTENT_HASH_MISMATCH,
+                sqlite_lineage_merge=is_sqlite_backend(backend) and bool(path),
+                incoming_disposition="active",
+                incoming_generation=cand.generation,
+                incoming_tombstone_generation=cand.tombstone_generation,
+                local_content_hash_preview=hash_preview(computed),
+                incoming_content_hash_preview=hash_preview(declared),
+                use_lineage_ladder=False,
+            )
+            ctx = {
+                "local_host_id": local_host_id,
+                "hash_verify_failed": True,
+                "incoming": {
+                    "disposition": cand.disposition,
+                    "generation": cand.generation,
+                    "tombstone_generation": cand.tombstone_generation,
+                    "content_hash_preview": hash_preview(declared),
+                    "locator": {
+                        "service": cand.metadata.service,
+                        "account": cand.metadata.account,
+                        "name": cand.metadata.name,
+                    },
+                },
+            }
+            return explain, ctx
+    registry = load_registry(home=home)
+    nb = normalize_backend(backend)
+    sqlite_store = None
+    if nb == BACKEND_SQLITE and path:
+        from secrets_kit.backends.sqlite import SqliteSecretStore
+
+        sqlite_store = SqliteSecretStore(db_path=path, kek_keychain_path=kek_keychain_path)
+
+    eid = (cand.metadata.entry_id or "").strip()
+    sqlite_merge = is_sqlite_backend(backend) and sqlite_store is not None
+
+    resolved_by_eid = None
+    if sqlite_merge and eid:
+        assert sqlite_store is not None
+        resolved_by_eid = sqlite_store.resolve_by_entry_id(entry_id=eid)
+
+    if resolved_by_eid is not None:
+        store_meta = resolved_by_eid.metadata
+        local_val: Optional[str] = resolved_by_eid.secret
+        reg_key_cand = cand.metadata.key()
+        reg_key_store = store_meta.key()
+    else:
+        res = _read_metadata(
+            service=cand.metadata.service,
+            account=cand.metadata.account,
+            name=cand.metadata.name,
+            registry=registry,
+            path=path,
+            backend=backend,
+            kek_keychain_path=kek_keychain_path,
+        )
+        store_meta = res["metadata"] if res and isinstance(res.get("metadata"), EntryMetadata) else None
+        reg_key_cand = cand.metadata.key()
+        reg_key_store = store_meta.key() if store_meta is not None else reg_key_cand
+        local_val = None
+        if store_meta and secret_exists(
+            service=cand.metadata.service,
+            account=cand.metadata.account,
+            name=cand.metadata.name,
+            path=path,
+            backend=backend,
+            kek_keychain_path=kek_keychain_path,
+        ):
+            try:
+                local_val = get_secret(
+                    service=cand.metadata.service,
+                    account=cand.metadata.account,
+                    name=cand.metadata.name,
+                    path=path,
+                    backend=backend,
+                    kek_keychain_path=kek_keychain_path,
+                )
+            except BackendError:
+                local_val = None
+
+    registry_entry = registry.get(reg_key_cand) or (
+        registry.get(reg_key_store) if reg_key_store != reg_key_cand else None
+    )
+    local_meta = stronger_metadata_for_sync(
+        a=registry_entry,
+        b=store_meta,
+        local_host_id=local_host_id,
+    )
+
+    incoming_origin = str(raw_row.get("origin_host", "") or "").strip()
+    if not incoming_origin:
+        incoming_origin = effective_origin_host(meta=cand.metadata, default_host_id="")
+
+    local_lineage: Optional[LineageSnapshot] = None
+    if sqlite_merge and (sync_lineage_eligible(cand) or cand.disposition == "tombstone"):
+        assert sqlite_store is not None
+        local_lineage = sqlite_store.read_lineage_snapshot(
+            entry_id=eid if eid else None,
+            service=cand.metadata.service,
+            account=cand.metadata.account,
+            name=cand.metadata.name,
+        )
+
+    explain = merge_explanation_v2(
+        local_meta=local_meta,
+        local_value=local_val,
+        local_lineage=local_lineage,
+        incoming=cand,
+        incoming_origin_host=incoming_origin,
+        local_host_id=local_host_id,
+        sqlite_lineage_merge=sqlite_merge,
+    )
+
+    lineage_dict: Optional[Dict[str, Any]] = None
+    if local_lineage is not None:
+        lineage_dict = {
+            "entry_id": local_lineage.entry_id,
+            "service": local_lineage.service,
+            "account": local_lineage.account,
+            "name": local_lineage.name,
+            "generation": local_lineage.generation,
+            "tombstone_generation": local_lineage.tombstone_generation,
+            "deleted": local_lineage.deleted,
+        }
+
+    ctx: Dict[str, Any] = {
+        "local_host_id": local_host_id,
+        "incoming_origin_host": incoming_origin,
+        "resolved_by_entry_id": resolved_by_eid is not None,
+        "registry_key_candidate": reg_key_cand,
+        "registry_key_store": reg_key_store,
+        "local_secret_present": local_val is not None,
+        "local_metadata_present": local_meta is not None,
+        "sqlite_lineage_merge_flag": sqlite_merge,
+        "local_lineage_snapshot": lineage_dict,
+        "incoming": {
+            "disposition": cand.disposition,
+            "generation": cand.generation,
+            "tombstone_generation": cand.tombstone_generation,
+            "content_hash_preview": hash_preview(
+                (cand.content_hash or cand.metadata.content_hash or "")
+            ),
+            "locator": {
+                "service": cand.metadata.service,
+                "account": cand.metadata.account,
+                "name": cand.metadata.name,
+            },
+        },
+    }
+    return explain, ctx

@@ -118,13 +118,18 @@ def cmd_sync_import(*, args: argparse.Namespace) -> int:
         ):
             print("aborted")
             return 1
+        trace_out: list[dict] | None = [] if getattr(args, "reconcile_trace", False) else None
         stats = apply_peer_sync_import(
             inner_entries=conv_entries,
             local_host_id=ident.host_id,
             dry_run=args.dry_run,
             **_backend_access_kwargs(args),
             domain_filter=dfilter or None,
+            trace_out=trace_out,
         )
+        if trace_out:
+            for row in trace_out:
+                print(json.dumps(row, sort_keys=True), file=sys.stderr)
         out = dict(stats)
         out["bundle_export_id"] = inner.get("export_id", "")
         out["bundle_origin_host"] = inner.get("origin_host", "")

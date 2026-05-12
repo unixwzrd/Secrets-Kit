@@ -135,6 +135,8 @@ The practical size limit for comment JSON is determined by what macOS will store
 
 **Optional — peer identity bundles:** **`seckit identity`**, **`peer`**, and **`sync`** implement **signed, encrypted JSON files** for targeted exchange with pre-registered public keys ([PEER_SYNC.md](PEER_SYNC.md)). This is **not** a live multi-master sync; transport is manual file copy.
 
+**Phase 6A peer merge authority** is **SQLite-first**: durable `generation` / `tombstone_generation` / `deleted` live on encrypted SQLite index rows. **Keychain** backends do not expose the same lineage columns; peer bundles that carry lineage fields **fall back to legacy timestamp merge** on Keychain for writes. Cross-host deterministic convergence for lineage-aware rules requires **SQLite** on the importing host. Read-only reporting: **`seckit reconcile verify`** (no auto-repair). See [plans/PHASE6A_RECONCILIATION.md](plans/PHASE6A_RECONCILIATION.md).
+
 Secrets-Kit does **not** implement Apple-managed Keychain replication. Cross-host work is **your** artifact (export, import, or peer bundle)—not OS sync of Keychain items.
 
 **Resilience, noisy export, uninstall:** Peer sync is the **primary** resilience path; full plaintext export is **explicit and high-friction**, not a default backup. Uninstall is **manual per host** with **no dark patterns**. See [OPERATOR_LIFECYCLE.md](OPERATOR_LIFECYCLE.md).

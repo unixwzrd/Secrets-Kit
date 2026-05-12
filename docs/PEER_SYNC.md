@@ -30,7 +30,7 @@ New **`manifest`** keys **must not** be ignored if they could change algorithms,
 
 For each entry, compare `(updated_at, origin_host)` lexicographically. **Origin** is the exporting host’s id for that row (stored in metadata custom key `seckit_sync_origin_host` after import). **Ties** with the same value → **unchanged**; ties with different values → **conflict** (skipped, counted in stats). **Strictly newer** incoming row → **import**; **older** → **skip**.
 
-**SQLite Phase 6A:** When bundle rows carry **`generation`**, **`tombstone_generation`**, or **`disposition: tombstone`**, and the backend is SQLite with durable index lineage, merge uses **tombstone authority**, **generation ordering**, **replay suppression**, optional **`content_hash`** verification, and **`entry_id`-stable rename**. See [PHASE6A_RECONCILIATION.md](plans/PHASE6A_RECONCILIATION.md). Import JSON may include **`hash_conflict_details`** when a declared row hash does not verify.
+**SQLite Phase 6A:** When bundle rows carry **`generation`**, **`tombstone_generation`**, or **`disposition: tombstone`**, and the backend is SQLite with durable index lineage, merge uses **tombstone authority**, **generation ordering**, **replay suppression**, optional **`content_hash`** verification, and **`entry_id`-stable rename**. See [PHASE6A_RECONCILIATION.md](plans/PHASE6A_RECONCILIATION.md) for stable **`reason`** codes and read-only **`seckit reconcile …`** tooling. Import JSON may include **`hash_conflict_details`** when a declared row hash does not verify.
 
 `export_id` is **not** a replay cache—re-import policy is **only** per-entry merge.
 
@@ -52,6 +52,11 @@ For each entry, compare `(updated_at, origin_host)` lexicographically. **Origin*
 | `seckit sync import FILE --signer ALIAS …` | Verify, decrypt, merge |
 | `seckit sync verify FILE` | Signature + structure |
 | `seckit sync inspect FILE` | Manifest + recipient fingerprints |
+| `seckit sync import … --reconcile-trace` | Optional **stderr JSONL** trace: per-row `decision`, stable **`reason`**, lineage fields (no secret values) |
+| `seckit reconcile inspect --entry-id …` | Read-only SQLite index row + backend capabilities |
+| `seckit reconcile lineage --entry-id …` | Lineage fields for one `entry_id` |
+| `seckit reconcile explain --bundle-row PATH` (or stdin) | Classify one inner entry JSON against the local store (no writes) |
+| `seckit reconcile verify` | Read-only `PRAGMA` checks + lineage-shaped invariants (report-only) |
 
 Backend flags (`--backend`, `--db`, `--keychain`) on **`sync import`** match other secret commands.
 

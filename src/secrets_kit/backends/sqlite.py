@@ -521,6 +521,42 @@ class SqliteSecretStore(BackendStore):
         finally:
             conn.close()
 
+    def fetch_entry_reconcile_index(self, *, entry_id: str) -> Optional[Dict[str, Any]]:
+        """Return decrypt-free reconcile fields for tooling (no secret material)."""
+        eid = (entry_id or "").strip()
+        if not eid:
+            return None
+        conn = self._conn()
+        try:
+            row = conn.execute(
+                """
+                SELECT entry_id, service, account, name, updated_at, origin_host,
+                       deleted, deleted_at, generation, tombstone_generation,
+                       content_hash, corrupt, corrupt_reason
+                FROM secrets WHERE entry_id = ?
+                """,
+                (eid,),
+            ).fetchone()
+            if row is None:
+                return None
+            return {
+                "entry_id": str(row[0]),
+                "service": str(row[1]),
+                "account": str(row[2]),
+                "name": str(row[3]),
+                "updated_at": str(row[4]),
+                "origin_host": str(row[5]),
+                "deleted": bool(row[6]),
+                "deleted_at": str(row[7]),
+                "generation": int(row[8]),
+                "tombstone_generation": int(row[9]),
+                "content_hash": str(row[10]) if row[10] is not None else "",
+                "corrupt": bool(row[11]),
+                "corrupt_reason": str(row[12]) if row[12] is not None else "",
+            }
+        finally:
+            conn.close()
+
     def run_reconcile_transaction(self, fn: Callable[[sqlite3.Connection], None]) -> None:
         """One ``BEGIN IMMEDIATE`` … ``COMMIT`` scope for Phase 6A reconcile (pair mutations deterministically)."""
         conn = self._conn()
