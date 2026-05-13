@@ -671,7 +671,5 @@ docs/archive/
 ### Secrets-Kit: bundled Keychain helper (removed; no binary in tree — see scripts/build_bundled_helper_for_wheel.sh)
 src/secrets_kit/native_helper_bundled/seckit-keychain-helper
 src/secrets_kit/native_helper_bundled/*.zip
-docs/plans/*
-!docs/plans/PHASE6B0_PEER_BOOTSTRAP.md
-!docs/plans/PHASE6B_OPERATIONAL_VALIDATION.md
+/docs/plans/
 .gitignore
