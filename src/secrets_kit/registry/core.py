@@ -227,7 +227,7 @@ def load_registry(*, home: Optional[Path] = None) -> Dict[str, EntryMetadata]:
 
     When the environment variable ``SECKIT_VALIDATE_REGISTRY_METADATA=1`` is set at process
     start, each row is additionally checked against :mod:`secrets_kit.schemas.metadata`
-    mirrors after load-time parsing (see ``docs/plans/PHASE_3_PAYLOAD_INVENTORY.md``).
+    mirrors after load-time parsing (see ``docs/METADATA_REGISTRY.md`` and ``docs/BACKEND_STORE_CONTRACT.md``).
     Default is off (no extra validation).
     """
     rpath = ensure_registry_storage(home=home)

@@ -19,7 +19,7 @@ Environment:
 
 Does not modify ~/.bashrc, ~/.zshrc, or system Python.
 
-See docs/plans/PHASE6B0_PEER_BOOTSTRAP.md
+See docs/PEER_BOOTSTRAP.md
 
 Options:
   -h, --help   Show this help

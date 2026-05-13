@@ -32,7 +32,7 @@ Options:
 
 Default when no mode flags: remove vault DB, full ~/.config/seckit under peer, and runtime dir.
 
-See docs/plans/PHASE6B0_PEER_BOOTSTRAP.md
+See docs/PEER_BOOTSTRAP.md
 EOF
 }
 

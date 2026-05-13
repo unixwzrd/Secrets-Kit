@@ -1,7 +1,7 @@
 """Boundary validation mirrors (Pydantic v2).
 
 These models are for validation, tests, and drift detection only — not canonical
-runtime types. See ``docs/plans/PHASE_3_PAYLOAD_INVENTORY.md``.
+runtime types. See ``docs/METADATA_REGISTRY.md`` and ``docs/BACKEND_STORE_CONTRACT.md``.
 """
 
 from __future__ import annotations

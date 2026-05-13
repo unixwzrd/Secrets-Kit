@@ -22,7 +22,7 @@ Use this page as the public documentation map. The root [README](../README.md) s
 | [DEFAULTS.md](DEFAULTS.md) | `defaults.json`, env vars, `seckit config` |
 | [SECURITY_MODEL.md](SECURITY_MODEL.md) | What the tool does and does not protect |
 | [OPERATOR_LIFECYCLE.md](OPERATOR_LIFECYCLE.md) | Export/resilience policy, manual uninstall |
-| [INTEGRATIONS.md](INTEGRATIONS.md) | Patterns for apps, agents, Hermes, OpenClaw |
+| [INTEGRATIONS.md](INTEGRATIONS.md) | Patterns for apps, agents, and runtimes (includes legacy OpenClaw examples) |
 | [EXAMPLES.md](EXAMPLES.md) | Small scripts and command snippets |
 | [examples/](examples/) | Runnable shell examples |
 
@@ -44,6 +44,7 @@ Use this page as the public documentation map. The root [README](../README.md) s
 | Doc | Purpose |
 |-----|---------|
 | [PEER_SYNC.md](PEER_SYNC.md) | Signed encrypted peer bundles; manual transport only |
+| [PEER_BOOTSTRAP.md](PEER_BOOTSTRAP.md) | Disposable peer-root bootstrap scripts (`scripts/install.sh`, etc.) |
 | [CROSS_HOST_VALIDATION.md](CROSS_HOST_VALIDATION.md) | Disposable-keychain transfer tests |
 | [CROSS_HOST_CHECKLIST.md](CROSS_HOST_CHECKLIST.md) | Operational checklist |
 | [LAUNCHD_VALIDATION.md](LAUNCHD_VALIDATION.md) | LaunchAgent/Daemon notes |

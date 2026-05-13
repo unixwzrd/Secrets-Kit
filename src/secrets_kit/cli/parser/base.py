@@ -373,7 +373,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="SQLite debug: JSON index dump; optional unlock summaries (secret lengths only, no values)",
         epilog=(
             "Requires ``--backend sqlite`` and ``--db``. For ``--summaries``, the store must be unlockable.\n"
-            "See SECKIT_SQLITE_PLAINTEXT_DEBUG in docs/plans/SECKITD_PHASE5.md (Phase 5D)."
+            "See SECKIT_SQLITE_PLAINTEXT_DEBUG in docs/SECURITY_MODEL.md (disposable SQLite debug)."
         ),
         formatter_class=SeckitHelpFormatter,
     )
@@ -713,7 +713,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  SECKITD_VERBOSE_IPC=1 — include subprocess stdout/stderr tails in ``relay_inbound`` responses on success (**sensitive**).\n"
             "Environment (Phase 5D):\n"
             "  SECKITD_RUNTIME_LOOPBACK=1 — enable in-process loopback transport + coordinator ticker (testing; **non-authoritative**).\n"
-            "See docs/plans/SECKITD_PHASE5.md."
+            "See docs/IPC_SEMANTICS_ADR.md (local peer IPC) and docs/SECURITY_MODEL.md (sensitive debug env vars)."
         ),
         formatter_class=SeckitHelpFormatter,
     )

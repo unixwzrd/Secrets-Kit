@@ -47,7 +47,7 @@ After bootstrap, from any directory:
   command -v seckit && seckit --help
   "$SECKIT_REPO_ROOT/scripts/bootstrap_vm_smoke.sh" --env-file "$SECKIT_ENV_FILE"
 
-See docs/plans/PHASE6B0_PEER_BOOTSTRAP.md
+See docs/PEER_BOOTSTRAP.md
 EOF
 }
 

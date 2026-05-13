@@ -22,7 +22,7 @@ Discovery when --env-file omitted:
 
 Stock systems: Python 3.9+ with venv (no Conda required). Install git only for --git bootstrap.
 
-See docs/plans/PHASE6B0_PEER_BOOTSTRAP.md
+See docs/PEER_BOOTSTRAP.md
 
 Options:
   -h, --help
