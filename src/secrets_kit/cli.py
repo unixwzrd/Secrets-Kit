@@ -94,6 +94,8 @@ def _fatal(*, message: str, code: int = 2) -> int:
 
 def _write_raw_secret(value: str) -> None:
     """Write an explicitly requested secret value to stdout, not diagnostic logs."""
+    # Intentional materialization for `seckit get --raw`; normal `get` output stays redacted.
+    # codeql[py/clear-text-logging-sensitive-data]
     sys.stdout.write(value)
     sys.stdout.write("\n")
 

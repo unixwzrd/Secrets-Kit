@@ -14,31 +14,29 @@ import pathlib
 import sys
 
 
-SAFE_OUTPUT_ROOT = os.path.realpath("/tmp")
+OUTPUT_DIR = pathlib.Path("/tmp/seckit-launchd-smoke")
 
 
-def _resolve_output_file(output_file: str, output_dir: str) -> pathlib.Path:
-    if not os.path.basename(output_dir).startswith("seckit-launchd-smoke-"):
-        raise ValueError(f"output directory must be a launchd smoke directory under /tmp: {output_dir}")
-    safe_dir = os.path.realpath(output_dir)
-    target = os.path.realpath(output_file)
-    if os.path.commonpath([SAFE_OUTPUT_ROOT, safe_dir]) != SAFE_OUTPUT_ROOT:
-        raise ValueError(f"output directory must be under /tmp: {output_dir}")
-    if os.path.commonpath([safe_dir, target]) != safe_dir or os.path.dirname(target) != safe_dir:
-        raise ValueError(f"output file must be directly inside output directory: {output_dir}")
-    return pathlib.Path(target)
+def _output_path_for_mode(mode: str) -> pathlib.Path:
+    if mode == "login-agent":
+        return OUTPUT_DIR / "login-agent-result.txt"
+    if mode == "service-agent":
+        return OUTPUT_DIR / "service-agent-result.txt"
+    if mode == "service-daemon":
+        return OUTPUT_DIR / "service-daemon-result.txt"
+    raise ValueError(f"unsupported mode: {mode}")
 
 
 def main() -> int:
-    if len(sys.argv) != 8:
+    if len(sys.argv) != 6:
         print(
             "usage: seckit_launchd_agent_simulator.py "
-            "<output-file> <output-dir> <keychain> <mode> <launchd-target> <env-name> <seckit-bin>",
+            "<keychain> <mode> <launchd-target> <env-name> <seckit-bin>",
             file=sys.stderr,
         )
         return 2
 
-    output_file, output_dir, keychain, mode, launchd_target, name, seckit_bin = sys.argv[1:8]
+    keychain, mode, launchd_target, name, seckit_bin = sys.argv[1:6]
     payload = {
         "agent_simulator": True,
         "child_argv0": sys.argv[0],
@@ -57,7 +55,7 @@ def main() -> int:
         "value": os.environ.get(name, ""),
     }
     try:
-        output_path = _resolve_output_file(output_file, output_dir)
+        output_path = _output_path_for_mode(mode)
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2

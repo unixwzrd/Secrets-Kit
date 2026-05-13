@@ -15,7 +15,7 @@ SERVICE="launchd-smoke"
 ACCOUNT="${CURRENT_USER:-local}"
 NAME="SECKIT_TEST_ENV"
 VALUE="expected-${MODE}-${ACCOUNT}"
-OUT_DIR="/tmp/seckit-launchd-smoke-${ACCOUNT//[^A-Za-z0-9_.-]/_}"
+OUT_DIR="/tmp/seckit-launchd-smoke"
 PYTHON_BIN="${PYTHON_BIN:-$(command -v python3 || command -v python || true)}"
 SECKIT_BIN="${SECKIT_BIN:-$(command -v seckit || true)}"
 KEEP=0
@@ -105,7 +105,7 @@ case "$MODE" in
 esac
 
 VALUE="${EXPECTED_VALUE:-expected-${MODE}-${ACCOUNT}}"
-OUT_DIR="/tmp/seckit-launchd-smoke-${ACCOUNT//[^A-Za-z0-9_.-]/_}"
+OUT_DIR="/tmp/seckit-launchd-smoke"
 LABEL="ai.unixwzrd.seckit.launchd-smoke.${MODE}.${ACCOUNT}.${BACKEND//[- ]/_}"
 OUTPUT_FILE="${OUT_DIR}/${MODE}-result.txt"
 STDOUT_FILE="${OUT_DIR}/${MODE}-stdout.log"
@@ -285,8 +285,6 @@ write_agent_plist() {
     <string>--</string>
     <string>${PYTHON_BIN}</string>
     <string>${CHILD_SCRIPT}</string>
-    <string>${OUTPUT_FILE}</string>
-    <string>${OUT_DIR}</string>
     <string>${KEYCHAIN_PATH}</string>
     <string>${MODE}</string>
     <string>${SERVICE_TARGET}</string>
@@ -331,7 +329,7 @@ exec "$SECKIT_BIN" run \\
   --account "$ACCOUNT" \\
   --names "$NAME" \\
   --keychain "$KEYCHAIN_PATH" \\
-  -- "$PYTHON_BIN" "$CHILD_SCRIPT" "$OUTPUT_FILE" "$OUT_DIR" "$KEYCHAIN_PATH" "$MODE" "$SERVICE_TARGET" "$NAME" "$SECKIT_BIN"
+  -- "$PYTHON_BIN" "$CHILD_SCRIPT" "$KEYCHAIN_PATH" "$MODE" "$SERVICE_TARGET" "$NAME" "$SECKIT_BIN"
 EOF
   chmod 700 "$WRAPPER_PATH"
   cat > "$PLIST_PATH" <<EOF

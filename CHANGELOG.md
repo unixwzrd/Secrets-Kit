@@ -6,10 +6,10 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-### 2026-05-13 — Security scan hardening for CLI output, launchd smoke paths, and GitHub Actions
+### 2026-05-13 — v1.2.3 security scan hardening for CLI output, launchd smoke paths, and GitHub Actions
 
-- **Scope:** `src/secrets_kit/cli.py`, `scripts/seckit_launchd_agent_simulator.py`, `scripts/seckit_launchd_smoke.sh`, `.github/workflows/ci.yml`, `.github/workflows/release.yml`, `CHANGELOG.md`
-- **What changed:** Isolated explicit `seckit get --raw` secret materialization behind a dedicated stdout helper while keeping normal `get` output redacted. Constrained the launchd smoke-test proof file to a resolved `/tmp/seckit-launchd-smoke-*` directory and sanitized account-derived temp path components. Added explicit read-only `GITHUB_TOKEN` permissions to CI and pinned the PyPI publish action to a full upstream commit SHA.
+- **Scope:** `src/secrets_kit/cli.py`, `scripts/seckit_launchd_agent_simulator.py`, `scripts/seckit_launchd_smoke.sh`, `.github/workflows/ci.yml`, `.github/workflows/release.yml`, `pyproject.toml`, `CHANGELOG.md`
+- **What changed:** Isolated explicit `seckit get --raw` secret materialization behind a dedicated stdout helper while keeping normal `get` output redacted, with a narrow CodeQL suppression documenting that this is intentional CLI materialization rather than diagnostic logging. Removed user-controlled output path arguments from the launchd smoke-test child; proof files now use fixed `/tmp/seckit-launchd-smoke/<mode>-result.txt` paths derived from an allowlisted launch mode. Added explicit read-only `GITHUB_TOKEN` permissions to CI and pinned the PyPI publish action to a full upstream commit SHA.
 
 ### 2026-05-05 — Remove Swift iCloud helper: `secure` + `security` CLI only
 
