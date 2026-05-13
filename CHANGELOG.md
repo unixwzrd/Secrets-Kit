@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Scope:** deleted `scripts/build_bundled_helper_for_wheel.sh`, `scripts/notarize_bundled_helper.sh`; `scripts/run_local_validation.sh`, `scripts/package_release_wheels.sh`, `docs/GITHUB_RELEASE_BUILD.md`, `docs/CROSS_HOST_CHECKLIST.md`, `CHANGELOG.md`.
 - **What changed:** Dropped historical **stub** entry points for the removed native helper; **local validation** no longer syntax-checks those files. Release docs/checklist updated so maintainers are not pointed at deleted scripts.
 
+### 2026-05-12 — Phase 6B0: stock-user bootstrap hardening (env contract, cwd-agnostic, fail-fast)
+
+- **Scope:** `scripts/install.sh`, `scripts/bootstrap_peer.sh`, `scripts/reset_peer.sh`, `scripts/bootstrap_vm_smoke.sh`; `docs/plans/PHASE6B0_PEER_BOOTSTRAP.md`; `CHANGELOG.md`.
+- **What changed:** **`env.sh`** exports **`SECKIT_ENV_FILE`** and **`SECKIT_REPO_ROOT`** so `seckit` and smoke work from **any cwd** after `source`; **python3-first** interpreter selection with optional **Conda** last; **git** / **venv** / **pip** fail-fast messages; **`pip install -e`** no longer silenced; **`mkdir`** without brace expansion; **reset** runtime clear uses **`find -exec rm -rf {} \\;`** (BSD/GNU portable); **`SECKIT_ENV_FILE`** preferred in smoke/reset discovery; scripts resolve **`SCRIPT_DIR`** via **`CDPATH='' cd -- "$(dirname -- "$0")"`**.
+
 ### 2026-05-12 — Phase 6B0 + 6B: disposable peer bootstrap and operational validation runbooks
 
 - **Scope:** `scripts/install.sh` (thin `exec` wrapper), `scripts/bootstrap_peer.sh` (peer-root layout, Python selection PATH → `CONDA_PREFIX`, `repo/` + `pip install -e`, pinned `--git` + `--branch` / `--ref`, `env.sh` with `HOME` = peer isolation), `scripts/reset_peer.sh`, `scripts/bootstrap_vm_smoke.sh`; `docs/plans/PHASE6B0_PEER_BOOTSTRAP.md`, `docs/plans/PHASE6B_OPERATIONAL_VALIDATION.md` (ten ugly-condition runbooks); `docs/README.md` links.

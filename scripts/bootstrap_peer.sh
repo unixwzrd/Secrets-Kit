@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Disposable peer bootstrap: layout peer-root, .venv, optional git repo/, env.sh, identity.
-# Does not modify system Python; does not auto-update.
+# Does not modify system Python; does not auto-update. Safe to run from any cwd (§11).
 set -euo pipefail
+
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 
 # Minimum CPython (must match pyproject requires-python)
 MIN_PY_MAJOR=3
@@ -10,14 +12,14 @@ MIN_PY_MINOR=9
 usage() {
   cat <<'EOF'
 Usage:
-  bootstrap_peer.sh --peer-root DIR (--editable PATH | --git URL) [options]
+  /path/to/scripts/bootstrap_peer.sh --peer-root DIR (--editable PATH | --git URL) [options]
 
 Required:
   --peer-root PATH          Relocatable peer directory to create/populate
 
 Source (one required):
-  --editable PATH           pip install -e PATH; symlink PATH into repo/ when possible
-  --git URL                 git clone URL into peer-root/repo/
+  --editable PATH           pip install -e PATH; symlink PATH into peer-root/repo/
+  --git URL                 git clone URL into peer-root/repo/ (requires git on PATH)
 
 Git pinning (optional; --branch and --ref are mutually exclusive):
   --branch NAME             After clone, checkout this branch
@@ -30,13 +32,20 @@ Options:
   --no-passphrase           Set SECKIT_SQLITE_PLAINTEXT_DEBUG=1 (disposable peers only)
   -h, --help                This help
 
-Python selection order:
-  1) First python3.x / python3 on PATH with version >= 3.9
-  2) Else CONDA_PREFIX/bin/python if set and version ok
+Prerequisites (stock systems):
+  - Python 3.9+ with venv (Debian/Ubuntu: apt install python3 python3-venv)
+  - git when using --git
+  - openssl optional (passphrase); else selected Python's secrets module
 
-After bootstrap:
-  source PEER_ROOT/env.sh
-  Optional: scripts/bootstrap_vm_smoke.sh
+Python selection:
+  1) python3 on PATH if >= 3.9
+  2) python3.13, python3.12, ... as needed
+  3) Optional: CONDA_PREFIX/bin/python if set
+
+After bootstrap, from any directory:
+  source "$SECKIT_ENV_FILE"   # paths printed at end of bootstrap
+  command -v seckit && seckit --help
+  "$SECKIT_REPO_ROOT/scripts/bootstrap_vm_smoke.sh" --env-file "$SECKIT_ENV_FILE"
 
 See docs/plans/PHASE6B0_PEER_BOOTSTRAP.md
 EOF
@@ -126,10 +135,15 @@ _py_version_ok() {
   "$py" -c "import sys; v=sys.version_info; raise SystemExit(0 if (v.major,v.minor)>=(${MIN_PY_MAJOR},${MIN_PY_MINOR}) else 1)" 2>/dev/null
 }
 
+_venv_module_ok() {
+  local py="$1"
+  "$py" -c "import venv" 2>/dev/null
+}
+
 select_python() {
   SELECTED_PY=""
   local c p
-  for c in python3.13 python3.12 python3.11 python3.10 python3; do
+  for c in python3 python3.13 python3.12 python3.11 python3.10; do
     if command -v "$c" >/dev/null 2>&1; then
       p="$(command -v "$c")"
       if _py_version_ok "$p"; then
@@ -151,7 +165,16 @@ select_python() {
 }
 
 if ! select_python; then
-  echo "bootstrap_peer.sh: no Python >= ${MIN_PY_MAJOR}.${MIN_PY_MINOR} found on PATH or under CONDA_PREFIX." >&2
+  echo "bootstrap_peer.sh: no Python >= ${MIN_PY_MAJOR}.${MIN_PY_MINOR} found on PATH." >&2
+  echo "Install Python 3.9+ (e.g. python3). Debian/Ubuntu: sudo apt install python3 python3-venv" >&2
+  echo "Optional: set CONDA_PREFIX to a Conda env that provides python." >&2
+  exit 1
+fi
+
+if ! _venv_module_ok "$SELECTED_PY"; then
+  echo "bootstrap_peer.sh: selected interpreter has no 'venv' module: $SELECTED_PY" >&2
+  echo "Debian/Ubuntu: sudo apt install python3-venv" >&2
+  echo "RHEL/Rocky: sudo dnf install python3" >&2
   exit 1
 fi
 
@@ -160,18 +183,26 @@ echo "bootstrap_peer.sh: $($SELECTED_PY -c 'import sys; print(sys.version.split(
 
 mkdir -p "$PEER_ROOT"
 PEER_ROOT="$(cd "$PEER_ROOT" && pwd)"
-mkdir -p "$PEER_ROOT"/{repo,runtime,state,logs,bundles,snapshots}
+mkdir -p "$PEER_ROOT/repo" "$PEER_ROOT/runtime" "$PEER_ROOT/state" \
+  "$PEER_ROOT/logs" "$PEER_ROOT/bundles" "$PEER_ROOT/snapshots"
 
 if [[ "$FORCE_VENV" -eq 1 && -d "$PEER_ROOT/.venv" ]]; then
   rm -rf "$PEER_ROOT/.venv"
 fi
 
 if [[ ! -d "$PEER_ROOT/.venv" ]]; then
-  "$SELECTED_PY" -m venv "$PEER_ROOT/.venv"
+  if ! "$SELECTED_PY" -m venv "$PEER_ROOT/.venv"; then
+    echo "bootstrap_peer.sh: 'python -m venv' failed for: $SELECTED_PY" >&2
+    echo "Install the venv package for your distribution (e.g. python3-venv)." >&2
+    exit 1
+  fi
 fi
 
 PIP=( "$PEER_ROOT/.venv/bin/pip" )
-"${PIP[@]}" install -U pip setuptools wheel >/dev/null
+if ! "${PIP[@]}" install -U pip setuptools wheel; then
+  echo "bootstrap_peer.sh: pip upgrade (pip setuptools wheel) failed." >&2
+  exit 1
+fi
 
 if [[ -n "$EDITABLE" ]]; then
   if [[ ! -d "$EDITABLE" ]]; then
@@ -180,24 +211,43 @@ if [[ -n "$EDITABLE" ]]; then
   fi
   EDITABLE="$(cd "$EDITABLE" && pwd)"
   rm -rf "$PEER_ROOT/repo"
-  # Prefer visible source: symlink checkout into repo/
   ln -sfn "$EDITABLE" "$PEER_ROOT/repo"
-  "${PIP[@]}" install -e "$EDITABLE"
+  if ! "${PIP[@]}" install -e "$EDITABLE"; then
+    echo "bootstrap_peer.sh: pip install -e failed for: $EDITABLE" >&2
+    exit 1
+  fi
 elif [[ -n "$GIT_URL" ]]; then
+  if ! command -v git >/dev/null 2>&1; then
+    echo "bootstrap_peer.sh: 'git' not on PATH; install git or use --editable with a local checkout path." >&2
+    exit 1
+  fi
   if [[ -d "$PEER_ROOT/repo/.git" ]]; then
     echo "bootstrap_peer.sh: repo/ already exists; skip clone (update manually if needed)" >&2
   else
     rm -rf "$PEER_ROOT/repo"
-    git clone "$GIT_URL" "$PEER_ROOT/repo"
+    if ! git clone "$GIT_URL" "$PEER_ROOT/repo"; then
+      echo "bootstrap_peer.sh: git clone failed." >&2
+      exit 1
+    fi
     if [[ -n "$REF" ]]; then
-      git -C "$PEER_ROOT/repo" checkout "$REF"
+      if ! git -C "$PEER_ROOT/repo" checkout "$REF"; then
+        echo "bootstrap_peer.sh: git checkout '$REF' failed." >&2
+        exit 1
+      fi
     elif [[ -n "$BRANCH" ]]; then
-      git -C "$PEER_ROOT/repo" checkout "$BRANCH"
+      if ! git -C "$PEER_ROOT/repo" checkout "$BRANCH"; then
+        echo "bootstrap_peer.sh: git checkout '$BRANCH' failed." >&2
+        exit 1
+      fi
     fi
   fi
-  "${PIP[@]}" install -e "$PEER_ROOT/repo"
+  if ! "${PIP[@]}" install -e "$PEER_ROOT/repo"; then
+    echo "bootstrap_peer.sh: pip install -e failed for: $PEER_ROOT/repo" >&2
+    exit 1
+  fi
 fi
 
+SECKIT_REPO_ROOT_ABS="$PEER_ROOT/repo"
 SECKIT_STATE_DIR="$PEER_ROOT/state"
 SECKIT_SQLITE_DB="$SECKIT_STATE_DIR/vault.db"
 SQLITE_PASS=""
@@ -207,10 +257,10 @@ else
   if command -v openssl >/dev/null 2>&1; then
     SQLITE_PASS="$(openssl rand -hex 32)"
   else
-    SQLITE_PASS="$(python3 -c 'import secrets; print(secrets.token_hex(32))' 2>/dev/null || true)"
+    SQLITE_PASS="$("$SELECTED_PY" -c 'import secrets; print(secrets.token_hex(32))' 2>/dev/null || true)"
   fi
   if [[ -z "$SQLITE_PASS" ]]; then
-    echo "bootstrap_peer.sh: could not generate passphrase; install openssl or use --no-passphrase" >&2
+    echo "bootstrap_peer.sh: could not generate passphrase; install openssl or pass --no-passphrase" >&2
     exit 1
   fi
   SQLITE_EXTRA_COMMENT="generated passphrase (store peer-root securely; disposable peers only)"
@@ -223,8 +273,9 @@ _q() {
 ENV_FILE="$PEER_ROOT/env.sh"
 umask 077
 {
-  echo "# Generated by bootstrap_peer.sh — disposable peer environment"
-  echo "# Source: . \"$(_q "$ENV_FILE")\"   or: source $(_q "$ENV_FILE")"
+  echo "# Generated by bootstrap_peer.sh — disposable peer environment (do not source from relative cwd without absolute path)"
+  echo "export SECKIT_ENV_FILE=$(_q "$ENV_FILE")"
+  echo "export SECKIT_REPO_ROOT=$(_q "$SECKIT_REPO_ROOT_ABS")"
   echo "export SECKIT_PEER_NAME=$(_q "$PEER_NAME")"
   echo "export SECKIT_PEER_ROOT=$(_q "$PEER_ROOT")"
   echo "# Isolate metadata + identity under peer (registry uses ~/.config/seckit relative to HOME)"
@@ -277,8 +328,10 @@ if "$SECKIT_BIN" identity export -o "$PUB_DIR/host-identity.json" 2>/dev/null; t
 fi
 
 echo ""
-echo "Next steps:"
-echo "  source $(_q "$ENV_FILE")"
-echo "  seckit doctor --backend sqlite --db \"\$SECKIT_SQLITE_DB\""
-echo "  ./scripts/bootstrap_vm_smoke.sh   # from repo checkout, after sourcing env.sh"
+echo "=== Bootstrap success (from any cwd, after sourcing env.sh) ==="
+echo ". $(_q "$ENV_FILE")"
+echo "command -v seckit && seckit --help"
+echo "$(_q "$SECKIT_REPO_ROOT_ABS/scripts/bootstrap_vm_smoke.sh") --env-file $(_q "$ENV_FILE")"
+echo ""
+echo "This script lives at: $SCRIPT_DIR/bootstrap_peer.sh"
 echo ""

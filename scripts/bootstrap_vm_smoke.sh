@@ -1,29 +1,28 @@
 #!/usr/bin/env bash
-# Post-bootstrap smoke for a disposable peer. Requires env.sh-sourced environment.
+# Post-bootstrap smoke. After `source env.sh`, works from any cwd (§11).
 set -euo pipefail
+
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 
 usage() {
   cat <<'EOF'
-Usage:
-  source /path/to/peer/env.sh
-  ./scripts/bootstrap_vm_smoke.sh
+Usage (canonical — after bootstrap, from any cwd):
+  . /absolute/path/to/peer-root/env.sh
+  command -v seckit
+  seckit --help
+  "$SECKIT_REPO_ROOT/scripts/bootstrap_vm_smoke.sh" --env-file "$SECKIT_ENV_FILE"
 
-Or:
-  SECKIT_PEER_ROOT=/path/to/peer ./scripts/bootstrap_vm_smoke.sh
+Or pass env explicitly:
+  /path/to/repo/scripts/bootstrap_vm_smoke.sh --env-file /path/to/peer-root/env.sh
 
-Or:
-  ./scripts/bootstrap_vm_smoke.sh --env-file /path/to/peer/env.sh
+Discovery when --env-file omitted:
+  1) SECKIT_ENV_FILE (if set and file exists)
+  2) SECKIT_PEER_ROOT/env.sh
+  3) ./env.sh in current working directory (last resort)
 
-Runs non-interactive checks: seckit on PATH, identity, doctor (sqlite), reconcile verify.
+Stock systems: Python 3.9+ with venv (no Conda required). Install git only for --git bootstrap.
 
-See docs/plans/PHASE6B0_PEER_BOOTSTRAP.md and docs/plans/PHASE6B_OPERATIONAL_VALIDATION.md
-
-Rocky 9 / Debian notes: install git, Python 3.9+, openssl; use same bootstrap_peer.sh
-Python policy (PATH python or CONDA_PREFIX).
-
-Related:
-  scripts/peer_sync_remote_smoke.sh — broader remote / optional unittest hooks
-  docs/PEER_SYNC.md — bundle workflows
+See docs/plans/PHASE6B0_PEER_BOOTSTRAP.md
 
 Options:
   -h, --help
@@ -50,12 +49,14 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$ENV_FILE" ]]; then
-  if [[ -n "${SECKIT_PEER_ROOT:-}" && -f "${SECKIT_PEER_ROOT}/env.sh" ]]; then
+  if [[ -n "${SECKIT_ENV_FILE:-}" && -f "$SECKIT_ENV_FILE" ]]; then
+    ENV_FILE="$SECKIT_ENV_FILE"
+  elif [[ -n "${SECKIT_PEER_ROOT:-}" && -f "${SECKIT_PEER_ROOT}/env.sh" ]]; then
     ENV_FILE="${SECKIT_PEER_ROOT}/env.sh"
   elif [[ -f "$(pwd)/env.sh" ]]; then
     ENV_FILE="$(pwd)/env.sh"
   else
-    echo "bootstrap_vm_smoke.sh: source env.sh first, pass --env-file, or set SECKIT_PEER_ROOT" >&2
+    echo "bootstrap_vm_smoke.sh: pass --env-file or source env.sh (sets SECKIT_ENV_FILE)" >&2
     exit 1
   fi
 fi
@@ -66,12 +67,24 @@ source "$ENV_FILE"
 set +a
 
 if [[ -z "${SECKIT_PEER_ROOT:-}" || -z "${SECKIT_SQLITE_DB:-}" ]]; then
-  echo "bootstrap_vm_smoke.sh: SECKIT_PEER_ROOT / SECKIT_SQLITE_DB not set" >&2
+  echo "bootstrap_vm_smoke.sh: SECKIT_PEER_ROOT / SECKIT_SQLITE_DB not set after sourcing env" >&2
+  exit 1
+fi
+
+if [[ -z "${SECKIT_REPO_ROOT:-}" ]]; then
+  echo "bootstrap_vm_smoke.sh: SECKIT_REPO_ROOT not set (re-run bootstrap_peer.sh to regenerate env.sh)" >&2
+  exit 1
+fi
+
+if [[ ! -d "${SECKIT_REPO_ROOT}/scripts" ]]; then
+  echo "bootstrap_vm_smoke.sh: SECKIT_REPO_ROOT has no scripts/ (SECKIT_REPO_ROOT=$SECKIT_REPO_ROOT)" >&2
   exit 1
 fi
 
 echo "=== bootstrap_vm_smoke: $(hostname) @ $(date -u '+%Y-%m-%dT%H:%M:%SZ') ==="
+echo "SECKIT_ENV_FILE=$SECKIT_ENV_FILE"
 echo "SECKIT_PEER_ROOT=$SECKIT_PEER_ROOT"
+echo "SECKIT_REPO_ROOT=$SECKIT_REPO_ROOT"
 echo "HOME=$HOME (should equal peer root for isolation)"
 
 if ! command -v seckit >/dev/null 2>&1; then
@@ -99,3 +112,4 @@ else
 fi
 
 echo "=== bootstrap_vm_smoke: PASS ==="
+echo "(invoked from: $SCRIPT_DIR/bootstrap_vm_smoke.sh)"

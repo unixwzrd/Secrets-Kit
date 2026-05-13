@@ -3,6 +3,43 @@
 **Created**: 2026-05-02  
 **Updated**: 2026-05-09
 
+Relay infrastructure is NOT part of the public/open secrets-kit repository.
+
+Do not:
+
+- implement relay infrastructure
+- implement hosted federation
+- implement multi-tenant routing
+- implement organization/customer relay logic
+- implement relay deployment tooling
+- implement relay operational runbooks
+- implement hosted-service orchestration
+
+inside this repository.
+
+Relay functionality belongs in a separate private sibling repository:
+    secrets-kit-relay
+
+The public repository may expose:
+
+- protocol definitions
+- bundle formats
+- peer APIs
+- cryptographic primitives
+- reconciliation logic
+- public interfaces needed by independent peers
+
+But must not contain:
+
+- hosted relay operational details
+- federation topology implementation
+- relay tenancy architecture
+- deployment automation
+- relay business logic
+- hosted routing infrastructure
+
+Maintain strict architectural separation.
+
 ## Git and release management discipline
 
 This repository contains security-sensitive tooling and distributed-sync infrastructure. Public repository state must remain intentionally curated and operationally trustworthy.

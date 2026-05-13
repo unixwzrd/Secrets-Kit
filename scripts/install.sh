@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
 # Thin installer entry: resolve bootstrap_peer.sh and exec (no orchestration).
+# Safe from any cwd when invoked by absolute path (§11).
 set -euo pipefail
+
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 
 usage() {
   cat <<'EOF'
 Usage:
-  ./scripts/install.sh [options and args ... passed through to bootstrap_peer.sh]
+  /path/to/scripts/install.sh [options passed through to bootstrap_peer.sh]
 
-Resolves bootstrap_peer.sh next to this script, then exec's it with the same args.
+Resolves bootstrap_peer.sh next to this script (absolute path), then exec's it.
+Requires bash. Clone the repository first (e.g. via SSH); this script does not
+download sources.
 
 Environment:
   SECKIT_BOOTSTRAP_SCRIPT   Override path to bootstrap_peer.sh
 
-This script intentionally does not auto-fetch sources. For curl|sh style flows,
-clone the repository (pinned branch/tag/SHA), then run scripts/install.sh from
-that tree—or set SECKIT_BOOTSTRAP_SCRIPT to a checkout's bootstrap_peer.sh.
+Does not modify ~/.bashrc, ~/.zshrc, or system Python.
 
 See docs/plans/PHASE6B0_PEER_BOOTSTRAP.md
 
@@ -30,12 +33,11 @@ for a in "$@"; do
   fi
 done
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BOOTSTRAP="${SECKIT_BOOTSTRAP_SCRIPT:-$SCRIPT_DIR/bootstrap_peer.sh}"
 
 if [[ ! -f "$BOOTSTRAP" ]]; then
   echo "install.sh: bootstrap_peer.sh not found: $BOOTSTRAP" >&2
-  echo "Set SECKIT_BOOTSTRAP_SCRIPT or run from a secrets-kit checkout (scripts/)." >&2
+  echo "Set SECKIT_BOOTSTRAP_SCRIPT to an absolute path, or keep install.sh beside bootstrap_peer.sh." >&2
   exit 1
 fi
 

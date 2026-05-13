@@ -1,25 +1,28 @@
 #!/usr/bin/env bash
-# Reset disposable peer state. Requires env.sh (or peer root) for paths.
+# Reset disposable peer state. Safe from any cwd when using absolute --env-file or SECKIT_* (§11).
 set -euo pipefail
+
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 
 usage() {
   cat <<'EOF'
 Usage:
-  reset_peer.sh [options]
+  /path/to/scripts/reset_peer.sh [options]
 
 Loads peer environment, then removes selected state. Bundles/ and snapshots/ are
 preserved unless --purge-artifacts is set.
 
-Environment / discovery:
-  Prefer: source env.sh (plan contract)
-  Or set: SECKIT_PEER_ROOT pointing at peer directory (uses SECKIT_PEER_ROOT/env.sh)
-  Or: run from peer root with ./env.sh present and pass --env-file ./env.sh
+Discovery order for env.sh (first match wins):
+  1) --env-file PATH
+  2) SECKIT_ENV_FILE (if set and file exists), e.g. after source env.sh in same shell
+  3) SECKIT_PEER_ROOT/env.sh
+  4) ./env.sh relative to current working directory (last resort)
 
 Options:
-  --env-file PATH      Source this env.sh (default: auto)
+  --env-file PATH      Source this env.sh
   --vault-only         Remove only SECKIT_SQLITE_DB
   --full-config        Remove ~/.config/seckit under peer HOME (registry, identity, peers)
-  --runtime            Clear SECKIT_RUNTIME_DIR contents (optional daemon socket area may differ)
+  --runtime            Clear SECKIT_RUNTIME_DIR contents
   --venv               Remove peer .venv (re-run bootstrap_peer.sh to recreate)
   --only-venv          Only remove .venv (no vault/config/runtime reset)
   --purge-artifacts    Also remove bundles/ and snapshots/ under peer root
@@ -28,7 +31,6 @@ Options:
   -h, --help           This help
 
 Default when no mode flags: remove vault DB, full ~/.config/seckit under peer, and runtime dir.
-Use --only-venv to recreate just the virtualenv without wiping identity/SQLite.
 
 See docs/plans/PHASE6B0_PEER_BOOTSTRAP.md
 EOF
@@ -104,12 +106,14 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$ENV_FILE" ]]; then
-  if [[ -n "${SECKIT_PEER_ROOT:-}" && -f "${SECKIT_PEER_ROOT}/env.sh" ]]; then
+  if [[ -n "${SECKIT_ENV_FILE:-}" && -f "$SECKIT_ENV_FILE" ]]; then
+    ENV_FILE="$SECKIT_ENV_FILE"
+  elif [[ -n "${SECKIT_PEER_ROOT:-}" && -f "${SECKIT_PEER_ROOT}/env.sh" ]]; then
     ENV_FILE="${SECKIT_PEER_ROOT}/env.sh"
   elif [[ -f "$(pwd)/env.sh" ]]; then
     ENV_FILE="$(pwd)/env.sh"
   else
-    echo "reset_peer.sh: set --env-file or SECKIT_PEER_ROOT, or run from peer root with env.sh" >&2
+    echo "reset_peer.sh: pass --env-file /abs/path/env.sh or set SECKIT_ENV_FILE / SECKIT_PEER_ROOT" >&2
     exit 1
   fi
 fi
@@ -176,7 +180,8 @@ if [[ "$RUNTIME_CLEAR" -eq 1 ]]; then
     if [[ "$DRY" -eq 1 ]]; then
       echo "DRY-RUN: clear directory $(_q "$RD")"
     else
-      find "$RD" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+      # BSD/GNU portable: one rm -rf per entry (no GNU-only find flags)
+      find "$RD" -mindepth 1 -maxdepth 1 -exec rm -rf {} \;
       echo "cleared: $RD"
     fi
   fi
