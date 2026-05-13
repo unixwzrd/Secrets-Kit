@@ -50,4 +50,4 @@ Prefer **`--json`** and structured fields over parsing tables or help text. See 
 
 ## Glossary pointer
 
-Extended term list: [Secrets-Kit-Glossary-of-Terms.md](plans/Architecture/GLOSSARY.md).
+Use the terminology in this page, [RUNTIME_AUTHORITY_ADR.md](RUNTIME_AUTHORITY_ADR.md), [METADATA_SEMANTICS_ADR.md](METADATA_SEMANTICS_ADR.md), and [PEER_SYNC.md](PEER_SYNC.md) as the public glossary.

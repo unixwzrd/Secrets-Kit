@@ -43,7 +43,7 @@ The registry exists so the tool can track inventory locally without becoming the
 
 ## SQLite plaintext debug mode (non-production)
 
-When **`SECKIT_SQLITE_PLAINTEXT_DEBUG=1`**, the SQLite backend writes joint payload bytes **without** NaCl `SecretBox` encryption (rows use `crypto_version=0`). This mode is for **development, automated tests, and forensic inspection** on **disposable** database files only. **Do not** point it at production vaults. A warning is printed on first store open. See [plans/SECKITD_PHASE5.md](plans/SECKITD_PHASE5.md) (Phase 5D).
+When **`SECKIT_SQLITE_PLAINTEXT_DEBUG=1`**, the SQLite backend writes joint payload bytes **without** NaCl `SecretBox` encryption (rows use `crypto_version=0`). This mode is for **development, automated tests, and forensic inspection** on **disposable** database files only. **Do not** point it at production vaults. A warning is printed on first store open.
 
 ## How entries are identified
 
@@ -135,7 +135,7 @@ The practical size limit for comment JSON is determined by what macOS will store
 
 **Optional — peer identity bundles:** **`seckit identity`**, **`peer`**, and **`sync`** implement **signed, encrypted JSON files** for targeted exchange with pre-registered public keys ([PEER_SYNC.md](PEER_SYNC.md)). This is **not** a live multi-master sync; transport is manual file copy.
 
-**Phase 6A peer merge authority** is **SQLite-first**: durable `generation` / `tombstone_generation` / `deleted` live on encrypted SQLite index rows. **Keychain** backends do not expose the same lineage columns; peer bundles that carry lineage fields **fall back to legacy timestamp merge** on Keychain for writes. Cross-host deterministic convergence for lineage-aware rules requires **SQLite** on the importing host. Read-only reporting: **`seckit reconcile verify`** (no auto-repair). See [plans/PHASE6A_RECONCILIATION.md](plans/PHASE6A_RECONCILIATION.md).
+**Peer merge authority** is **SQLite-first** for lineage-aware rules: durable `generation` / `tombstone_generation` / `deleted` live on encrypted SQLite index rows. **Keychain** backends do not expose the same lineage columns; peer bundles that carry lineage fields **fall back to legacy timestamp merge** on Keychain for writes. Cross-host deterministic convergence for lineage-aware rules requires **SQLite** on the importing host. Read-only reporting: **`seckit reconcile verify`** (no auto-repair).
 
 Secrets-Kit does **not** implement Apple-managed Keychain replication. Cross-host work is **your** artifact (export, import, or peer bundle)—not OS sync of Keychain items.
 

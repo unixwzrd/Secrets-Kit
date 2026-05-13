@@ -9,8 +9,8 @@ Normative vocabulary for **protected authority handling**, **materialization**, 
 
 - [METADATA_SEMANTICS_ADR.md](METADATA_SEMANTICS_ADR.md) — index vs authority, safe rows  
 - [SECURITY_MODEL.md](SECURITY_MODEL.md) — operator-facing security posture  
-- [RUNTIME_SESSION_ADR.md](RUNTIME_SESSION_ADR.md) — user-scoped session, ownership, same-host authority, caching bias  
-- [IPC_SEMANTICS_ADR.md](IPC_SEMANTICS_ADR.md) — local IPC, `seckitd` vs `relayd`, relay appendix  
+- [RUNTIME_SESSION_ADR.md](RUNTIME_SESSION_ADR.md) — local runtime session, ownership, same-host authority, caching bias
+- [IPC_SEMANTICS_ADR.md](IPC_SEMANTICS_ADR.md) — local IPC and peer-side `seckitd` semantics
 - [CLI_ARCHITECTURE.md](CLI_ARCHITECTURE.md) — CLI mapping to these terms  
 
 ## Terminology: protected authority handling
@@ -120,7 +120,7 @@ Semantics and invariants **only** — not `seckitd`, REST/gRPC, or remote fetch.
 
 Future daemons or APIs **must reuse** this vocabulary: **resolve**, **materialize**, **inject**, and **exported** meanings **must not** be redefined by new layers. New work may extend **plumbing** (transport, scheduling) only.
 
-Session, ownership, and IPC boundaries are specified in [RUNTIME_SESSION_ADR.md](RUNTIME_SESSION_ADR.md) and [IPC_SEMANTICS_ADR.md](IPC_SEMANTICS_ADR.md). Runtime implementations should **emerge from** those ADRs rather than redefine them retroactively.
+Session, ownership, and IPC boundaries are specified in [RUNTIME_SESSION_ADR.md](RUNTIME_SESSION_ADR.md) and [IPC_SEMANTICS_ADR.md](IPC_SEMANTICS_ADR.md). Local runtime implementations should **emerge from** those ADRs rather than redefine them retroactively.
 
 Future endpoints **must** remain **local-first** by default: **no implicit remote trust** for authority. Placeholder **lease**, **policy**, and **audit** stories stay **out of scope** until specified elsewhere.
 

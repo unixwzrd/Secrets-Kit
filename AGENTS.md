@@ -1,7 +1,7 @@
 # AGENTS.md — Secrets-Kit
 
 **Created**: 2026-05-02  
-**Updated**: 2026-05-09
+**Updated**: 2026-05-13
 
 Relay infrastructure is NOT part of the public/open secrets-kit repository.
 
@@ -134,7 +134,7 @@ not under `src/` unless intentionally shipped.
 
 ### Planning documents
 
-`docs/plans/` contains working engineering and architectural planning material.
+Public `secrets-kit` docs should not contain private planning trees. Historical and private planning material belongs in the private relay repository or another private planning archive.
 
 These documents:
 
@@ -164,7 +164,7 @@ Avoid modifying planning documents in ways that obscure:
   - If uncertain, prefer leaving the prior date unchanged rather than inventing one.
 - Preserve original `Created:` dates whenever editing an existing document.
 - Only update `Updated:` when substantive content changes occur.
-- Planning documents under `docs/plans/` are working engineering artifacts, not release promises; avoid language that implies unimplemented features are shipped.
+- Private planning documents are working engineering artifacts, not release promises; avoid language that implies unimplemented features are shipped.
 
 ## Coding style and implementation rules
 

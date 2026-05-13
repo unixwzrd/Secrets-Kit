@@ -3,7 +3,7 @@
 **Created:** 2026-05-05  
 **Updated:** 2026-05-05
 
-This document is **policy and procedure**, not a feature spec. It complements [SECURITY_MODEL.md](SECURITY_MODEL.md) and [plans/SECKITD_PHASE5.md](plans/SECKITD_PHASE5.md).
+This document is **policy and procedure**, not a feature spec. It complements [SECURITY_MODEL.md](SECURITY_MODEL.md).
 
 ## Resilience model (peers first)
 
@@ -30,7 +30,7 @@ Secrets Kit does **not** use **dark patterns**: no encryption ransom, no undiscl
 **Typical steps (adjust for your install method):**
 
 1. **Stop `seckitd`** if you run it: terminate the `seckit daemon serve` / `seckitd` process (or stop the launchd/LaunchAgent job if you added one).
-2. **Remove the Unix socket and runtime directory** (default locations are described in [SECKITD_PHASE5.md](plans/SECKITD_PHASE5.md)—e.g. macOS cache run dir or `$XDG_RUNTIME_DIR/seckit/` on Linux).
+2. **Remove the Unix socket and runtime directory** if you configured a local daemon (for example a macOS cache run dir or `$XDG_RUNTIME_DIR/seckit/` on Linux).
 3. **Remove the Python package** if installed via pip (`pip uninstall …`) or delete the venv that contained it.
 4. **Backend data (you must choose):**
    - **Keychain:** Remove generic-password items the tool created (service/account/name patterns depend on your usage); the app does not silently delete other entries.
@@ -40,9 +40,9 @@ Secrets Kit does **not** use **dark patterns**: no encryption ransom, no undiscl
 
 Operators are responsible for **their** copies of exports, bundles on disk, and shell history—nothing in the product should imply those vanish automatically on uninstall.
 
-## Rollback (Phase 5B)
+## Rollback
 
-Phase 5B adds **same-user Unix socket peer checks** and **redacted `relay_inbound` IPC tails** by default. Rolling back is a **git revert** to the commit before 5B; there is **no** daemon-side persistent store introduced for these behaviors.
+Local daemon and IPC changes should remain reversible with normal source control rollback. Public peer-side daemon behavior must not require hosted relay state, private deployment state, or daemon-side secret persistence.
 
 ## Related
 

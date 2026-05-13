@@ -23,9 +23,9 @@ This note summarizes the :class:`~secrets_kit.backends.base.BackendStore` protoc
 - **:meth:`~secrets_kit.backends.base.BackendStore.security_posture`** — Honest flags: metadata encryption, safe index availability, unlock requirement for full metadata, secure delete.
 - **:meth:`~secrets_kit.backends.base.BackendStore.capabilities`** — Behavioral flags (safe index, tombstones, atomic set/rename, selective resolve, ``set_atomicity``, etc.).
 
-## Validation mirrors (Phase 3)
+## Validation mirrors
 
-Pydantic schemas under :mod:`secrets_kit.schemas` validate dict shapes **for tests and drift detection** — not as replacement types. See [plans/PHASE_3_PAYLOAD_INVENTORY.md](plans/PHASE_3_PAYLOAD_INVENTORY.md).
+Pydantic schemas under :mod:`secrets_kit.schemas` validate dict shapes **for tests and drift detection** — not as replacement types. They do not replace `BackendStore`, `EntryMetadata`, or runtime model objects.
 
 ## References
 
