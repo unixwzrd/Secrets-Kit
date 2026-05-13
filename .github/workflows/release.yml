@@ -15,6 +15,9 @@ on:
 permissions:
   contents: read
 
+env:
+  PIP_NO_CACHE_DIR: "1"
+
 jobs:
   validate:
     runs-on: macos-latest
