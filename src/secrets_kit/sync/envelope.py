@@ -1,7 +1,7 @@
 """Minimal transport **message** wrapper helpers (no network I/O).
 
 This is **not** sync bundle v1 JSON, **not** a session record, and **not** a
-protocol runtime. Relays must ignore ``payload_type`` for routing; it is
+protocol runtime. Intermediaries must ignore ``payload_type`` for routing; it is
 informational for endpoints only.
 """
 
@@ -28,7 +28,7 @@ def build_transport_message(
     payload_type: str,
     payload: str,
     message_id: Optional[str] = None,
-    route_token: Optional[str] = None,
+    forward_token: Optional[str] = None,
     ttl: Optional[int] = None,
 ) -> dict[str, Any]:
     """Build a minimal routed-transport message dict (opaque ``payload`` slot)."""
@@ -41,25 +41,30 @@ def build_transport_message(
     }
     if message_id is not None:
         msg[KEY_MESSAGE_ID] = message_id
-    if route_token is not None:
-        msg[KEY_ROUTE_TOKEN] = route_token
+    if forward_token is not None:
+        msg[KEY_ROUTE_TOKEN] = forward_token
     if ttl is not None:
         msg[KEY_TTL] = int(ttl)
     return msg
 
 
-def relay_visible_routing_subset(message: Mapping[str, Any]) -> dict[str, Any]:
-    """Return the minimal subset a dumb relay may observe for forwarding.
+def forwarding_subset(message: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the minimal subset a dumb forwarder may observe for delivery.
 
     Intentionally excludes ``payload_type`` and payload body. Unknown keys are
     not copied; this is **not** a generic JSON projection.
     """
     dest = message.get(KEY_DESTINATION_PEER)
     if dest is None or not str(dest).strip():
-        raise ValueError("destination_peer is required for relay-visible subset")
+        raise ValueError("destination_peer is required for forwarding subset")
     out: dict[str, Any] = {KEY_DESTINATION_PEER: str(dest)}
     if KEY_MESSAGE_ID in message and message[KEY_MESSAGE_ID] is not None:
         out[KEY_MESSAGE_ID] = str(message[KEY_MESSAGE_ID])
     if KEY_ROUTE_TOKEN in message and message[KEY_ROUTE_TOKEN] is not None:
         out[KEY_ROUTE_TOKEN] = str(message[KEY_ROUTE_TOKEN])
     return out
+
+
+def relay_visible_routing_subset(message: Mapping[str, Any]) -> dict[str, Any]:
+    """Compatibility alias for :func:`forwarding_subset`."""
+    return forwarding_subset(message)

@@ -16,11 +16,16 @@ class TransportMessageWrapperDict(BaseSchema):
     destination_peer: str
     timestamp: str
     payload_type: str = Field(
-        description="Advisory only; relays must not branch routing on this field.",
+        description="Advisory only; intermediaries must not branch routing on this field.",
     )
     payload: str
     message_id: Optional[str] = None
-    route_token: Optional[str] = None
+    forward_token: Optional[str] = Field(
+        default=None,
+        validation_alias="route_token",
+        serialization_alias="route_token",
+        description="Optional forwarding hint (wire key: route_token).",
+    )
     ttl: Optional[int] = Field(
         default=None,
         description="Optional operational expiry (seconds). Omitted from most fixtures.",

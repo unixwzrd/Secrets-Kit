@@ -12,7 +12,11 @@ from secrets_kit.identity.core import init_identity, load_identity
 from secrets_kit.identity.enrollment import build_public_enrollment_payload
 from secrets_kit.schemas.enrollment import validate_public_enrollment
 from secrets_kit.schemas.envelope import validate_transport_message_wrapper
-from secrets_kit.sync.envelope import build_transport_message, relay_visible_routing_subset
+from secrets_kit.sync.envelope import (
+    build_transport_message,
+    forwarding_subset,
+    relay_visible_routing_subset,
+)
 
 
 class Phase4EnrollmentEnvelopeTests(unittest.TestCase):
@@ -23,13 +27,14 @@ class Phase4EnrollmentEnvelopeTests(unittest.TestCase):
             ident = load_identity(home=home)
             raw = build_public_enrollment_payload(
                 ident,
-                relay_endpoints=["relay.example:443", "wss://edge.example/session"],
+                peer_endpoints=["relay.example:443", "wss://edge.example/session"],
             )
             validated = validate_public_enrollment(raw)
             self.assertEqual(validated.format, "seckit.enrollment_public")
             self.assertEqual(validated.identity.host_id, ident.host_id)
-            self.assertEqual(validated.relay_endpoints, ["relay.example:443", "wss://edge.example/session"])
+            self.assertEqual(validated.peer_endpoints, ["relay.example:443", "wss://edge.example/session"])
             self.assertNotIn("entry_id", raw)
+            self.assertIn("relay_endpoints", raw)
 
     def test_enrollment_rejects_unknown_keys(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -54,23 +59,24 @@ class Phase4EnrollmentEnvelopeTests(unittest.TestCase):
                 validate_public_enrollment(raw)
             self.assertIn("forbidden enrollment key", str(ctx.exception).lower())
 
-    def test_transport_wrapper_and_relay_subset_ignores_payload_type(self) -> None:
+    def test_transport_wrapper_and_forwarding_subset_ignores_payload_type(self) -> None:
         base_kw = dict(
             source_peer="00000000-0000-0000-0000-00000000aa01",
             destination_peer="00000000-0000-0000-0000-00000000aa02",
             timestamp="2026-05-05T12:00:00Z",
             payload="opaque-bytes",
             message_id="mid-1",
-            route_token="hop-a",
+            forward_token="hop-a",
         )
         m_chat = build_transport_message(payload_type="chat", **base_kw)
         m_sync = build_transport_message(payload_type="sync_bundle", **base_kw)
         validate_transport_message_wrapper(m_chat)
         validate_transport_message_wrapper(m_sync)
-        vis_chat = relay_visible_routing_subset(m_chat)
-        vis_sync = relay_visible_routing_subset(m_sync)
+        vis_chat = forwarding_subset(m_chat)
+        vis_sync = forwarding_subset(m_sync)
         self.assertEqual(vis_chat, vis_sync)
         self.assertNotIn("payload_type", vis_chat)
+        self.assertEqual(relay_visible_routing_subset(m_chat), vis_chat)
 
     def test_transport_wrapper_ttl_optional_and_validated(self) -> None:
         msg = build_transport_message(
@@ -88,9 +94,9 @@ class Phase4EnrollmentEnvelopeTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             validate_transport_message_wrapper(bad)
 
-    def test_relay_subset_requires_destination(self) -> None:
+    def test_forwarding_subset_requires_destination(self) -> None:
         with self.assertRaises(ValueError):
-            relay_visible_routing_subset({"source_peer": "x"})
+            forwarding_subset({"source_peer": "x"})
 
     def test_correlation_id_not_allowed_on_wrapper(self) -> None:
         msg = build_transport_message(

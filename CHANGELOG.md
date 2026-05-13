@@ -1,10 +1,15 @@
 # Secrets-Kit Changelog
 
 **Created**: 2026-03-10  
-**Updated**: 2026-05-12
+**Updated**: 2026-05-14
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+### 2026-05-14 — Phase B: public vocabulary (Python; wire-stable)
+
+- **Scope:** `src/secrets_kit/identity/enrollment.py`, `schemas/enrollment.py`, `schemas/envelope.py`, `sync/envelope.py`, `tests/test_phase4_enrollment_envelope.py`, `src/secrets_kit/classes_seckit.dot`; `CHANGELOG.md`.
+- **What changed:** **Python-facing** renames toward concrete peer semantics: `peer_endpoints` (builder + schema; wire key **`relay_endpoints`** unchanged), `forward_token` (builder + schema; wire key **`route_token`** / **`KEY_ROUTE_TOKEN`** unchanged), `forwarding_subset` with **`relay_visible_routing_subset`** as compatibility alias. No `enrollment_version` or serialized key churn; docstrings / `payload_type` description use peer/intermediary wording where touched.
 
 ### 2026-05-12 — Remove stub helper build/notarize scripts
 

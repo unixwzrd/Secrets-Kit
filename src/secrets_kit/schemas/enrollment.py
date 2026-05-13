@@ -30,12 +30,18 @@ _SECRETISH_ENROLLMENT_KEYS: frozenset[str] = frozenset(
 
 
 class PublicEnrollmentDict(BaseSchema):
-    """Public enrollment composite (``build_public_enrollment_payload`` shape)."""
+    """Public enrollment composite (``build_public_enrollment_payload`` shape; field ``peer_endpoints``, wire ``relay_endpoints``)."""
 
     format: str = Field(description="Must match seckit.enrollment_public")
     enrollment_version: int
     identity: IdentityPublicExportDict
-    relay_endpoints: Optional[List[str]] = None
+    peer_endpoints: Optional[List[str]] = Field(
+        default=None,
+        validation_alias="relay_endpoints",
+        serialization_alias="relay_endpoints",
+        description="Non-secret peer reach hints (wire key: relay_endpoints).",
+    )
+
 
     @model_validator(mode="before")
     @classmethod
