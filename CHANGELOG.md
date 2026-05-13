@@ -1,10 +1,15 @@
 # Secrets-Kit Changelog
 
 **Created**: 2026-03-10  
-**Updated**: 2026-05-05
+**Updated**: 2026-05-13
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+### 2026-05-13 — Security scan hardening for CLI output, launchd smoke paths, and GitHub Actions
+
+- **Scope:** `src/secrets_kit/cli.py`, `scripts/seckit_launchd_agent_simulator.py`, `scripts/seckit_launchd_smoke.sh`, `.github/workflows/ci.yml`, `.github/workflows/release.yml`, `CHANGELOG.md`
+- **What changed:** Isolated explicit `seckit get --raw` secret materialization behind a dedicated stdout helper while keeping normal `get` output redacted. Constrained the launchd smoke-test proof file to a resolved `/tmp/seckit-launchd-smoke-*` directory and sanitized account-derived temp path components. Added explicit read-only `GITHUB_TOKEN` permissions to CI and pinned the PyPI publish action to a full upstream commit SHA.
 
 ### 2026-05-05 — Remove Swift iCloud helper: `secure` + `security` CLI only
 

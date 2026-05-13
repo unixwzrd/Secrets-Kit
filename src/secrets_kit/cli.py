@@ -92,6 +92,12 @@ def _fatal(*, message: str, code: int = 2) -> int:
     return code
 
 
+def _write_raw_secret(value: str) -> None:
+    """Write an explicitly requested secret value to stdout, not diagnostic logs."""
+    sys.stdout.write(value)
+    sys.stdout.write("\n")
+
+
 def _cli_version() -> str:
     try:
         return package_version("seckit")
@@ -783,7 +789,7 @@ def cmd_get(*, args: argparse.Namespace) -> int:
         kind = metadata.entry_kind if isinstance(metadata, EntryMetadata) else "unknown"
         entry_type = metadata.entry_type if isinstance(metadata, EntryMetadata) else "unknown"
         if args.raw:
-            print(value)
+            _write_raw_secret(value)
         else:
             print(f"name={name} type={entry_type} kind={kind} service={args.service} account={args.account} value=<redacted>")
         return 0
