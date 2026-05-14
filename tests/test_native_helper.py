@@ -9,9 +9,11 @@ class NativeHelperStubTest(unittest.TestCase):
     def test_helper_status_shows_no_bundled_binary(self) -> None:
         status = helper_status()
         self.assertFalse(status["helper"]["installed"])
-        self.assertNotIn("removed", status["helper"])
+        self.assertNotIn("removed", status["helper"]["note"].lower())
         self.assertTrue(status["backend_availability"]["secure"])
         self.assertTrue(status["backend_availability"]["local"])
+        self.assertEqual(status["keychain_access"]["implementation"], "security_cli")
+        self.assertFalse(status["keychain_access"]["bundled_native_binary"])
         try:
             import nacl.secret  # noqa: F401
         except ImportError:

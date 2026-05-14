@@ -1,7 +1,7 @@
 # Secrets Kit documentation
 
 **Created:** 2026-03-10
-**Updated:** 2026-05-14
+**Updated:** 2026-05-05
 
 Use this page as the public documentation map. The root [README](../README.md) stays short; day-to-day detail lives here. The root [README](../README.md) stays short; day-to-day detail lives here.
 
@@ -60,7 +60,7 @@ Use this page as the public documentation map. The root [README](../README.md) s
 
 GitHub Actions runs `scripts/run_local_validation.sh` on macOS. Some tests require interactive Keychain access or PyNaCl; others use SQLite-only harnesses. On hosts where the default Keychain backend is unavailable, prefer a narrow suite or follow [CROSS_HOST_VALIDATION.md](CROSS_HOST_VALIDATION.md) disposable-keychain patterns.
 
-**SQLite subprocess gate (optional, not part of default CI):** from repo root, after `pip install -e .`, run `bash scripts/integration/smoke_full_local_runtime.sh`. Scripts use a temp `HOME`, real `python -m secrets_kit.cli.main`, and the `sqlite3` CLI; they require **PyNaCl** (set `PYTHON=/path/to/venv/bin/python` if the default interpreter lacks it). Details and recorded runs: [OPERATIONS_STATUS.md](OPERATIONS_STATUS.md), [RUNTIME_TRUTH_MATRIX.md](RUNTIME_TRUTH_MATRIX.md).
+**SQLite subprocess gate (optional, not part of default CI):** from repo root, after `pip install -e .`, run `bash test-scripts/smoke_full_local_runtime.sh`. Scripts use a temp `HOME`, prefer **`seckit` on `PATH`** (fallback: `python -m secrets_kit.cli.main`), and the `sqlite3` CLI; they require **PyNaCl** when using the module path (set `PYTHON=/path/to/venv/bin/python` if needed). Each runner writes a timestamped report under `test-reports/<name>/` (gitignored). Details and recorded runs: [OPERATIONS_STATUS.md](OPERATIONS_STATUS.md), [RUNTIME_TRUTH_MATRIX.md](RUNTIME_TRUTH_MATRIX.md).
 
 ## Packaging And Maintainers
 

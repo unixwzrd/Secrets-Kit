@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from dataclasses import asdict
 
@@ -13,6 +14,7 @@ from secrets_kit.backends.security import (
     check_security_cli,
     doctor_roundtrip,
     harden_keychain,
+    is_legacy_backend_id,
     keychain_accessible,
     keychain_path,
     keychain_policy,
@@ -21,7 +23,14 @@ from secrets_kit.backends.security import (
 )
 from secrets_kit.models.core import EntryMetadata, ValidationError
 from secrets_kit.recovery.recover_sources import iter_recover_candidates
-from secrets_kit.registry.core import RegistryError, ensure_defaults_storage, ensure_registry_storage, load_registry
+from secrets_kit.registry.core import (
+    RegistryError,
+    defaults_path,
+    ensure_defaults_storage,
+    ensure_registry_storage,
+    load_registry,
+    migrate_legacy_operator_backend_in_file,
+)
 from secrets_kit.registry.resolve import _read_metadata
 from secrets_kit.utils.helper_status import helper_status
 
@@ -45,11 +54,51 @@ def cmd_doctor(*, args: argparse.Namespace) -> int:
         "metadata_keychain_drift": [],
         "entries_using_registry_fallback": [],
         "rotation_warnings": [],
+        "legacy_backend_references": [],
         "reconcile_read_only_tools": (
             "seckit reconcile inspect|lineage|explain|verify — SQLite lineage diagnostics; "
             "report-only (no auto-repair)"
         ),
     }
+
+    legacy_refs: list[dict] = []
+    env_b = os.environ.get("SECKIT_DEFAULT_BACKEND", "").strip()
+    if env_b and is_legacy_backend_id(env_b):
+        legacy_refs.append({"source": "env", "var": "SECKIT_DEFAULT_BACKEND", "value": env_b})
+    try:
+        dpath_pre = defaults_path()
+        if dpath_pre.exists():
+            raw_defaults = json.loads(dpath_pre.read_text(encoding="utf-8"))
+            if isinstance(raw_defaults, dict):
+                b0 = raw_defaults.get("backend")
+                if b0 is not None and is_legacy_backend_id(str(b0)):
+                    legacy_refs.append({"source": "defaults.json", "path": str(dpath_pre), "value": b0})
+    except (json.JSONDecodeError, OSError, TypeError):
+        pass
+
+    if getattr(args, "fix_defaults", False):
+        try:
+            dfix = defaults_path()
+            if dfix.exists():
+                payload_fix = json.loads(dfix.read_text(encoding="utf-8"))
+                if isinstance(payload_fix, dict):
+                    migrate_legacy_operator_backend_in_file(path=dfix, payload=payload_fix)
+        except (json.JSONDecodeError, OSError, TypeError, ValueError):
+            pass
+        # defaults.json may be rewritten; re-read raw for reporting
+        legacy_refs = [r for r in legacy_refs if r.get("source") != "defaults.json"]
+        try:
+            dpath2 = defaults_path()
+            if dpath2.exists():
+                raw2 = json.loads(dpath2.read_text(encoding="utf-8"))
+                if isinstance(raw2, dict):
+                    b2 = raw2.get("backend")
+                    if b2 is not None and is_legacy_backend_id(str(b2)):
+                        legacy_refs.append({"source": "defaults.json", "path": str(dpath2), "value": b2})
+        except (json.JSONDecodeError, OSError, TypeError):
+            pass
+
+    status["legacy_backend_references"] = legacy_refs
     if is_secure_backend(backend):
         if check_security_cli():
             status["security_cli"] = True
@@ -374,6 +423,11 @@ def cmd_version(*, args: argparse.Namespace) -> int:
         lines.append(
             "backend_availability: "
             + ", ".join(f"{k}={ba[k]}" for k in sorted(ba.keys(), key=str))
+        )
+        kc = data.get("keychain_access") or {}
+        lines.append(
+            "keychain_access: "
+            + ", ".join(f"{k}={kc[k]!r}" for k in sorted(kc.keys(), key=str))
         )
         hb = data.get("helper") or {}
         lines.append(f"helper.installed: {hb.get('installed')}")

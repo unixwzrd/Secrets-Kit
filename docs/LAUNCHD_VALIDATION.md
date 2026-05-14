@@ -1,6 +1,6 @@
 # launchd Validation
 
-**Updated:** 2026-05-06
+**Updated:** 2026-05-05
 
 Back: [README](../README.md)
 
@@ -47,7 +47,7 @@ The `scripts/seckit_launchd_agent_simulator.py` child is the thing that reads th
 If the default temporary-item setup is denied by macOS, use an existing item:
 
 ```bash
-./scripts/seckit_launchd_smoke.sh --use-existing --service hermes --name APPLE_ID --keep
+./test-scripts/seckit_launchd_smoke.sh --use-existing --service hermes --name APPLE_ID --keep
 ```
 
 This does not create or delete any keychain item.
@@ -55,15 +55,17 @@ This does not create or delete any keychain item.
 For a normal run that cleans itself up:
 
 ```bash
-./scripts/seckit_launchd_smoke.sh --mode login-agent
+./test-scripts/seckit_launchd_smoke.sh --mode login-agent
 ```
 
 After a normal successful run, the script unloads the launchd job, removes the plist, and verifies both cleanup steps. A `--keep` run preserves the plist and output files for inspection.
 
+**Deleting the test secret:** by default the smoke script removes the temporary generic-password item it created (unless `--use-existing`). If a run aborts, use `--cleanup` for the same mode so launchd artifacts **and** the test item are removed.
+
 If the login keychain is locked or the session cannot prompt:
 
 ```bash
-./scripts/seckit_launchd_smoke.sh --mode login-agent --unlock
+./test-scripts/seckit_launchd_smoke.sh --mode login-agent --unlock
 ```
 
 This mode proves the LaunchAgent runs in `gui/$UID` and reads:
@@ -76,7 +78,7 @@ This is not the right model for unattended post-logout or post-reboot services.
 
 ### `secure` backend and automated tests
 
-The **`security`** CLI is the only Keychain integration for **`--backend secure`**. **`scripts/seckit_launchd_smoke.sh`** uses **`--backend secure`** (alias `local`) only.
+The **`security`** CLI is the only Keychain integration for **`--backend secure`**. **`test-scripts/seckit_launchd_smoke.sh`** uses **`--backend secure`** (alias `local`) only.
 
 Automated coverage (macOS, opt-in):
 
@@ -96,7 +98,7 @@ Use **`--backend sqlite`** with **`--db`** and non-interactive **`SECKIT_SQLITE_
 Use this when a user installs a service while logged in and the service may need to keep running after logout during the same boot.
 
 ```bash
-./scripts/seckit_launchd_smoke.sh --mode service-agent
+./test-scripts/seckit_launchd_smoke.sh --mode service-agent
 ```
 
 This provisions:
@@ -111,7 +113,7 @@ The password file is `0600` and belongs to that user. It is sensitive service cr
 Cleanup the LaunchAgent/test item:
 
 ```bash
-./scripts/seckit_launchd_smoke.sh --mode service-agent --cleanup
+./test-scripts/seckit_launchd_smoke.sh --mode service-agent --cleanup
 ```
 
 The service keychain and password file are intentionally not deleted by cleanup because they represent the provisioned service credential store.
@@ -121,7 +123,7 @@ The service keychain and password file are intentionally not deleted by cleanup 
 Use this when a machine-level service must survive logout and reboot before any user logs in.
 
 ```bash
-sudo ./scripts/seckit_launchd_smoke.sh --mode service-daemon
+sudo ./test-scripts/seckit_launchd_smoke.sh --mode service-daemon
 ```
 
 This provisions:
@@ -138,7 +140,7 @@ The root-owned password file must be mode `0600`. The wrapper unlocks the servic
 Cleanup the daemon/test item:
 
 ```bash
-sudo ./scripts/seckit_launchd_smoke.sh --mode service-daemon --cleanup
+sudo ./test-scripts/seckit_launchd_smoke.sh --mode service-daemon --cleanup
 ```
 
 The system service keychain and password file are intentionally retained unless an administrator removes them.
@@ -171,9 +173,9 @@ That file is the evidence that launchd started `seckit`, `seckit run` launched a
 Keep artifacts for inspection:
 
 ```bash
-./scripts/seckit_launchd_smoke.sh --mode service-agent --keep
+./test-scripts/seckit_launchd_smoke.sh --mode service-agent --keep
 cat "$TMPDIR/seckit-launchd-smoke-$(id -un)/service-agent-result.txt"
-./scripts/seckit_launchd_smoke.sh --mode service-agent --cleanup
+./test-scripts/seckit_launchd_smoke.sh --mode service-agent --cleanup
 ```
 
 ## Gated Tests
@@ -206,7 +208,7 @@ To prove reboot-safe behavior:
 1. Run daemon setup and keep artifacts:
 
 ```bash
-sudo ./scripts/seckit_launchd_smoke.sh --mode service-daemon --keep
+sudo ./test-scripts/seckit_launchd_smoke.sh --mode service-daemon --keep
 ```
 
 2. Reboot the machine.
@@ -220,7 +222,7 @@ cat /tmp/seckit-launchd-smoke-root/service-daemon-result.txt
 4. Cleanup when finished:
 
 ```bash
-sudo ./scripts/seckit_launchd_smoke.sh --mode service-daemon --cleanup
+sudo ./test-scripts/seckit_launchd_smoke.sh --mode service-daemon --cleanup
 ```
 
 ## Password Prompt Notes

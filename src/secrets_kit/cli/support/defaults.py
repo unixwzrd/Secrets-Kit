@@ -11,6 +11,7 @@ from typing import Dict
 from secrets_kit.backends.security import (
     BACKEND_SECURE,
     BackendError,
+    is_legacy_backend_id,
     is_secure_backend,
     is_sqlite_backend,
     normalize_backend,
@@ -79,7 +80,17 @@ def _load_defaults() -> Dict[str, object]:
     for key, env_var in env_map.items():
         value = os.getenv(env_var)
         if value:
-            defaults[key] = value
+            if key == "backend" and is_legacy_backend_id(value):
+                import sys
+
+                print(
+                    f"WARNING: {env_var}={value!r} uses a removed backend id; effective backend is {BACKEND_SECURE!r}. "
+                    "Unset this variable or set it to secure, local, or sqlite.\n",
+                    file=sys.stderr,
+                )
+                defaults[key] = BACKEND_SECURE
+            else:
+                defaults[key] = value
     return defaults
 
 

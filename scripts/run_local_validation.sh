@@ -47,11 +47,16 @@ bash -n \
   scripts/seckit_cross_host_prepare.sh \
   scripts/seckit_cross_host_verify.sh \
   scripts/seckit_cross_host_transport_localhost.sh \
-  scripts/seckit_launchd_smoke.sh \
-  scripts/integration/smoke_sqlite.sh \
-  scripts/integration/smoke_sqlite_restart.sh \
-  scripts/integration/smoke_run.sh \
-  scripts/integration/smoke_full_local_runtime.sh \
+  test-scripts/runtime_report.sh \
+  test-scripts/seckit_launchd_smoke.sh \
+  test-scripts/smoke_sqlite.sh \
+  test-scripts/smoke_sqlite_restart.sh \
+  test-scripts/smoke_run.sh \
+  test-scripts/smoke_full_local_runtime.sh \
+  test-scripts/run_unit_tests.sh \
+  test-scripts/run_integration_tests.sh \
+  test-scripts/run_all_tests.sh \
+  test-scripts/run_keychain_integration.sh \
   scripts/run_local_validation.sh
 
 echo

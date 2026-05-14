@@ -1,15 +1,25 @@
 # Secrets-Kit Changelog
 
 **Created**: 2026-03-10  
-**Updated**: 2026-05-14
+**Updated**: 2026-05-05
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+### 2026-05-14 — Keychain authority comments, legacy backend rejection, helper/keychain JSON
+
+- **Scope:** `src/secrets_kit/models/core.py` (`to_authority_dict`, authority Keychain comments), `src/secrets_kit/backends/security.py` (reject `icloud` / `icloud-helper` at normalize; env warning + coerce for `SECKIT_DEFAULT_BACKEND`), `src/secrets_kit/cli/commands/diagnostics.py` / `cli/parser/family_diagnostics.py` (`doctor --fix-defaults`, `legacy_backend_references`), `cli/support/defaults.py`, `utils/helper_status.py`, `cli/support/version_info.py`, tests (`test_keychain_backend_store`, `test_seckit_cli_keychain_e2e`, CLI/backend test updates), `docs/BACKEND_STORE_CONTRACT.md`, `docs/METADATA_REGISTRY.md`, `docs/LAUNCHD_VALIDATION.md`, `CHANGELOG.md`.
+- **What changed:** Keychain comment JSON now omits peer-only fields (`content_hash`, `seckit_sync_origin_host` in `custom`) for SQLite-aligned migration shape. Legacy backend ids no longer normalize silently; `defaults.json` / `config.json` still auto-migrate on load; env uses `secure` with stderr warning; explicit `--backend icloud*` fails; `config set backend` rejects legacy values. `seckit version --json` gains `keychain_access`; `helper` block kept with clarified deprecation note. Added macOS tests for `KeychainBackendStore` and optional `seckit` binary E2E (`SECKIT_BIN` / PATH).
+
 ### 2026-05-14 — SQLite integration smokes + ops evidence refresh
 
-- **Scope:** `scripts/integration/smoke_sqlite.sh`, `scripts/integration/smoke_sqlite_restart.sh`, `scripts/integration/smoke_run.sh`, `scripts/integration/smoke_full_local_runtime.sh`, `scripts/run_local_validation.sh`, `docs/RUNTIME_TRUTH_MATRIX.md`, `docs/OPERATIONS_STATUS.md`, `docs/README.md`, `README.md`, `AGENTS.md`, `CHANGELOG.md`.
+- **Scope:** `test-scripts/smoke_sqlite.sh`, `test-scripts/smoke_sqlite_restart.sh`, `test-scripts/smoke_run.sh`, `test-scripts/smoke_full_local_runtime.sh` (under `scripts/integration/` until 2026-05-05), `scripts/run_local_validation.sh`, `docs/RUNTIME_TRUTH_MATRIX.md`, `docs/OPERATIONS_STATUS.md`, `docs/README.md`, `README.md`, `AGENTS.md`, `CHANGELOG.md`.
 - **What changed:** Added **operator** bash smokes: isolated `HOME`, subprocess `python -m secrets_kit.cli.main`, `sqlite3` integrity/journal inspection, `strings` guard on the DB, `seckit run` exit-code behavior, `env -i` persistence, `doctor` / `rebuild-index` / `recover --dry-run --json`. `run_local_validation.sh` syntax-checks these scripts. Documentation now records **2026-05-14** observed full-gate exit 0 and promotes matrix rows to subprocess + datastore evidence where applicable.
+
+### 2026-05-05 — Operational test layout (`test-scripts/` + `test-reports/`)
+
+- **Scope:** `.gitignore`, `test-scripts/runtime_report.sh`, `test-scripts/smoke_sqlite.sh`, `test-scripts/smoke_sqlite_restart.sh`, `test-scripts/smoke_run.sh`, `test-scripts/smoke_full_local_runtime.sh`, `test-scripts/run_keychain_integration.sh`, `test-scripts/seckit_launchd_smoke.sh` (moved from `scripts/`), `scripts/run_local_validation.sh`, `tests/test_launchd_run_flow.py`, maintainer docs, `README.md`, `AGENTS.md`, `tests/README.md`, `CHANGELOG.md`.
+- **What changed:** Added repo-root **`test-scripts/`** for operational bash runners and gitignored **`test-reports/`** for tee-captured logs (`summary.txt`, `stdout.log`, `stderr.log`, `commands.log`, `environment.txt`, `test-results.txt`). SQLite smokes prefer **`seckit` on `PATH`** with **`python -m secrets_kit.cli.main`** fallback (`PYTHON` / `python3`). New **`test-scripts/run_keychain_integration.sh`** wraps opt-in Keychain unittests on macOS. **`seckit_launchd_smoke.sh`** is co-located with other operational tests; the agent simulator stays **`scripts/seckit_launchd_agent_simulator.py`**. Removed **`scripts/integration/`** (paths updated throughout).
 
 ### 2026-05-05 — Operational validation docs + daemon subprocess integration test
 
@@ -203,7 +213,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 2026-05-06 — Remove iCloud-helper docs and unified unsupported-backend errors
 
-- **Scope:** `src/secrets_kit/keychain_backend.py`, `src/secrets_kit/native_helper.py`, `tests/test_backend_resolution.py`, `tests/test_cli_commands.py`, `tests/test_native_helper.py`, `scripts/build_bundled_helper_for_wheel.sh`, `scripts/package_release_wheels.sh`, `scripts/seckit_launchd_smoke.sh`, `README.md`, `AGENTS.md`, public docs, deleted `docs/ICLOUD_SYNC_VALIDATION.md`, archived historical planning notes, `CHANGELOG.md`.
+- **Scope:** `src/secrets_kit/keychain_backend.py`, `src/secrets_kit/native_helper.py`, `tests/test_backend_resolution.py`, `tests/test_cli_commands.py`, `tests/test_native_helper.py`, `scripts/build_bundled_helper_for_wheel.sh`, `scripts/package_release_wheels.sh`, `test-scripts/seckit_launchd_smoke.sh`, `README.md`, `AGENTS.md`, public docs, deleted `docs/ICLOUD_SYNC_VALIDATION.md`, archived historical planning notes, `CHANGELOG.md`.
 - **What changed:** Legacy **`icloud` / `icloud-helper`** ids are rejected like any unknown backend (**`unsupported backend`**)—no dedicated long removal string or doc link. **`seckit helper status`** `backend_availability` now lists only **`secure`**, **`local`**, and **`sqlite`** (breaking change for JSON clients that expected **`icloud`** keys). Removed iCloud-helper validation docs and rewired remaining docs to **secure/sqlite**, export/import, and **peer sync** only.
 
 ### 2026-05-06 — Phase 1B: peer identities and signed encrypted sync bundles
@@ -219,7 +229,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### 2026-05-05 — SQLite unlock providers (`passphrase` vs `keychain`) + launchd coverage
 
 - **Scope:** `src/secrets_kit/sqlite_unlock.py` (new), `sqlite_backend.py`, `keychain_backend.py` (`resolve_secret_store` + `kek_keychain_path`), `cli.py` (`--keychain` allowed with `--backend sqlite`, `_backend_access_kwargs`), `tests/test_sqlite_unlock.py`, `tests/test_launchd_run_flow.py`, `README.md`, `docs/DEFAULTS.md`, `docs/LAUNCHD_VALIDATION.md`, `CHANGELOG.md`.
-- **What changed:** SQLite vaults can use **`SECKIT_SQLITE_UNLOCK=passphrase`** (default, legacy Argon2id metadata) or **`keychain`** on macOS: KEK in Keychain wraps the DEK stored in `vault_meta`. **`SECKIT_SQLITE_KEK_KEYCHAIN`** or **`--keychain`** with sqlite selects the KEK keychain file. **`clear_sqlite_crypto_cache`** clears unlock/passphrase/KEK caches. **Launchd:** optional **`SECKIT_RUN_LAUNCHD_SQLITE_TESTS=1`** runs **`test_launch_agent_sqlite_backend_injects_env`**; **`test_launch_agent_backend_secure_explicit_uses_temp_keychain`** asserts **`--backend secure`** under launchd. **`scripts/seckit_launchd_smoke.sh`** remains focused on **`secure`**; sqlite launchd is covered by the Python test.
+- **What changed:** SQLite vaults can use **`SECKIT_SQLITE_UNLOCK=passphrase`** (default, legacy Argon2id metadata) or **`keychain`** on macOS: KEK in Keychain wraps the DEK stored in `vault_meta`. **`SECKIT_SQLITE_KEK_KEYCHAIN`** or **`--keychain`** with sqlite selects the KEK keychain file. **`clear_sqlite_crypto_cache`** clears unlock/passphrase/KEK caches. **Launchd:** optional **`SECKIT_RUN_LAUNCHD_SQLITE_TESTS=1`** runs **`test_launch_agent_sqlite_backend_injects_env`**; **`test_launch_agent_backend_secure_explicit_uses_temp_keychain`** asserts **`--backend secure`** under launchd. **`test-scripts/seckit_launchd_smoke.sh`** remains focused on **`secure`** (script lived under `scripts/` before 2026-05-05); sqlite launchd is covered by the Python test.
 
 ### 2026-05-06 — Portable encrypted SQLite backend (`--backend sqlite`)
 
@@ -228,7 +238,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 2026-05-05 — Remove Swift iCloud helper: `secure` + `security` CLI only
 
-- **Scope:** `src/secrets_kit/keychain_backend.py`, `src/secrets_kit/native_helper.py`, `src/secrets_kit/native_helper_src/` (deleted), `pyproject.toml`, `scripts/build_bundled_helper_for_wheel.sh`, `scripts/package_release_wheels.sh`, `scripts/run_local_validation.sh`, `scripts/seckit_launchd_smoke.sh`, `.github/workflows/release.yml`, tests, `docs/*`, `setup.cfg`.
+- **Scope:** `src/secrets_kit/keychain_backend.py`, `src/secrets_kit/native_helper.py`, `src/secrets_kit/native_helper_src/` (deleted), `pyproject.toml`, `scripts/build_bundled_helper_for_wheel.sh`, `scripts/package_release_wheels.sh`, `scripts/run_local_validation.sh`, `test-scripts/seckit_launchd_smoke.sh`, `.github/workflows/release.yml`, tests, `docs/*`, `setup.cfg`.
 - **What changed:** **`--backend icloud` / `icloud-helper`** now **error** with a clear “removed” message. **Native Swift helper**, **wheel bundling**, and **CI bundled-helper job** are **gone**. **`helper status`** returns a **stub JSON** (`helper.removed: true`). Release wheels are **Python-only** (plus `native_helper_bundled/README.md` for layout). Local validation no longer runs SwiftPM.
 
 ### 2026-05-04 — Position: `--backend icloud` / `icloud-helper` is unsupported (docs + runtime warning)

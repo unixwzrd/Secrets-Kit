@@ -59,6 +59,11 @@ def add_diagnostics_family_commands(
     p_doctor.add_argument("--backend", choices=backend_choices)
     p_doctor.add_argument("--keychain", help=STRINGS["HELP_KEYCHAIN_OVERRIDE"])
     p_doctor.add_argument("--db", help=STRINGS["HELP_DB"])
+    p_doctor.add_argument(
+        "--fix-defaults",
+        action="store_true",
+        help=STRINGS["DOCTOR_FIX_DEFAULTS_HELP"],
+    )
     p_doctor.set_defaults(func=cmd_doctor)
 
     p_backend_index = sub.add_parser(

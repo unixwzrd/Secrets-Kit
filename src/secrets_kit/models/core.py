@@ -44,6 +44,11 @@ class ValidationError(ValueError):
 
 METADATA_SCHEMA_VERSION = 1
 
+# Custom-metadata keys that are peer/sync-only; omitted from Keychain comments (and SQLite
+# synthetic comment surfaces) so local authority matches migration-friendly shape; registry/SQLite
+# blobs may still carry lineage elsewhere.
+AUTHORITY_OMIT_CUSTOM_KEYS: frozenset[str] = frozenset({"seckit_sync_origin_host"})
+
 
 @dataclass
 class EntryMetadata:
@@ -81,6 +86,20 @@ class EntryMetadata:
         """Serialize to plain dict."""
         return asdict(self)
 
+    def to_authority_dict(self) -> Dict[str, Any]:
+        """Metadata dict aligned with migratable local authority: same fields as ``to_dict()`` minus peer/lineage-only.
+
+        Omits ``content_hash`` (peer row digest). Strips sync-origin entries from ``custom``.
+        Used for Keychain generic-password comments and SQLite's keychain-shaped ``comment`` field.
+        """
+        d = dict(self.to_dict())
+        d.pop("content_hash", None)
+        custom_raw = d.get("custom")
+        if isinstance(custom_raw, dict):
+            custom = {str(k): v for k, v in custom_raw.items() if str(k) not in AUTHORITY_OMIT_CUSTOM_KEYS}
+            d["custom"] = custom
+        return d
+
     @classmethod
     def from_dict(cls, payload: Dict[str, Any]) -> "EntryMetadata":
         """Create metadata from dict payload."""
@@ -109,8 +128,8 @@ class EntryMetadata:
         )
 
     def to_keychain_comment(self) -> str:
-        """Serialize metadata into the keychain comment payload."""
-        return json.dumps(self.to_dict(), separators=(",", ":"), sort_keys=True)
+        """Serialize metadata into the keychain comment payload (authority shape; legacy JSON still parses)."""
+        return json.dumps(self.to_authority_dict(), separators=(",", ":"), sort_keys=True)
 
     @classmethod
     def from_keychain_comment(cls, comment: str) -> Optional["EntryMetadata"]:

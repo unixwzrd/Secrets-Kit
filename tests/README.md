@@ -15,3 +15,20 @@
 - **Relay / sync-host / managed-infrastructure** semantics: keep **mocked** or documented as future private-repo concerns; avoid naming that implies `seckitd` is hosted relay **product** code.
 
 When adding tests, tag confusing cases with short comments referencing `docs/ARCHITECTURE_RUNTIME_SURFACE.md` or `docs/IPC_SEMANTICS_ADR.md` Phase C.
+
+## macOS Keychain integration (opt-in)
+
+Live `security` CLI tests (`test_keychain_backend_store`, `test_seckit_cli_keychain_e2e`) are **skipped by default** so CI sandboxes and Linux runners stay fast. On a Mac developer machine:
+
+```bash
+export SECKIT_RUN_KEYCHAIN_INTEGRATION_TESTS=1
+PYTHONPATH=src python3 -m unittest tests.test_keychain_backend_store tests.test_seckit_cli_keychain_e2e -v
+```
+
+Or use the operational wrapper (macOS only; requires `security` on `PATH`; writes reports under `test-reports/run_keychain_integration/`):
+
+```bash
+./test-scripts/run_keychain_integration.sh
+```
+
+Ensure `seckit` is on `PATH` for the E2E module (or set `SECKIT_BIN`).

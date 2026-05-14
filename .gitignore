@@ -639,6 +639,7 @@ zsdoc/data
 *.pyc
 logs/
 tmp/
+test-reports/
 AGENTS.macOSd
 
 .codex/*

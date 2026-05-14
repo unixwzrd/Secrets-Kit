@@ -67,7 +67,7 @@ Environment overrides:
   SECKIT_LAUNCHD_BACKEND=secure|local
 
 Existing login-keychain item example:
-  ./scripts/seckit_launchd_smoke.sh --use-existing --service hermes --name TELEGRAM_BOT_TOKEN
+  ./test-scripts/seckit_launchd_smoke.sh --use-existing --service hermes --name TELEGRAM_BOT_TOKEN
 EOF
 }
 
@@ -108,7 +108,7 @@ STDERR_FILE="${OUT_DIR}/${MODE}-stderr.log"
 WRAPPER_PATH=""
 PASS_FILE=""
 KEYCHAIN_PASSWORD=""
-CHILD_SCRIPT="${SCRIPT_DIR}/seckit_launchd_agent_simulator.py"
+CHILD_SCRIPT="${REPO_ROOT}/scripts/seckit_launchd_agent_simulator.py"
 
 require_tools() {
   if [[ -z "$SECKIT_BIN" || ! -x "$SECKIT_BIN" ]]; then

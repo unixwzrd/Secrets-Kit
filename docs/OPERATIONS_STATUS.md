@@ -1,7 +1,7 @@
 # Operations status
 
 **Created**: 2026-05-05  
-**Updated**: 2026-05-14  
+**Updated**: 2026-05-05  
 
 Operator-facing snapshot: **what is safe to rely on in production-like environments** vs **what still needs a human validation pass**. Evidence detail lives in [RUNTIME_TRUTH_MATRIX.md](RUNTIME_TRUTH_MATRIX.md)—keep that matrix updated when you change any row here.
 
@@ -42,17 +42,20 @@ This does **not** replace backend or persistence checks; update [RUNTIME_TRUTH_M
 
 **Target layout (repo root):**
 
-- [`scripts/integration/smoke_sqlite.sh`](../scripts/integration/smoke_sqlite.sh) — CRUD, `doctor`, `rebuild-index`, `recover --dry-run --json`, `sqlite3` integrity/journal/WAL info, `strings` must not find the **stored secret literal**.
-- [`scripts/integration/smoke_sqlite_restart.sh`](../scripts/integration/smoke_sqlite_restart.sh) — write in one environment, read after `env -i` (or new login shell), then rebuild/recover + integrity.
-- [`scripts/integration/smoke_run.sh`](../scripts/integration/smoke_run.sh) — `seckit run` success path, failing child exit code, missing `--names`.
-- [`scripts/integration/smoke_full_local_runtime.sh`](../scripts/integration/smoke_full_local_runtime.sh) — runs the three above in order; `set -e`, stop on first failure.
+- [`test-scripts/smoke_sqlite.sh`](../test-scripts/smoke_sqlite.sh) — CRUD, `doctor`, `rebuild-index`, `recover --dry-run --json`, `sqlite3` integrity/journal/WAL info, `strings` must not find the **stored secret literal**. Writes logs under `test-reports/smoke_sqlite/<timestamp>/` (gitignored).
+- [`test-scripts/smoke_sqlite_restart.sh`](../test-scripts/smoke_sqlite_restart.sh) — write in one environment, read after `env -i` (or new login shell), then rebuild/recover + integrity.
+- [`test-scripts/smoke_run.sh`](../test-scripts/smoke_run.sh) — `seckit run` success path, failing child exit code, missing `--names`.
+- [`test-scripts/smoke_full_local_runtime.sh`](../test-scripts/smoke_full_local_runtime.sh) — runs the three above in order; `set -e`, stop on first failure; also emits a parent report under `test-reports/smoke_full_local_runtime/`.
 
-**Status:** scripts are **in-tree**. Maintainer run **2026-05-14** (full-permission shell, conda `python3.12` with PyYAML + PyNaCl, `sqlite3` on `PATH`): **`bash scripts/integration/smoke_full_local_runtime.sh`** exit **0**; per-stage **`smoke_sqlite`**, **`smoke_sqlite_restart`**, **`smoke_run`** printed **OK**. Observed DB: tables **`secrets`**, **`vault_meta`**; **`pragma integrity_check`** ok; **`journal_mode`** **delete**; smoke secret substring **absent** from **`strings`** on the DB file. Re-run after meaningful SQLite/CLI changes and record host + SHA here.
+**Keychain integration runner (macOS, opt-in):** [`test-scripts/run_keychain_integration.sh`](../test-scripts/run_keychain_integration.sh) sets `SECKIT_RUN_KEYCHAIN_INTEGRATION_TESTS=1` and runs `tests.test_keychain_backend_store` + `tests.test_seckit_cli_keychain_e2e` with reports under `test-reports/run_keychain_integration/`. Requires **`security`** on `PATH`; fails fast on non-macOS.
+
+**Status:** scripts are **in-tree**. Maintainer run **2026-05-14** (full-permission shell, conda `python3.12` with PyYAML + PyNaCl, `sqlite3` on `PATH`): **`bash test-scripts/smoke_full_local_runtime.sh`** exit **0**; per-stage **`smoke_sqlite`**, **`smoke_sqlite_restart`**, **`smoke_run`** printed **OK**. Observed DB: tables **`secrets`**, **`vault_meta`**; **`pragma integrity_check`** ok; **`journal_mode`** **delete**; smoke secret substring **absent** from **`strings`** on the DB file. Re-run after meaningful SQLite/CLI changes and record host + SHA here.
 
 ```bash
 cd /path/to/secrets-kit
-export PYTHON=/path/to/venv-or-conda/bin/python   # if default python lacks PyNaCl
-bash scripts/integration/smoke_full_local_runtime.sh
+export PYTHON=/path/to/venv-or-conda/bin/python   # if using python -m path and PyNaCl is not on default python
+./test-scripts/smoke_full_local_runtime.sh
+ls test-reports/*/*/
 ```
 
 Evidence columns in [RUNTIME_TRUTH_MATRIX.md](RUNTIME_TRUTH_MATRIX.md) are updated from these runs—not from unit tests alone.

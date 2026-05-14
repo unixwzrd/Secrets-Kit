@@ -41,6 +41,35 @@ class ModelsKindTest(unittest.TestCase):
         self.assertEqual(decoded.rotation_days, 90)
         self.assertEqual(decoded.custom["owner"], "ops")
 
+    def test_authority_dict_omits_peer_fields(self) -> None:
+        meta = EntryMetadata(
+            name="K",
+            service="s",
+            account="a",
+            content_hash="ab" * 32,
+            custom={"owner": "x", "seckit_sync_origin_host": "peer-host"},
+        )
+        auth = meta.to_authority_dict()
+        self.assertNotIn("content_hash", auth)
+        self.assertNotIn("seckit_sync_origin_host", auth.get("custom", {}))
+        self.assertEqual(auth["custom"]["owner"], "x")
+        round = EntryMetadata.from_keychain_comment(meta.to_keychain_comment())
+        self.assertIsNotNone(round)
+        assert round is not None
+        self.assertEqual(round.content_hash, "")
+        self.assertNotIn("seckit_sync_origin_host", round.custom)
+        self.assertEqual(round.custom.get("owner"), "x")
+
+    def test_authority_dict_drops_custom_when_only_sync_keys(self) -> None:
+        meta = EntryMetadata(
+            name="K",
+            service="s",
+            account="a",
+            custom={"seckit_sync_origin_host": "only-peer"},
+        )
+        auth = meta.to_authority_dict()
+        self.assertEqual(auth.get("custom"), {})
+
 
 if __name__ == "__main__":
     unittest.main()

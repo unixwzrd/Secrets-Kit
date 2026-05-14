@@ -25,10 +25,18 @@ def helper_status() -> Dict[str, Any]:
             "local": True,
             "sqlite": sqlite_ok,
         },
+        "keychain_access": {
+            "implementation": "security_cli",
+            "bundled_native_binary": False,
+            "note": "Local Keychain via /usr/bin/security; no shipped Mach-O helper or iCloud helper app.",
+        },
         "helper": {
             "installed": False,
             "path": None,
             "bundled_path": None,
-            "note": "No bundled native helper binary; use --backend secure and export/import.",
+            "note": (
+                "Deprecated field group (JSON stability): not a separate helper install. "
+                "Use backend_availability + keychain_access; Keychain is security-cli only."
+            ),
         },
     }

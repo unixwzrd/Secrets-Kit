@@ -1,7 +1,7 @@
 # BackendStore contract
 
 **Created**: 2026-05-05  
-**Updated**: 2026-05-05
+**Updated**: 2026-05-14
 
 This note summarizes the :class:`~secrets_kit.backends.base.BackendStore` protocol as implemented in Phase 3. Authoritative code remains `src/secrets_kit/backends/base.py`; semantics for authority and materialization are in [RUNTIME_AUTHORITY_ADR.md](RUNTIME_AUTHORITY_ADR.md).
 
@@ -26,6 +26,12 @@ This note summarizes the :class:`~secrets_kit.backends.base.BackendStore` protoc
 ## Validation mirrors
 
 Pydantic schemas under :mod:`secrets_kit.schemas` validate dict shapes **for tests and drift detection** — not as replacement types. They do not replace `BackendStore`, `EntryMetadata`, or runtime model objects.
+
+## Keychain (secure) comment payload vs SQLite authority
+
+- **Login / custom Keychain** stores non-secret metadata in the generic-password **comment** field as JSON.
+- **Serializer:** :meth:`~secrets_kit.models.core.EntryMetadata.to_keychain_comment` uses :meth:`~secrets_kit.models.core.EntryMetadata.to_authority_dict`: the same logical fields as full metadata **minus peer/lineage-only** data (``content_hash`` and ``custom["seckit_sync_origin_host"]``). This matches the migratable “authority” shape; the encrypted SQLite joint payload continues to use full :class:`~secrets_kit.models.core.EntryMetadata` inside the blob for Phase 6A lineage.
+- **Registry** still carries slim rows (including ``entry_id`` and optional ``sync_origin_host`` for merge); resolution merges registry index with store authority where needed.
 
 ## References
 

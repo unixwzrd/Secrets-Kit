@@ -9,6 +9,7 @@ import unittest
 from unittest import mock
 from contextlib import redirect_stdout, redirect_stderr
 
+from secrets_kit.models.core import ValidationError
 from secrets_kit.backends.inventory import GenpCandidate
 from secrets_kit.cli.parser.base import build_parser
 from secrets_kit.cli.support.defaults import _apply_defaults
@@ -113,15 +114,12 @@ class CliCommandsTest(unittest.TestCase):
                 payload = json.loads(dpath.read_text(encoding="utf-8"))
                 self.assertEqual(payload.get("backend"), "secure")
 
-    def test_config_set_coerces_legacy_icloud_backend_to_secure(self) -> None:
+    def test_config_set_rejects_legacy_icloud_backend(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            with mock.patch.object(Path, "home", return_value=home):
+            with mock.patch.object(Path, "home", return_value=home), redirect_stderr(io.StringIO()):
                 code = cmd_config_set(args=argparse.Namespace(key="backend", value="icloud-helper"))
-                self.assertEqual(code, 0)
-                dpath = home / ".config" / "seckit" / "defaults.json"
-                payload = json.loads(dpath.read_text(encoding="utf-8"))
-                self.assertEqual(payload.get("backend"), "secure")
+        self.assertEqual(code, 1)
 
     def test_config_set_rejects_invalid_backend(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -206,6 +204,33 @@ class CliCommandsTest(unittest.TestCase):
             self.assertIn("metadata/keychain drift detected", err.getvalue())
             self.assertTrue(payload["defaults"])
             self.assertEqual(payload["entries_using_registry_fallback"], [])
+            self.assertEqual(payload.get("legacy_backend_references"), [])
+
+    def test_doctor_reports_legacy_backend_in_defaults_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            config_dir = home / ".config" / "seckit"
+            config_dir.mkdir(parents=True, mode=0o700)
+            (config_dir / "defaults.json").write_text(
+                json.dumps({"backend": "icloud-helper"}), encoding="utf-8"
+            )
+            out = io.StringIO()
+            err = io.StringIO()
+            with mock.patch.object(Path, "home", return_value=home), \
+                mock.patch("secrets_kit.cli.commands.diagnostics.check_security_cli", return_value=True), \
+                mock.patch("secrets_kit.cli.commands.diagnostics.ensure_registry_storage", return_value=str(config_dir / "registry.json")), \
+                mock.patch("secrets_kit.cli.commands.diagnostics.doctor_roundtrip"), \
+                mock.patch("secrets_kit.cli.commands.diagnostics.load_registry", return_value={}), \
+                mock.patch("secrets_kit.backends.security.secret_exists", return_value=True), \
+                mock.patch("secrets_kit.cli.commands.diagnostics._read_metadata") as read_meta, \
+                redirect_stdout(out), \
+                redirect_stderr(err):
+                read_meta.return_value = None
+                code = cmd_doctor(args=argparse.Namespace(fix_defaults=False))
+        self.assertEqual(code, 0, msg=err.getvalue())
+        payload = json.loads(out.getvalue())
+        refs = payload.get("legacy_backend_references") or []
+        self.assertTrue(any(r.get("source") == "defaults.json" for r in refs))
 
     def test_lock_dry_run_shows_backend_command(self) -> None:
         out = io.StringIO()
@@ -298,7 +323,7 @@ class CliCommandsTest(unittest.TestCase):
                 _apply_defaults(args=args)
             self.assertEqual(args.backend, "secure")
 
-    def test_apply_defaults_coerces_legacy_explicit_backend(self) -> None:
+    def test_apply_defaults_rejects_legacy_explicit_backend(self) -> None:
         args = argparse.Namespace(
             command="get",
             service="sync-test",
@@ -314,8 +339,8 @@ class CliCommandsTest(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as tmp:
             with mock.patch.object(Path, "home", return_value=Path(tmp)):
-                _apply_defaults(args=args)
-        self.assertEqual(args.backend, "secure")
+                with self.assertRaises(ValidationError):
+                    _apply_defaults(args=args)
 
     def test_account_defaults_to_current_user(self) -> None:
         args = argparse.Namespace(
@@ -810,6 +835,7 @@ class CliCommandsTest(unittest.TestCase):
             "defaults_path": "/x/defaults.json",
             "defaults": {"backend": "secure"},
             "backend_availability": {"secure": True, "local": True, "sqlite": True},
+            "keychain_access": {"implementation": "security_cli", "bundled_native_binary": False},
             "helper": {"installed": False, "path": None, "bundled_path": None},
         }
         out = io.StringIO()
@@ -818,7 +844,7 @@ class CliCommandsTest(unittest.TestCase):
         self.assertEqual(code, 0)
         parsed = json.loads(out.getvalue())
         self.assertEqual(parsed, fake)
-        for key in ("version", "backend_availability", "helper", "defaults", "platform", "python"):
+        for key in ("version", "backend_availability", "keychain_access", "helper", "defaults", "platform", "python"):
             self.assertIn(key, parsed)
 
     def test_version_info_includes_version_line(self) -> None:
@@ -829,6 +855,7 @@ class CliCommandsTest(unittest.TestCase):
             "defaults_path": None,
             "defaults": {},
             "backend_availability": {"secure": True, "local": True, "sqlite": False},
+            "keychain_access": {"implementation": "security_cli", "bundled_native_binary": False},
             "helper": {"installed": False, "path": None, "bundled_path": None},
         }
         out = io.StringIO()

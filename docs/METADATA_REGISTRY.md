@@ -67,6 +67,8 @@ Top-level object:
 
 The full :class:`~secrets_kit.models.core.EntryMetadata` shape is the **logical schema** for the backend payload (see code and [METADATA_SEMANTICS_ADR.md](METADATA_SEMANTICS_ADR.md)); it must not be mirrored into `registry.json`.
 
+**Keychain comments:** items written via the ``secure`` backend serialize metadata with :meth:`~secrets_kit.models.core.EntryMetadata.to_authority_dict` (omits ``content_hash`` and peer-only custom keys) so local Keychain payloads stay aligned with SQLite authority for migration; see [BACKEND_STORE_CONTRACT.md](BACKEND_STORE_CONTRACT.md).
+
 ## Legacy schema (v1, migrated)
 
 Older installs used a **full** metadata blob per entry (see below). That format is **no longer written**; Open **v1** files are converted on load.

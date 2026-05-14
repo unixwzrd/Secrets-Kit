@@ -32,11 +32,19 @@ BACKEND_SECURE = "secure"
 BACKEND_SQLITE = "sqlite"
 """Portable encrypted SQLite store (PyNaCl)."""
 
+_LEGACY_BACKEND_TOKENS: FrozenSet[str] = frozenset({"icloud", "icloud-helper"})
+
+LEGACY_BACKEND_ERROR_MESSAGE = (
+    "Unsupported backend id 'icloud' / 'icloud-helper' (removed). Use --backend secure or local "
+    "for the login/custom Keychain via the /usr/bin/security CLI, or --backend sqlite for the "
+    "encrypted file store. For cross-host secrets use export/import or peer bundles. "
+    "If defaults.json still lists a legacy backend, it is rewritten to 'secure' when loaded; "
+    "otherwise run `seckit doctor --fix-defaults` or edit ~/.config/seckit/defaults.json. "
+    "Unset SECKIT_DEFAULT_BACKEND if it still uses a legacy value."
+)
+
 _BACKEND_ALIASES: Dict[str, str] = {
     "local": BACKEND_SECURE,
-    # Historical backend ids from removed helper work — accepted so old defaults.json / env keep working.
-    "icloud": BACKEND_SECURE,
-    "icloud-helper": BACKEND_SECURE,
 }
 
 # Accepted on CLI / env / defaults.json (``local`` is an alias for ``secure``).
@@ -52,15 +60,25 @@ _KNOWN_NORMALIZED: FrozenSet[str] = frozenset({BACKEND_SECURE, BACKEND_SQLITE})
 def normalize_backend(backend: str) -> str:
     """Return canonical backend id (``secure``, ``sqlite``).
 
-    Accepts alias ``local`` and legacy ids ``icloud`` / ``icloud-helper`` (both map to ``secure``).
+    Accepts alias ``local`` only. Legacy ids ``icloud`` / ``icloud-helper`` are rejected; use
+    migration (defaults load / ``seckit doctor --fix-defaults``).
     """
-    raw = backend.strip().lower()
+    raw = backend.strip().lower().replace("_", "-")
+    if raw in _LEGACY_BACKEND_TOKENS:
+        raise BackendError(LEGACY_BACKEND_ERROR_MESSAGE)
     normalized = _BACKEND_ALIASES.get(raw, raw)
     if normalized not in _KNOWN_NORMALIZED:
         raise BackendError(
             f"unsupported backend: {backend!r} (expected {BACKEND_SECURE}, {BACKEND_SQLITE}, or alias local)"
         )
     return normalized
+
+
+def is_legacy_backend_id(value: object) -> bool:
+    """True for removed ``icloud`` / ``icloud-helper`` backend tokens (any casing, underscore ok)."""
+    if value is None:
+        return False
+    return str(value).strip().lower().replace("_", "-") in _LEGACY_BACKEND_TOKENS
 
 
 def is_secure_backend(backend: str) -> bool:

@@ -25,6 +25,7 @@ def _version_info_dict() -> Dict[str, object]:
         "platform": sys.platform,
         "python": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
         "backend_availability": status["backend_availability"],
+        "keychain_access": status["keychain_access"],
         "helper": status["helper"],
     }
     try:

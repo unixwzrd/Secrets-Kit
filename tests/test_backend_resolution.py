@@ -20,10 +20,11 @@ class BackendResolutionTest(unittest.TestCase):
         self.assertEqual(normalize_backend("local"), BACKEND_SECURE)
         self.assertEqual(normalize_backend("secure"), BACKEND_SECURE)
 
-    def test_normalize_backend_legacy_icloud_ids_map_to_secure(self) -> None:
+    def test_normalize_backend_rejects_legacy_icloud_ids(self) -> None:
         for legacy in ("icloud", "iCloud", "icloud-helper", "iCloud-Helper"):
             with self.subTest(legacy=legacy):
-                self.assertEqual(normalize_backend(legacy), BACKEND_SECURE)
+                with self.assertRaises(BackendError):
+                    normalize_backend(legacy)
 
     def test_normalize_backend_sqlite(self) -> None:
         from secrets_kit.backends.security import BACKEND_SQLITE

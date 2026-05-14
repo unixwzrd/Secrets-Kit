@@ -195,7 +195,11 @@ defaults.json only fills omitted CLI flags like --service and --backend.""",
     "DOCTOR_EPILOG": (
         "Examples:\n"
         "  seckit doctor\n"
-        "  seckit doctor --backend sqlite --db /path/to/secrets.db"
+        "  seckit doctor --backend sqlite --db /path/to/secrets.db\n"
+        "  seckit doctor --fix-defaults  # rewrite defaults.json if backend is a legacy id"
+    ),
+    "DOCTOR_FIX_DEFAULTS_HELP": (
+        "Rewrite ~/.config/seckit/defaults.json when 'backend' is icloud / icloud-helper (does not change env vars)"
     ),
     "BACKEND_INDEX_HELP": (
         "Diagnostics: decrypt-safe backend index rows (BackendStore.iter_index); not authority, not secrets"

@@ -22,7 +22,7 @@ class LaunchdSmokeScriptInterfaceTest(unittest.TestCase):
     def test_smoke_script_help_lists_supported_modes(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
         proc = subprocess.run(
-            ["bash", "scripts/seckit_launchd_smoke.sh", "--help"],
+            ["bash", "test-scripts/seckit_launchd_smoke.sh", "--help"],
             cwd=repo_root,
             capture_output=True,
             text=True,
@@ -548,7 +548,7 @@ class LaunchdRunFlowTest(unittest.TestCase):
     def test_smoke_script_service_agent_mode(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
         proc = subprocess.run(
-            ["bash", "scripts/seckit_launchd_smoke.sh", "--mode", "service-agent"],
+            ["bash", "test-scripts/seckit_launchd_smoke.sh", "--mode", "service-agent"],
             cwd=repo_root,
             capture_output=True,
             text=True,
@@ -564,7 +564,7 @@ class LaunchdRunFlowTest(unittest.TestCase):
             self.skipTest("service-daemon launchd test must run as root")
         repo_root = Path(__file__).resolve().parents[1]
         proc = subprocess.run(
-            ["bash", "scripts/seckit_launchd_smoke.sh", "--mode", "service-daemon"],
+            ["bash", "test-scripts/seckit_launchd_smoke.sh", "--mode", "service-daemon"],
             cwd=repo_root,
             capture_output=True,
             text=True,
