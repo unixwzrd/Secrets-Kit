@@ -674,3 +674,4 @@ src/secrets_kit/native_helper_bundled/*.zip
 /docs/plans/
 .gitignore
 AGENTS.md
+!secrets.py

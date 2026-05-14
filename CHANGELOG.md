@@ -1,10 +1,15 @@
 # Secrets-Kit Changelog
 
 **Created**: 2026-03-10  
-**Updated**: 2026-05-05
+**Updated**: 2026-05-14
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+### 2026-05-14 — SQLite integration smokes + ops evidence refresh
+
+- **Scope:** `scripts/integration/smoke_sqlite.sh`, `scripts/integration/smoke_sqlite_restart.sh`, `scripts/integration/smoke_run.sh`, `scripts/integration/smoke_full_local_runtime.sh`, `scripts/run_local_validation.sh`, `docs/RUNTIME_TRUTH_MATRIX.md`, `docs/OPERATIONS_STATUS.md`, `docs/README.md`, `README.md`, `AGENTS.md`, `CHANGELOG.md`.
+- **What changed:** Added **operator** bash smokes: isolated `HOME`, subprocess `python -m secrets_kit.cli.main`, `sqlite3` integrity/journal inspection, `strings` guard on the DB, `seckit run` exit-code behavior, `env -i` persistence, `doctor` / `rebuild-index` / `recover --dry-run --json`. `run_local_validation.sh` syntax-checks these scripts. Documentation now records **2026-05-14** observed full-gate exit 0 and promotes matrix rows to subprocess + datastore evidence where applicable.
 
 ### 2026-05-05 — Operational validation docs + daemon subprocess integration test
 

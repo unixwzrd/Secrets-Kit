@@ -47,14 +47,15 @@ This does **not** replace backend or persistence checks; update [RUNTIME_TRUTH_M
 - [`scripts/integration/smoke_run.sh`](../scripts/integration/smoke_run.sh) — `seckit run` success path, failing child exit code, missing `--names`.
 - [`scripts/integration/smoke_full_local_runtime.sh`](../scripts/integration/smoke_full_local_runtime.sh) — runs the three above in order; `set -e`, stop on first failure.
 
-**Status:** scripts are **not yet in-tree** as of **2026-05-14** (implementation requires Agent mode or manual add). After they exist, run:
+**Status:** scripts are **in-tree**. Maintainer run **2026-05-14** (full-permission shell, conda `python3.12` with PyYAML + PyNaCl, `sqlite3` on `PATH`): **`bash scripts/integration/smoke_full_local_runtime.sh`** exit **0**; per-stage **`smoke_sqlite`**, **`smoke_sqlite_restart`**, **`smoke_run`** printed **OK**. Observed DB: tables **`secrets`**, **`vault_meta`**; **`pragma integrity_check`** ok; **`journal_mode`** **delete**; smoke secret substring **absent** from **`strings`** on the DB file. Re-run after meaningful SQLite/CLI changes and record host + SHA here.
 
 ```bash
 cd /path/to/secrets-kit
+export PYTHON=/path/to/venv-or-conda/bin/python   # if default python lacks PyNaCl
 bash scripts/integration/smoke_full_local_runtime.sh
 ```
 
-Then update this doc and [RUNTIME_TRUTH_MATRIX.md](RUNTIME_TRUTH_MATRIX.md) **only** with observed results (exit codes, `pragma` output, `strings` outcome)—not from unit tests alone.
+Evidence columns in [RUNTIME_TRUTH_MATRIX.md](RUNTIME_TRUTH_MATRIX.md) are updated from these runs—not from unit tests alone.
 
 ## CLI workflow status
 
@@ -68,14 +69,14 @@ Use: **works** / **partial** / **broken** / **untested (ops)**. Fill **Last veri
 | `seckit set` | partial | 0 on success | updates registry + backend | **verify** same home | RTM: set Keychain/SQLite |
 | `seckit get` | partial | 0 / `--raw` materialization | read | n/a | RTM: get |
 | `seckit list` | partial | table / `--json` if offered | read | n/a | RTM: list |
-| `seckit delete` | partial | — | registry + backend | covered in SQLite smoke target | `smoke_sqlite.sh` |
-| `seckit run` | partial | child exit code propagates (`os.execvpe`) | inject | SQLite smoke target | `smoke_run.sh` |
+| `seckit delete` | partial | — | registry + backend | subprocess smoke 2026-05-14 | `smoke_sqlite.sh` |
+| `seckit run` | partial | child exit code propagates (`os.execvpe`) | inject | subprocess smoke 2026-05-14 | `smoke_run.sh` |
 | `seckit export` | partial | macOS disposable KC scripts | optional artifact | n/a | CROSS_HOST_CHECKLIST |
 | `seckit import` (subcommands) | partial | — | registry + backend | — | import tests + scripts |
-| `seckit recover` | partial | `--dry-run` / `--json` | registry scan from backend | SQLite smoke target | `smoke_sqlite.sh` |
+| `seckit recover` | partial | `--dry-run` / `--json` | registry scan from backend | subprocess smoke 2026-05-14 | `smoke_sqlite.sh` |
 | `seckit migrate recover-registry` | same as recover | alias | same | same | [CLI_REFERENCE.md](CLI_REFERENCE.md) |
-| `seckit rebuild-index` | partial | — | index from authority | SQLite smoke target | `smoke_sqlite.sh` |
-| `seckit doctor` | partial | environment-dependent | may suggest repairs | SQLite smoke target | `smoke_sqlite.sh` when landed |
+| `seckit rebuild-index` | partial | — | index from authority | subprocess smoke 2026-05-14 | `smoke_sqlite.sh` |
+| `seckit doctor` | partial | environment-dependent | may suggest repairs | subprocess smoke 2026-05-14 | `smoke_sqlite.sh` |
 
 **How to verify persistence:** same `HOME`, new terminal, repeat `get` / `list`; compare `registry.json` mtime and contents (no secret values in registry—see [METADATA_REGISTRY.md](METADATA_REGISTRY.md)).
 
@@ -83,7 +84,7 @@ Use: **works** / **partial** / **broken** / **untested (ops)**. Fill **Last veri
 
 | Check | Status | How to verify |
 |-------|--------|---------------|
-| DB creation / schema | partial | **`smoke_sqlite.sh`:** `.tables`, `PRAGMA table_info(secrets)` when script lands |
+| DB creation / schema | partial | **`smoke_sqlite.sh`:** `.tables`, `PRAGMA table_info(secrets)` (verified 2026-05-14) |
 | Encrypted payload storage | partial | **`strings "$DB"`** must not contain injected smoke secret literal |
 | Decrypt / retrieve | partial | **`smoke_sqlite.sh`:** `get --raw` |
 | `rebuild-index` / recovery | partial | **`smoke_sqlite.sh` / `smoke_sqlite_restart.sh`** |

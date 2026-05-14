@@ -87,7 +87,9 @@ Issues and PRs welcome (CLI UX, backends, docs, import/export edge cases). Local
 bash ./scripts/run_local_validation.sh
 ```
 
-**Updated:** 2026-05-05
+For **SQLite subprocess + DB inspection** coverage (temp `HOME`, `sqlite3`, optional full gate), see [`docs/OPERATIONS_STATUS.md`](docs/OPERATIONS_STATUS.md) and `scripts/integration/`.
+
+**Updated:** 2026-05-14
 
 ---
 

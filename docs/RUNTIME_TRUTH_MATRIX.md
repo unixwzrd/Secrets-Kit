@@ -22,14 +22,14 @@
 | Root `--help`, subcommand help | CLI | in-process + subprocess | Parser/help snapshots in tests; subprocess: `python -m secrets_kit.cli.main --help` (**verified 2026-05-05** dev shell). |
 | `version` / `-v` | CLI | in-process + subprocess | Subprocess: `python -m secrets_kit.cli.main version` exit 0 (**2026-05-05**). |
 | `set` / `get` / `list` / `delete` (Keychain) | CLI | in-process + subprocess (macOS) | Disposable-keychain subprocess flow in `tests/test_disposable_keychain_flow.py`; full suite needs macOS + `security`. |
-| `set` / `get` / `list` / `delete` (SQLite encrypted) | CLI | in-process | **Target ops gate:** [`scripts/integration/smoke_sqlite.sh`](../scripts/integration/smoke_sqlite.sh) (subprocess CLI + `sqlite3` + `strings` on DB). **Do not** mark subprocess/datastore-inspected here until that script has been added and run successfully on a real host. |
-| SQLite persistence / new process / `env -i` | CLI | unknown | **Target:** [`scripts/integration/smoke_sqlite_restart.sh`](../scripts/integration/smoke_sqlite_restart.sh). |
-| `seckit run` (inject + exit codes) | CLI | in-process | **Target:** [`scripts/integration/smoke_run.sh`](../scripts/integration/smoke_run.sh). |
-| Full local SQLite runtime gate (sequential smokes) | CLI | unknown | **Target:** [`scripts/integration/smoke_full_local_runtime.sh`](../scripts/integration/smoke_full_local_runtime.sh). |
+| `set` / `get` / `list` / `delete` (SQLite encrypted) | CLI | in-process + subprocess (datastore inspected) | [`scripts/integration/smoke_sqlite.sh`](../scripts/integration/smoke_sqlite.sh): real `python -m secrets_kit.cli.main` in temp `HOME`, `sqlite3` (`integrity_check` ok, `journal_mode` delete, row counts), `strings` on DB **without** smoke secret literal (**verified 2026-05-14** dev host). |
+| SQLite persistence / new process / `env -i` | CLI | subprocess | [`scripts/integration/smoke_sqlite_restart.sh`](../scripts/integration/smoke_sqlite_restart.sh): writes, minimal `env -i` + `PYTHONPATH`/`HOME`/`SECKIT_SQLITE_*`, `get` + `rebuild-index` + `recover --dry-run --json`, integrity (**2026-05-14**). |
+| `seckit run` (inject + exit codes) | CLI | subprocess | [`scripts/integration/smoke_run.sh`](../scripts/integration/smoke_run.sh): inject `--names`, child exit propagation (`SystemExit(19)` → 19), bogus `--names` non-zero + stderr must not leak secrets (**2026-05-14**). |
+| Full local SQLite runtime gate (sequential smokes) | CLI | subprocess | [`scripts/integration/smoke_full_local_runtime.sh`](../scripts/integration/smoke_full_local_runtime.sh) runs the three smokes in order; exit 0 on same host (**2026-05-14**). |
 | `export` / `import` | CLI | in-process + subprocess (macOS) | Cross-host scripts + disposable keychain tests. |
-| `recover` / `migrate recover-registry` | CLI | in-process | Covered in SQLite smoke target (`recover --dry-run --json` + subprocess); promote when script lands and passes. |
-| `rebuild-index` | CLI | in-process | Same: SQLite smoke target after CRUD. |
-| `doctor` | CLI | in-process | Same: SQLite smoke target on temp `HOME`. |
+| `recover` / `migrate recover-registry` | CLI | in-process + subprocess | `recover --dry-run --json` in [`scripts/integration/smoke_sqlite.sh`](../scripts/integration/smoke_sqlite.sh) + restart smoke (**2026-05-14**). |
+| `rebuild-index` | CLI | in-process + subprocess | Same integration scripts (**2026-05-14**). |
+| `doctor` | CLI | in-process + subprocess | Same integration scripts on isolated `HOME` (**2026-05-14**). |
 | `daemon serve` (Unix socket) | LOCALD | in-process | `serve_forever` + thread in `tests/test_seckitd_phase5a.py`. |
 | `daemon serve` via `seckit` subprocess | LOCALD | subprocess | `tests/test_seckit_daemon_subprocess_integration.py` (entrypoint + argv + real UDS). |
 | `daemon ping` / `status` / `sync-status` / `submit-outbound` | LOCALD | in-process + subprocess | Client IPC tests in-process; CLI subprocess exercises `cmd_daemon_*`. |

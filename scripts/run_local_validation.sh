@@ -48,6 +48,10 @@ bash -n \
   scripts/seckit_cross_host_verify.sh \
   scripts/seckit_cross_host_transport_localhost.sh \
   scripts/seckit_launchd_smoke.sh \
+  scripts/integration/smoke_sqlite.sh \
+  scripts/integration/smoke_sqlite_restart.sh \
+  scripts/integration/smoke_run.sh \
+  scripts/integration/smoke_full_local_runtime.sh \
   scripts/run_local_validation.sh
 
 echo
