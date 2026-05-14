@@ -11,7 +11,7 @@
 
 ## Local runtime vs hosted-relay tests
 
-- **Local peer / `seckitd`**: prefer `tests/test_seckitd_phase5*.py`, `tests/test_runtime_session.py`, and related harnesses. These assert **same-user** IPC and optional loopback coordination—not a hosted multi-tenant control plane.
+- **Local peer / `seckitd`**: prefer `tests/test_seckitd_phase5*.py`, `tests/test_seckit_daemon_subprocess_integration.py` (CLI subprocess: `daemon serve` + `daemon ping`), `tests/test_runtime_session.py`, and related harnesses. These assert **same-user** IPC and optional loopback coordination—not a hosted multi-tenant control plane.
 - **Relay / sync-host / managed-infrastructure** semantics: keep **mocked** or documented as future private-repo concerns; avoid naming that implies `seckitd` is hosted relay **product** code.
 
 When adding tests, tag confusing cases with short comments referencing `docs/ARCHITECTURE_RUNTIME_SURFACE.md` or `docs/IPC_SEMANTICS_ADR.md` Phase C.

@@ -77,6 +77,7 @@ Avoid repeating `--service` / `--account` via `~/.config/seckit/defaults.json` o
 | Agents / apps | [Integrations](docs/INTEGRATIONS.md) · [Examples](docs/EXAMPLES.md) |
 | Release signing / wheels | [GitHub release build](docs/GITHUB_RELEASE_BUILD.md) |
 | Deep dives | [Metadata registry](docs/METADATA_REGISTRY.md) · [Cross-host validation](docs/CROSS_HOST_VALIDATION.md) · [Peer sync bundles](docs/PEER_SYNC.md) |
+| **Stabilization / ops** | [Runtime truth matrix](docs/RUNTIME_TRUTH_MATRIX.md) · [Operations status](docs/OPERATIONS_STATUS.md) · [Distributed validation](docs/DISTRIBUTED_VALIDATION_STATUS.md) · [Relay separation](docs/RELAY_SEPARATION_STATUS.md) |
 
 ## Contributing
 
@@ -86,7 +87,7 @@ Issues and PRs welcome (CLI UX, backends, docs, import/export edge cases). Local
 bash ./scripts/run_local_validation.sh
 ```
 
-**Updated:** 2026-05-07
+**Updated:** 2026-05-05
 
 ---
 

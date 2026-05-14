@@ -3,7 +3,7 @@
 **Created:** 2026-03-10
 **Updated:** 2026-05-05
 
-Use this page as the public documentation map. The root [README](../README.md) stays short; day-to-day detail lives here.
+Use this page as the public documentation map. The root [README](../README.md) stays short; day-to-day detail lives here. The root [README](../README.md) stays short; day-to-day detail lives here.
 
 - [Secrets Kit documentation](#secrets-kit-documentation)
   - [Operators](#operators)
@@ -17,6 +17,10 @@ Use this page as the public documentation map. The root [README](../README.md) s
 
 | Doc | Purpose |
 |-----|---------|
+| [RUNTIME_TRUTH_MATRIX.md](RUNTIME_TRUTH_MATRIX.md) | Evidence ladder per major feature (mocked / in-process / subprocess / multi-host) — **source of truth** for stabilization |
+| [OPERATIONS_STATUS.md](OPERATIONS_STATUS.md) | What works in the field: workflows, env assumptions, blockers, infra |
+| [DISTRIBUTED_VALIDATION_STATUS.md](DISTRIBUTED_VALIDATION_STATUS.md) | Multi-host / VM peer scenarios — pass/fail log (not CI-only) |
+| [RELAY_SEPARATION_STATUS.md](RELAY_SEPARATION_STATUS.md) | Local vs future `secrets-kit-relay` boundaries (docs only; no extraction yet) |
 | [QUICKSTART.md](QUICKSTART.md) | Shortest path: install, unlock keychain, set/list/run |
 | [USAGE.md](USAGE.md) | Entry point + links to CLI docs (minimal examples) |
 | [DEFAULTS.md](DEFAULTS.md) | `defaults.json`, env vars, `seckit config` |

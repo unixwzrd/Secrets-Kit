@@ -6,6 +6,11 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+### 2026-05-05 — Operational validation docs + daemon subprocess integration test
+
+- **Scope:** `docs/RUNTIME_TRUTH_MATRIX.md`, `docs/OPERATIONS_STATUS.md`, `docs/DISTRIBUTED_VALIDATION_STATUS.md`, `docs/RELAY_SEPARATION_STATUS.md`, `docs/README.md`, root `README.md`, `tests/test_seckit_daemon_subprocess_integration.py`, `tests/README.md`, `CHANGELOG.md`.
+- **What changed:** Added **stabilization** documentation: runtime evidence matrix (source of truth), operator operations status, distributed validation log template, relay separation boundaries (docs only). Added **subprocess** test that runs `seckit daemon serve` and `daemon ping` over a real Unix socket—operator entrypoint coverage beyond in-thread `serve_forever` tests. Recorded maintainer subprocess smoke for `--help` and `version` in `OPERATIONS_STATUS.md`.
+
 ### 2026-05-05 — CLI: colocate argparse help formatter with parser wiring
 
 - **Scope:** `src/secrets_kit/cli/parser/formatter.py` (new; removes `cli/help/formatter.py`), `cli/parser/base.py`, `cli/parser/family_*.py`, `cli/parser/daemon.py`, `cli/parser/groups.py`; `CHANGELOG.md`.
