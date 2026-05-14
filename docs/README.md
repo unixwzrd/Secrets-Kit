@@ -1,7 +1,7 @@
 # Secrets Kit documentation
 
 **Created:** 2026-03-10
-**Updated:** 2026-05-13
+**Updated:** 2026-05-05
 
 Use this page as the public documentation map. The root [README](../README.md) stays short; day-to-day detail lives here.
 
@@ -32,6 +32,9 @@ Use this page as the public documentation map. The root [README](../README.md) s
 |-----|---------|
 | [CONCEPTS.md](CONCEPTS.md) | Operator mental model; resolve vs materialize; compatibility summary |
 | [RUNTIME_AUTHORITY_ADR.md](RUNTIME_AUTHORITY_ADR.md) | Protected authority handling; inject/export wording; invariants |
+| [ARCHITECTURE_RUNTIME_SURFACE.md](ARCHITECTURE_RUNTIME_SURFACE.md) | Classify documentary vs production surfaces; local vs hosted vocabulary |
+| [PACKAGE_VERSION.md](PACKAGE_VERSION.md) | Version authority, unknown sentinel, editable/checkout behavior |
+| [DOCSTRING_CONTRACT.md](DOCSTRING_CONTRACT.md) | Contributor expectations for public functions and CLI handlers (S3.5) |
 | [RUNTIME_SESSION_ADR.md](RUNTIME_SESSION_ADR.md) | Local peer/runtime session semantics |
 | [IPC_SEMANTICS_ADR.md](IPC_SEMANTICS_ADR.md) | Local IPC and peer-side `seckitd` semantics |
 | [CLI_REFERENCE.md](CLI_REFERENCE.md) | Full command reference |

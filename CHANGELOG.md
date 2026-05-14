@@ -1,10 +1,35 @@
 # Secrets-Kit Changelog
 
 **Created**: 2026-03-10  
-**Updated**: 2026-05-14
+**Updated**: 2026-05-05
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+### 2026-05-05 — CLI: colocate argparse help formatter with parser wiring
+
+- **Scope:** `src/secrets_kit/cli/parser/formatter.py` (new; removes `cli/help/formatter.py`), `cli/parser/base.py`, `cli/parser/family_*.py`, `cli/parser/daemon.py`, `cli/parser/groups.py`; `CHANGELOG.md`.
+- **What changed:** **`SeckitHelpFormatter`** now lives under `cli/parser/` beside the code that passes `formatter_class=`—the old `cli/help/` path suggested “string handling,” which was the wrong mental model (copy stays in `strings/en.py`). **No behavior change:** still mixes `RawDescriptionHelpFormatter` and `ArgumentDefaultsHelpFormatter`. Expanded module and public-function docstrings on touched parser modules (purpose, parameters, return values).
+
+### 2026-05-05 — CLI strings: full argparse prose extraction
+
+- **Scope:** `src/secrets_kit/cli/strings/en.py` (expanded `STRINGS`); all `cli/parser/*.py` human-facing `help`/`description`/`epilog`; `tests/test_cli_strings_en.py`; `CHANGELOG.md`.
+- **What changed:** **Mechanical** move of remaining CLI prose into `STRINGS["KEY"]`; parser modules use lookups only. No argparse topology or JSON output changes.
+
+### 2026-05-05 — CLI strings: `STRINGS` dict per locale
+
+- **Scope:** `src/secrets_kit/cli/strings/*`, `cli/help/formatter.py` (formatter class only), parser modules using `STRINGS[...]`; `tests/test_cli_strings_en.py`; `AGENTS.md`, `docs/ARCHITECTURE_RUNTIME_SURFACE.md`, `CHANGELOG.md`.
+- **What changed:** Human-facing CLI prose is a **`STRINGS` dictionary** with string keys in each locale module (e.g. `en`); **removed** re-exports of epilog/description from `formatter.py`. No CLI semantic or JSON output changes.
+
+### 2026-05-05 — CLI strings: static locale modules (maintainer refactor)
+
+- **Scope:** `src/secrets_kit/cli/strings/` (`en`/`es`/`it`), `cli/help/formatter.py`, `cli/parser/groups.py`, `cli/parser/daemon.py`; removed `loader.py`, `keys.py`; `tests/test_cli_strings_en.py` (replaces loader tests); `AGENTS.md`, `docs/ARCHITECTURE_RUNTIME_SURFACE.md`, `tests/README.md`, `CHANGELOG.md`.
+- **What changed:** Human-facing help/epilog text lives in ``STRINGS`` dicts in `strings/en.py` (and stub `es`/`it` share the same mapping); consumers import directly. **Removed** `CliStrings`, `load_strings`, locale-tag resolution, and `SECKIT_LOCALE` wiring—no user-visible help/JSON churn.
+
+### 2026-05-05 — Post–Phase C architecture stabilization (version, strings, parser chunk, docs)
+
+- **Scope:** `src/secrets_kit/version_meta.py`, `__init__.py`, `cli/support/version_info.py`, `cli/strings/*`, `cli/help/formatter.py`, `cli/parser/groups.py`, `cli/parser/daemon.py`, `cli/parser/family_*.py`, `cli/parser/base.py`, `cli/support/defaults.py`; `docs/PACKAGE_VERSION.md`, `docs/ARCHITECTURE_RUNTIME_SURFACE.md`, `docs/DOCSTRING_CONTRACT.md`, `docs/README.md`, `tests/README.md`, `AGENTS.md`; tests `test_package_version.py`, `test_parser_handler_bindings.py`; `CHANGELOG.md`.
+- **What changed:** **Single version path** via `package_version_string()`; **`0.0.0+unknown`** replaces misleading **`0.1.0`** when distribution metadata is absent. **Human-facing CLI strings** gathered under `cli/strings` per-locale modules (`en`/`es`/`it` stubs). **Argparse wiring** split into `cli/parser/daemon.py` plus `family_secrets.py`, `family_diagnostics.py`, and `family_sync_peer.py` (migrate/identity/peer/reconcile/sync) with `base.py` as orchestrator—**subcommand registration order and handler bindings unchanged**. **Parser introspection test** ensures leaf subcommands bind handlers. **Mechanical:** removed unused `ensure_defaults_storage` import in `defaults.py` (audit F401). Maintainer docs for version semantics, expanded **reachability-audit** surface table, **docstring contract** note, and **local runtime vs relay** vocabulary.
 
 ### 2026-05-14 — Phase B: public vocabulary (Python; wire-stable)
 

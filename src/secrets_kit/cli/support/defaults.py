@@ -19,7 +19,6 @@ from secrets_kit.models.core import ENTRY_KIND_VALUES, ValidationError
 from secrets_kit.registry.core import (
     RegistryError,
     defaults_path,
-    ensure_defaults_storage,
     load_defaults,
     migrate_legacy_operator_backend_in_file,
     registry_dir,

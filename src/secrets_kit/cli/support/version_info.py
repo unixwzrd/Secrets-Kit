@@ -3,21 +3,18 @@
 from __future__ import annotations
 
 import sys
-from importlib.metadata import PackageNotFoundError
-from importlib.metadata import version as package_version
 from typing import Dict
 
 from secrets_kit.utils.helper_status import helper_status
+from secrets_kit.version_meta import package_version_string
 
 from secrets_kit.cli.support.defaults import CONFIG_STORABLE_KEYS, _load_defaults
 from secrets_kit.registry.core import RegistryError, defaults_path, ensure_defaults_storage
 
 
 def _cli_version() -> str:
-    try:
-        return package_version("seckit")
-    except PackageNotFoundError:
-        return "0.1.0"
+    """User-visible version string (installed metadata or :data:`UNKNOWN_VERSION` fallback)."""
+    return package_version_string()
 
 
 def _version_info_dict() -> Dict[str, object]:
