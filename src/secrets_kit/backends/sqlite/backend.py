@@ -5,8 +5,8 @@ secrets_kit.backends.sqlite
 
 v2 keeps decrypt-free index columns and one encrypted joint payload per row;
 legacy v1 rows are migrated on first open. Schema DDL and migrations are split
-into :mod:`secrets_kit.backends.sqlite_schema` and
-:mod:`secrets_kit.backends.sqlite_migrations`.
+into :mod:`secrets_kit.backends.sqlite.schema` and
+:mod:`secrets_kit.backends.sqlite.migrations`.
 """
 
 from __future__ import annotations
@@ -35,14 +35,26 @@ from secrets_kit.backends.base import (
     normalize_store_locator,
     parse_joint_payload_or_legacy,
 )
-from secrets_kit.backends.inventory import GenpCandidate
+from secrets_kit.backends.keychain.inventory import GenpCandidate
 from secrets_kit.backends.security import BackendError, backend_service_name
-from secrets_kit.backends.sqlite_migrations import migrate_if_needed
-from secrets_kit.backends.sqlite_schema import (
+from secrets_kit.backends.sqlite.migrations import migrate_if_needed
+from secrets_kit.backends.sqlite.queries import (
+    sql_select_deleted_by_locator,
+    sql_select_full_row_by_entry_id,
+    sql_select_full_row_by_locator,
+    sql_select_iter_index,
+    sql_select_iter_unlocked_active,
+    sql_select_lineage_by_entry_id,
+    sql_select_lineage_by_locator,
+    sql_select_rebuild_index,
+    sql_select_reconcile_index_by_entry_id,
+    sql_select_tombstone_deleted_by_entry_id,
+)
+from secrets_kit.backends.sqlite.schema import (
     PRAGMA_FOREIGN_KEYS_ON,
     SQLITE_CONNECT_TIMEOUT_S,
 )
-from secrets_kit.backends.sqlite_unlock import (
+from secrets_kit.backends.sqlite.unlock import (
     UnlockProvider,
     build_sqlite_unlock_provider,
     clear_sqlite_unlock_cache,
@@ -126,6 +138,7 @@ def _connect(*, db_path: str) -> sqlite3.Connection:
     """
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path, timeout=SQLITE_CONNECT_TIMEOUT_S)
+    conn.row_factory = sqlite3.Row
     conn.execute(PRAGMA_FOREIGN_KEYS_ON)
     return conn
 
@@ -229,7 +242,7 @@ class SqliteSecretStore(BackendStore):
             supports_reconcile_transaction=True,
         )
 
-    def _row_to_index_safe(self, row: Tuple[Any, ...]) -> IndexRow:
+    def _row_to_index_safe(self, row: sqlite3.Row) -> IndexRow:
         (
             entry_id,
             locator_hash,
@@ -301,14 +314,7 @@ class SqliteSecretStore(BackendStore):
     def iter_index(self) -> Iterator[IndexRow]:
         conn = self._conn()
         try:
-            cur = conn.execute(
-                """
-                SELECT entry_id, locator_hash, locator_hint,
-                       updated_at, deleted, deleted_at, generation, tombstone_generation, backend_version,
-                       corrupt, corrupt_reason, last_validation_at
-                FROM secrets ORDER BY entry_id
-                """
-            )
+            cur = conn.execute(sql_select_iter_index())
             for row in cur.fetchall():
                 yield self._row_to_index_safe(row)
         finally:
@@ -317,17 +323,9 @@ class SqliteSecretStore(BackendStore):
     def rebuild_index(self) -> None:
         conn = self._conn()
         try:
-            cur = conn.execute(
-                """
-                SELECT entry_id, locator_hash, locator_hint, service, account, name, updated_at,
-                       deleted, deleted_at, generation, tombstone_generation, backend_version,
-                       corrupt, corrupt_reason, last_validation_at,
-                       ciphertext, nonce, crypto_version
-                FROM secrets
-                """
-            )
+            cur = conn.execute(sql_select_rebuild_index())
             for row in cur.fetchall():
-                if row[7]:
+                if row["deleted"]:
                     continue
                 try:
                     resolved = self._decrypt_resolved(conn, row)
@@ -337,11 +335,11 @@ class SqliteSecretStore(BackendStore):
                         UPDATE secrets SET corrupt = 1, corrupt_reason = ?, last_validation_at = ?
                         WHERE entry_id = ?
                         """,
-                        ("decrypt_failed", now_utc_iso(), row[0]),
+                        ("decrypt_failed", now_utc_iso(), row["entry_id"]),
                     )
                     continue
                 meta = resolved.metadata
-                lh = opaque_locator_hint(entry_id=str(row[0]))
+                lh = opaque_locator_hint(entry_id=str(row["entry_id"]))
                 lhash = locator_hash_hex(service=meta.service, account=meta.account, name=meta.name)
                 conn.execute(
                     """
@@ -349,7 +347,7 @@ class SqliteSecretStore(BackendStore):
                         corrupt = 0, corrupt_reason = '', last_validation_at = ?
                     WHERE entry_id = ? AND deleted = 0
                     """,
-                    (lhash, lh, now_utc_iso(), row[0]),
+                    (lhash, lh, now_utc_iso(), row["entry_id"]),
                 )
             conn.commit()
         finally:
@@ -379,31 +377,25 @@ class SqliteSecretStore(BackendStore):
             eid = (entry_id or "").strip()
             if eid:
                 row = conn.execute(
-                    """
-                    SELECT entry_id, service, account, name, generation, tombstone_generation, deleted
-                    FROM secrets WHERE entry_id = ?
-                    """,
+                    sql_select_lineage_by_entry_id(),
                     (eid,),
                 ).fetchone()
             else:
                 loc = normalize_store_locator(service=service, account=account, name=name)
                 row = conn.execute(
-                    """
-                    SELECT entry_id, service, account, name, generation, tombstone_generation, deleted
-                    FROM secrets WHERE service = ? AND account = ? AND name = ?
-                    """,
+                    sql_select_lineage_by_locator(),
                     (loc.service, loc.account, loc.name),
                 ).fetchone()
             if row is None:
                 return None
             return LineageSnapshot(
-                entry_id=str(row[0]),
-                service=str(row[1]),
-                account=str(row[2]),
-                name=str(row[3]),
-                generation=int(row[4]),
-                tombstone_generation=int(row[5]),
-                deleted=bool(row[6]),
+                entry_id=str(row["entry_id"]),
+                service=str(row["service"]),
+                account=str(row["account"]),
+                name=str(row["name"]),
+                generation=int(row["generation"]),
+                tombstone_generation=int(row["tombstone_generation"]),
+                deleted=bool(row["deleted"]),
             )
         finally:
             conn.close()
@@ -416,30 +408,25 @@ class SqliteSecretStore(BackendStore):
         conn = self._conn()
         try:
             row = conn.execute(
-                """
-                SELECT entry_id, service, account, name, updated_at, origin_host,
-                       deleted, deleted_at, generation, tombstone_generation,
-                       content_hash, corrupt, corrupt_reason
-                FROM secrets WHERE entry_id = ?
-                """,
+                sql_select_reconcile_index_by_entry_id(),
                 (eid,),
             ).fetchone()
             if row is None:
                 return None
             return {
-                "entry_id": str(row[0]),
-                "service": str(row[1]),
-                "account": str(row[2]),
-                "name": str(row[3]),
-                "updated_at": str(row[4]),
-                "origin_host": str(row[5]),
-                "deleted": bool(row[6]),
-                "deleted_at": str(row[7]),
-                "generation": int(row[8]),
-                "tombstone_generation": int(row[9]),
-                "content_hash": str(row[10]) if row[10] is not None else "",
-                "corrupt": bool(row[11]),
-                "corrupt_reason": str(row[12]) if row[12] is not None else "",
+                "entry_id": str(row["entry_id"]),
+                "service": str(row["service"]),
+                "account": str(row["account"]),
+                "name": str(row["name"]),
+                "updated_at": str(row["updated_at"]),
+                "origin_host": str(row["origin_host"]),
+                "deleted": bool(row["deleted"]),
+                "deleted_at": str(row["deleted_at"]),
+                "generation": int(row["generation"]),
+                "tombstone_generation": int(row["tombstone_generation"]),
+                "content_hash": str(row["content_hash"]) if row["content_hash"] is not None else "",
+                "corrupt": bool(row["corrupt"]),
+                "corrupt_reason": str(row["corrupt_reason"]) if row["corrupt_reason"] is not None else "",
             }
         finally:
             conn.close()
@@ -466,12 +453,12 @@ class SqliteSecretStore(BackendStore):
     ) -> None:
         """Advance tombstone generation when local row is already deleted and *incoming* is strictly newer."""
         row = conn.execute(
-            "SELECT tombstone_generation, deleted FROM secrets WHERE entry_id = ?",
+            sql_select_tombstone_deleted_by_entry_id(),
             (entry_id,),
         ).fetchone()
-        if row is None or not bool(row[1]):
+        if row is None or not bool(row["deleted"]):
             return
-        cur_t = int(row[0])
+        cur_t = int(row["tombstone_generation"])
         if tombstone_generation <= cur_t:
             return
         conn.execute(
@@ -503,8 +490,8 @@ class SqliteSecretStore(BackendStore):
         row = self._read_row_full(conn, loc.service, loc.account, loc.name)
         if row is None:
             return
-        gen = int(row[9]) + 1
-        tgen = int(row[10]) + 1
+        gen = int(row["generation"]) + 1
+        tgen = int(row["tombstone_generation"]) + 1
         conn.execute(
             """
             UPDATE secrets SET deleted = 1, deleted_at = ?, generation = ?, tombstone_generation = ?, updated_at = ?
@@ -513,23 +500,20 @@ class SqliteSecretStore(BackendStore):
             (now_utc_iso(), gen, tgen, now_utc_iso(), loc.service, loc.account, loc.name),
         )
 
-    def _read_row_full(self, conn: sqlite3.Connection, service: str, account: str, name: str) -> Optional[Any]:
+    def _read_row_full(
+        self, conn: sqlite3.Connection, service: str, account: str, name: str
+    ) -> Optional[sqlite3.Row]:
         loc = normalize_store_locator(service=service, account=account, name=name)
         return conn.execute(
-            """
-            SELECT entry_id, locator_hash, locator_hint, service, account, name, updated_at,
-                   deleted, deleted_at, generation, tombstone_generation, backend_version,
-                   corrupt, corrupt_reason, last_validation_at,
-                   ciphertext, nonce, crypto_version
-            FROM secrets WHERE service = ? AND account = ? AND name = ?
-            """,
+            sql_select_full_row_by_locator(),
             (loc.service, loc.account, loc.name),
         ).fetchone()
 
-    def _decrypt_resolved(self, conn: sqlite3.Connection, row: Tuple[Any, ...]) -> ResolvedEntry:
-        meta_slice = row[:-3]
-        ciphertext, nonce, crypto_ver = row[-3], row[-2], row[-1]
-        if int(crypto_ver) == PLAINTEXT_DEBUG_CRYPTO_VERSION:
+    def _decrypt_resolved(self, conn: sqlite3.Connection, row: sqlite3.Row) -> ResolvedEntry:
+        crypto_ver = int(row["crypto_version"])
+        ciphertext = row["ciphertext"]
+        nonce = row["nonce"]
+        if crypto_ver == PLAINTEXT_DEBUG_CRYPTO_VERSION:
             plain = bytes(ciphertext)
         else:
             key = self._unlock_key(conn)
@@ -538,23 +522,9 @@ class SqliteSecretStore(BackendStore):
                 plain = box.decrypt(ciphertext, nonce)
             except nacl.exceptions.CryptoError as exc:
                 raise BackendError("decryption failed (wrong passphrase or corrupted data)") from exc
-        (
-            _entry_id,
-            _locator_hash,
-            _locator_hint,
-            service,
-            account,
-            name,
-            _updated_at,
-            _deleted,
-            _deleted_at,
-            _generation,
-            _tombstone_generation,
-            _backend_impl,
-            _corrupt,
-            _corrupt_reason,
-            _last_validation_at,
-        ) = meta_slice
+        service = str(row["service"])
+        account = str(row["account"])
+        name = str(row["name"])
         secret_val, meta = parse_joint_payload_or_legacy(
             plain=plain,
             legacy_metadata_json=None,
@@ -614,8 +584,8 @@ class SqliteSecretStore(BackendStore):
         origin = _origin_host()
         existing = self._read_row_full(conn, loc.service, loc.account, loc.name)
         if existing:
-            _eid = str(existing[0])
-            gen = int(existing[9]) + 1
+            _eid = str(existing["entry_id"])
+            gen = int(existing["generation"]) + 1
             entry_id = meta.entry_id or _eid
             if entry_id != _eid:
                 entry_id = _eid
@@ -642,7 +612,7 @@ class SqliteSecretStore(BackendStore):
                     updated_at,
                     origin,
                     gen,
-                    int(existing[10]),
+                    int(existing["tombstone_generation"]),
                     BACKEND_IMPL_VERSION,
                     ch,
                     ciphertext2,
@@ -707,7 +677,7 @@ class SqliteSecretStore(BackendStore):
         conn = self._conn()
         try:
             row = self._read_row_full(conn, service, account, name)
-            if row is None or row[7]:
+            if row is None or row["deleted"]:
                 raise BackendError("secret not found")
             resolved = self._decrypt_resolved(conn, row)
             return resolved.secret
@@ -718,16 +688,10 @@ class SqliteSecretStore(BackendStore):
         conn = self._conn()
         try:
             row = conn.execute(
-                """
-                SELECT entry_id, locator_hash, locator_hint, service, account, name, updated_at,
-                       deleted, deleted_at, generation, tombstone_generation, backend_version,
-                       corrupt, corrupt_reason, last_validation_at,
-                       ciphertext, nonce, crypto_version
-                FROM secrets WHERE entry_id = ?
-                """,
+                sql_select_full_row_by_entry_id(),
                 (entry_id,),
             ).fetchone()
-            if row is None or row[7]:
+            if row is None or row["deleted"]:
                 return None
             return self._decrypt_resolved(conn, row)
         finally:
@@ -737,7 +701,7 @@ class SqliteSecretStore(BackendStore):
         conn = self._conn()
         try:
             row = self._read_row_full(conn, service, account, name)
-            if row is None or row[7]:
+            if row is None or row["deleted"]:
                 return None
             return self._decrypt_resolved(conn, row)
         finally:
@@ -759,9 +723,9 @@ class SqliteSecretStore(BackendStore):
                 "comment": comment,
                 "created_at_raw": "",
                 "modified_at_raw": "",
-                "sqlite_updated_at": str(row[6]),
+                "sqlite_updated_at": str(row["updated_at"]),
                 "origin_host": _origin_host(),
-                "crypto_version": int(row[-1]),
+                "crypto_version": int(row["crypto_version"]),
                 "raw": "",
             }
         finally:
@@ -772,10 +736,10 @@ class SqliteSecretStore(BackendStore):
         conn = self._conn()
         try:
             row = conn.execute(
-                "SELECT deleted FROM secrets WHERE service = ? AND account = ? AND name = ?",
+                sql_select_deleted_by_locator(),
                 (loc.service, loc.account, loc.name),
             ).fetchone()
-            return row is not None and not bool(row[0])
+            return row is not None and not bool(row["deleted"])
         finally:
             conn.close()
 
@@ -796,15 +760,7 @@ class SqliteSecretStore(BackendStore):
     ) -> Iterator[tuple[IndexRow, ResolvedEntry]]:
         conn = self._conn()
         try:
-            cur = conn.execute(
-                """
-                SELECT entry_id, locator_hash, locator_hint, service, account, name,
-                       updated_at, deleted, deleted_at, generation, tombstone_generation, backend_version,
-                       corrupt, corrupt_reason, last_validation_at,
-                       ciphertext, nonce, crypto_version
-                FROM secrets WHERE deleted = 0
-                """
-            )
+            cur = conn.execute(sql_select_iter_unlocked_active())
             for row in cur.fetchall():
                 idx = self._row_to_index_from_full_prefix(row[:-3])
                 try:
@@ -828,19 +784,13 @@ class SqliteSecretStore(BackendStore):
         """Move locator for ``entry_id``; caller owns the transaction."""
         nloc = normalize_store_locator(service=new_service, account=new_account, name=new_name)
         row = conn.execute(
-            """
-            SELECT entry_id, locator_hash, locator_hint, service, account, name, updated_at,
-                   deleted, deleted_at, generation, tombstone_generation, backend_version,
-                   corrupt, corrupt_reason, last_validation_at,
-                   ciphertext, nonce, crypto_version
-            FROM secrets WHERE entry_id = ?
-            """,
+            sql_select_full_row_by_entry_id(),
             (entry_id,),
         ).fetchone()
-        if row is None or row[7]:
+        if row is None or row["deleted"]:
             raise BackendError("secret not found")
         resolved = self._decrypt_resolved(conn, row)
-        gen = int(row[9]) + 1
+        gen = int(row["generation"]) + 1
         new_hash = locator_hash_hex(service=nloc.service, account=nloc.account, name=nloc.name)
         new_hint = opaque_locator_hint(entry_id=entry_id)
         meta = replace(

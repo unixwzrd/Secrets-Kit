@@ -17,6 +17,12 @@ dependencies = [
   "PyYAML>=6.0",
 ]
 
+[project.optional-dependencies]
+test = [
+  "pytest>=7.0",
+  "pytest-xdist>=3.0",
+]
+
 [project.scripts]
 secrets-kit = "secrets_kit.cli.main:main"
 seckit = "secrets_kit.cli.main:main"
@@ -27,3 +33,9 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q"

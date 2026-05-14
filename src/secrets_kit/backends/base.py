@@ -1,7 +1,10 @@
 """Backend abstraction layer: index rows, capabilities, security posture, and store protocol.
 
 CLI and application code should depend on these types and on :class:`BackendStore` only —
-not on SQLite row layout, ciphertext shapes, or Keychain comment wire format.
+not on SQLite row layout, ciphertext shapes, or Keychain comment wire format. Durable
+identity and portable import/export expectations for stores are summarized in
+``docs/BACKEND_STORE_CONTRACT.md``; keep this module free of backend-specific DDL or
+``security`` CLI details.
 """
 
 from __future__ import annotations
@@ -335,6 +338,6 @@ def resolve_backend_store(
             kc = os.path.expanduser(kc)
         return SqliteSecretStore(db_path=os.path.expanduser(db_path), kek_keychain_path=kc)
 
-    from secrets_kit.backends.security_store import KeychainBackendStore
+    from secrets_kit.backends.keychain import KeychainBackendStore
 
     return KeychainBackendStore(path=path)

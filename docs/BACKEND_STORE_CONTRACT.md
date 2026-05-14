@@ -33,6 +33,12 @@ Pydantic schemas under :mod:`secrets_kit.schemas` validate dict shapes **for tes
 - **Serializer:** :meth:`~secrets_kit.models.core.EntryMetadata.to_keychain_comment` uses :meth:`~secrets_kit.models.core.EntryMetadata.to_authority_dict`: the same logical fields as full metadata **minus peer/lineage-only** data (``content_hash`` and ``custom["seckit_sync_origin_host"]``). This matches the migratable “authority” shape; the encrypted SQLite joint payload continues to use full :class:`~secrets_kit.models.core.EntryMetadata` inside the blob for Phase 6A lineage.
 - **Registry** still carries slim rows (including ``entry_id`` and optional ``sync_origin_host`` for merge); resolution merges registry index with store authority where needed.
 
+## Operational audit vs lineage / replication
+
+- **Operational audit** — append-only, backend-local traces of *what changed* in the store (e.g. SQLite ``secrets_audit`` + triggers). Useful for operator forensics; **not** authoritative for merge, recovery, or cross-host replication. Constants and read helpers live in ``src/secrets_kit/backends/sqlite/audit.py``; DDL stays in ``src/secrets_kit/backends/sqlite/schema.py``.
+- **Lineage / merge authority** — ``generation``, ``tombstone_generation``, ``deleted``, and related fields on the canonical row (and encrypted authority payload where applicable) per [RUNTIME_AUTHORITY_ADR.md](RUNTIME_AUTHORITY_ADR.md) and peer-sync docs. This is the contract surface for deterministic merge, not the audit tail.
+- **Replication logs** — if introduced, they are separate from operational audit; do not treat ``secrets_audit`` as a transport or source-of-truth stream.
+
 ## SQLite schema versions and audit
 
 The encrypted SQLite backend uses ``PRAGMA user_version`` for forward-only, idempotent migrations:
@@ -40,7 +46,7 @@ The encrypted SQLite backend uses ``PRAGMA user_version`` for forward-only, idem
 - **2** — v2 ``secrets`` table (decrypt-free index columns + joint ciphertext payload); legacy v1 rows are migrated on first open.
 - **3** — adds append-only **``secrets_audit``** and **INSERT/UPDATE/DELETE** triggers on ``secrets`` (installed idempotently via ``CREATE … IF NOT EXISTS``).
 
-**``secrets_audit``** columns (authoritative DDL in ``src/secrets_kit/backends/sqlite_schema.py``): ``audit_id``, ``operation`` (`insert` / `update` / `delete`), ``changed_at`` (UTC ISO via SQLite ``strftime``), ``entry_id``, ``service``, ``account``, ``name``, ``generation``, ``tombstone_generation``, ``deleted``, ``content_hash``. The audit log **must not** store plaintext secret material, ciphertext, nonces, or other decrypted payload fields—only the safe columns above.
+**``secrets_audit``** columns (authoritative DDL in ``src/secrets_kit/backends/sqlite/schema.py``): ``audit_id``, ``operation`` (`insert` / `update` / `delete`), ``changed_at`` (UTC ISO via SQLite ``strftime``), ``entry_id``, ``service``, ``account``, ``name``, ``generation``, ``tombstone_generation``, ``deleted``, ``content_hash``. The audit log **must not** store plaintext secret material, ciphertext, nonces, or other decrypted payload fields—only the safe columns above.
 
 The audit table is **not** the authority for merge or recovery; it exists for operator diagnostics and local change tracing.
 

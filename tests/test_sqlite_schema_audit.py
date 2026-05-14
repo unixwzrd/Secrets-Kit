@@ -19,7 +19,7 @@ if importlib.util.find_spec("nacl") is None:
 
 else:
     from secrets_kit.backends.sqlite import SqliteSecretStore, clear_sqlite_crypto_cache
-    from secrets_kit.backends.sqlite_schema import SQLITE_USER_VERSION_V3
+    from secrets_kit.backends.sqlite.schema import SQLITE_USER_VERSION_V3
 
     class SqliteSchemaAuditTest(unittest.TestCase):
         def setUp(self) -> None:

@@ -10,7 +10,7 @@ from unittest import mock
 from contextlib import redirect_stdout, redirect_stderr
 
 from secrets_kit.models.core import ValidationError
-from secrets_kit.backends.inventory import GenpCandidate
+from secrets_kit.backends.keychain.inventory import GenpCandidate
 from secrets_kit.cli.parser.base import build_parser
 from secrets_kit.cli.support.defaults import _apply_defaults
 from secrets_kit.cli.support.interaction import _read_password

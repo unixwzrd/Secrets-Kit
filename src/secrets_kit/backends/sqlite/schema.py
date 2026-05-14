@@ -1,11 +1,11 @@
 """
-secrets_kit.backends.sqlite_schema
+secrets_kit.backends.sqlite.schema
 
 **DDL-only** surface for the encrypted SQLite store: canonical SQL strings plus
 tiny helpers that execute them.
 
 Migration branching, unlock, and crypto live elsewhere—see
-:mod:`secrets_kit.backends.sqlite_migrations` and :mod:`secrets_kit.backends.sqlite`.
+:mod:`secrets_kit.backends.sqlite.migrations` and :mod:`secrets_kit.backends.sqlite.backend`.
 """
 
 from __future__ import annotations

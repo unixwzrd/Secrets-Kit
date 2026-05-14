@@ -676,3 +676,4 @@ src/secrets_kit/native_helper_bundled/*.zip
 .gitignore
 AGENTS.md
 !secrets.py
+pytest.ini

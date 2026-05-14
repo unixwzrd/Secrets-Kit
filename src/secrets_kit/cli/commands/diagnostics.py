@@ -186,7 +186,7 @@ def cmd_doctor(*, args: argparse.Namespace) -> int:
                 status["backend_security_posture"] = asdict(st.security_posture())
                 status["backend_capabilities"] = {**asdict(st.capabilities())}
         elif is_secure_backend(backend):
-            from secrets_kit.backends.security_store import KeychainBackendStore
+            from secrets_kit.backends.keychain import KeychainBackendStore
 
             st = KeychainBackendStore(path=_keychain_arg(args))
             status["backend_security_posture"] = asdict(st.security_posture())

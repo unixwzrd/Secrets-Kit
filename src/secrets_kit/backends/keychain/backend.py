@@ -22,7 +22,7 @@ from secrets_kit.backends.base import (
     ResolvedEntry,
 )
 from secrets_kit.backends.security import BackendError, SecurityCliStore, keychain_path
-from secrets_kit.backends.inventory import GenpCandidate, dump_keychain_text, iter_seckit_genp_candidates
+from secrets_kit.backends.keychain.inventory import GenpCandidate, dump_keychain_text, iter_seckit_genp_candidates
 from secrets_kit.models.locator import locator_hash_hex, opaque_locator_hint
 from secrets_kit.models.core import EntryMetadata, Locator, ensure_entry_id, now_utc_iso
 

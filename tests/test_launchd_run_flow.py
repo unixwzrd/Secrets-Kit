@@ -15,7 +15,7 @@ from unittest import mock
 
 from secrets_kit.cli.commands.secrets import cmd_set
 from secrets_kit.backends.security import delete_keychain, delete_secret, harden_keychain, keychain_path, make_temp_keychain, secret_exists
-from secrets_kit.backends.sqlite_unlock import clear_sqlite_unlock_cache
+from secrets_kit.backends.sqlite.unlock import clear_sqlite_unlock_cache
 
 
 class LaunchdSmokeScriptInterfaceTest(unittest.TestCase):

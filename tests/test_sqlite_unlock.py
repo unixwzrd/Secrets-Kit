@@ -10,7 +10,7 @@ import tempfile
 import unittest
 
 from secrets_kit.backends.security import BackendError, check_security_cli, delete_keychain, make_temp_keychain
-from secrets_kit.backends.sqlite_unlock import (
+from secrets_kit.backends.sqlite.unlock import (
     KeychainUnlockProvider,
     PassphraseUnlockProvider,
     build_sqlite_unlock_provider,

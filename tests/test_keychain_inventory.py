@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import unittest
 
-from secrets_kit.backends.inventory import iter_seckit_genp_candidates
+from secrets_kit.backends.keychain.inventory import iter_seckit_genp_candidates
 
 
 def _sample_with_hex_icmt() -> str:

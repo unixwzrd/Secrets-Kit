@@ -1,10 +1,18 @@
 # Secrets-Kit Changelog
 
 **Created**: 2026-03-10  
-**Updated**: 2026-05-05
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+**Updated**: 2026-05-14   on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+### 2026-05-14 — Makefile `make help` + optional pytest-xdist parallel tests
+
+- **Scope:** `Makefile`, `pyproject.toml` (`[project.optional-dependencies] test`, `[tool.pytest.ini_options]`), `tests/README.md`, `AGENTS.md`, `CHANGELOG.md`.
+- **What changed:** `make` / `make help` documents serial vs parallel test workflows, **grouped targets** (`test-sqlite`, `test-contract`, `test-daemon`, …), `test-groups`, and `unittest` / `pytest-args` for ad-hoc slices; `make test` runs canonical `unittest discover`; `make test-parallel` / `make test-parallel-auto` run **pytest + xdist** (default **`-n 8`**). Install extras with `pip install -e ".[test]"`. Module lists live in `Makefile` `TEST_*` variables; `tests/README.md` has a summary table.
+
+### 2026-05-05 — Backend packages: nested SQLite/Keychain layout, query centralization, Row access, audit helpers
+
+- **Scope:** `src/secrets_kit/backends/sqlite/` (`backend.py`, `schema.py`, `migrations.py`, `unlock.py`, `queries.py`, `audit.py`, `__init__.py`), `src/secrets_kit/backends/keychain/`, stub packages `backends/postgres/`, `backends/oracle/`, `docs/BACKEND_STORE_CONTRACT.md`, `src/secrets_kit/backends/base.py`, `tests/test_sqlite_queries.py`, `tests/test_sqlite_audit.py`, imports/tests adjusted for package paths.
+- **What changed:** SQLite store connections use ``sqlite3.Row`` with **named** column access; canonical ``SELECT`` strings are composed from ``sqlite/queries.py``. Non-DDL operational-audit constants/helpers live in ``sqlite/audit.py`` (DDL remains in ``sqlite/schema.py``). Reserved **Postgres/Oracle** backend packages document future ``BackendStore`` implementations without importing SQLite/Keychain implementation modules. Contract doc clarifies **operational audit** versus **lineage/merge authority**.
 
 ### 2026-05-05 — SQLite: schema/migration modules + ``secrets_audit`` (user_version 3)
 

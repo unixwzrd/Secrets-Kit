@@ -9,7 +9,7 @@ import sys
 import unittest
 
 from secrets_kit.backends.security import check_security_cli, delete_keychain, make_temp_keychain
-from secrets_kit.backends.security_store import KeychainBackendStore
+from secrets_kit.backends.keychain import KeychainBackendStore
 from secrets_kit.models.core import EntryMetadata
 
 

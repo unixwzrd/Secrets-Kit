@@ -30,7 +30,7 @@ If that trust model is unclear, use something else until it is.
 pip install "git+https://github.com/unixwzrd/Secrets-Kit.git@v1.2.0#egg=seckit"
 ```
 
-Development checkout: `pip install -e .` in a venv. **Dependencies** include **cryptography**, **PyYAML**, and **PyNaCl** (libsodium bindings) for the SQLite backend and encrypted export.
+Development checkout: `pip install -e .` in a venv. **Dependencies** include **cryptography**, **PyYAML**, and **PyNaCl** (libsodium bindings) for the SQLite backend and encrypted export. For parallel tests: `pip install -e ".[test]"` and run `make help` (see **`make test`** vs **`make test-parallel`**).
 
 **Keychain (macOS):** `--backend secure` (alias `local`) uses the macOS `security` CLI. **Reliable host-to-host transfer:** [Cross-Host Validation](docs/CROSS_HOST_VALIDATION.md) (encrypted export).
 

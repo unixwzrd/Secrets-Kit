@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Iterator, Optional
 
 from secrets_kit.backends.security import BackendError, is_secure_backend, is_sqlite_backend, keychain_path
-from secrets_kit.backends.inventory import GenpCandidate, dump_keychain_text, iter_seckit_genp_candidates
+from secrets_kit.backends.keychain.inventory import GenpCandidate, dump_keychain_text, iter_seckit_genp_candidates
 from secrets_kit.backends.sqlite import iter_secrets_plaintext_index
 
 

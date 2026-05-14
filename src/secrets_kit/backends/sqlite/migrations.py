@@ -1,11 +1,11 @@
 """
-secrets_kit.backends.sqlite_migrations
+secrets_kit.backends.sqlite.migrations
 
 **Open-time migrations** for the SQLite backend: legacy layout → v2, column
 patches, and audit tables/triggers with ``PRAGMA user_version``.
 
 Decryption happens only when promoting legacy rows; routine opens otherwise run
-DDL and pragma updates. General CRUD remains in :mod:`secrets_kit.backends.sqlite`.
+DDL and pragma updates. General CRUD remains in :mod:`secrets_kit.backends.sqlite.backend`.
 """
 
 from __future__ import annotations
@@ -17,14 +17,14 @@ import nacl.secret
 from dataclasses import replace
 
 from secrets_kit.backends.base import BACKEND_IMPL_VERSION, build_joint_payload_bytes, parse_joint_payload_or_legacy
-from secrets_kit.backends.sqlite_schema import (
+from secrets_kit.backends.sqlite.schema import (
     SQLITE_USER_VERSION_V2,
     SQLITE_USER_VERSION_V3,
     apply_secrets_v2_table,
     ensure_schema,
     install_audit_schema,
 )
-from secrets_kit.backends.sqlite_unlock import UnlockProvider, _migrate_vault_meta_columns
+from secrets_kit.backends.sqlite.unlock import UnlockProvider, _migrate_vault_meta_columns
 from secrets_kit.models.core import ensure_entry_id
 from secrets_kit.models.locator import locator_hash_hex, opaque_locator_hint
 from secrets_kit.sync.canonical_record import attach_content_hash
@@ -143,8 +143,8 @@ def _apply_audit_migration(*, conn: sqlite3.Connection) -> None:
     """
     **Audit v3:** install ``secrets_audit`` + triggers and bump ``user_version``.
 
-    Idempotent. Sets ``PRAGMA user_version`` to ``SQLITE_USER_VERSION_V3`` (see
-    :mod:`secrets_kit.backends.sqlite_schema`) when the current value is lower.
+    Idempotent.     Sets ``PRAGMA user_version`` to ``SQLITE_USER_VERSION_V3`` (see
+    :mod:`secrets_kit.backends.sqlite.schema`) when the current value is lower.
     Caller commits.
     """
     install_audit_schema(conn=conn)

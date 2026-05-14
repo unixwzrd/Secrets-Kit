@@ -1,7 +1,37 @@
 # Tests layout and vocabulary notes
 
 **Created**: 2026-05-05  
-**Updated**: 2026-05-05  
+**Updated**: 2026-05-14  
+
+## Makefile (quick reference)
+
+From the repo root:
+
+- `make` or `make help` — **index of all targets**, how to combine groups, `unittest` / `pytest-args` escapes, and environment notes.
+- `make test` — full **`unittest discover`** (canonical, serial).
+- `make test-parallel` — **`pytest -n 8`** by default (`pip install -e ".[test]"`).
+- `make test-groups` — runs each **group** in order (same modules as a full run when taken together; fails fast on the first broken group).
+
+Exact module lists are the `TEST_*` variables at the top of `Makefile`; do not duplicate them here—**add new `tests/test_*.py` files to the right `TEST_*` block** when you introduce tests.
+
+| Make target | Area |
+|-------------|------|
+| `test-sqlite` | `test_sqlite_*` modules |
+| `test-contract` | `test_backend_store_contract`, `test_backend_resolution` |
+| `test-backends` | **contract + all sqlite** (one invocation) |
+| `test-cli` | CLI, parser bindings, native helper, package version |
+| `test-daemon` | `seckitd` 5a/5b/5d, daemon subprocess, runtime IPC/session/log, launchd |
+| `test-sync` | Sync merge/bundle, peers, peer sync dry-run/e2e, relay boundaries |
+| `test-registry` | Registry permissions, slim, v2 |
+| `test-models` | Models, identity, schemas, authority invariants, enrollment |
+| `test-keychain` | Keychain backend/inventory/real/disposable, CLI Keychain E2E |
+| `test-reconciliation` | `tests/reconciliation/` package only |
+| `test-misc` | Export shell, import dotenv, import guards, operator config, leakage |
+
+Custom slices:
+
+- `make unittest ARGS="tests.test_foo tests.test_bar -v"`
+- `make pytest-args ARGS="tests/test_sqlite_*.py -n 4 --tb=short"` (needs `.[test]` for xdist)
 
 ## Parser and CLI
 
