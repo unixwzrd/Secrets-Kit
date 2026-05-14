@@ -1,7 +1,7 @@
 # BackendStore contract
 
 **Created**: 2026-05-05  
-**Updated**: 2026-05-14
+**Updated**: 2026-05-05
 
 This note summarizes the :class:`~secrets_kit.backends.base.BackendStore` protocol as implemented in Phase 3. Authoritative code remains `src/secrets_kit/backends/base.py`; semantics for authority and materialization are in [RUNTIME_AUTHORITY_ADR.md](RUNTIME_AUTHORITY_ADR.md).
 
@@ -32,6 +32,17 @@ Pydantic schemas under :mod:`secrets_kit.schemas` validate dict shapes **for tes
 - **Login / custom Keychain** stores non-secret metadata in the generic-password **comment** field as JSON.
 - **Serializer:** :meth:`~secrets_kit.models.core.EntryMetadata.to_keychain_comment` uses :meth:`~secrets_kit.models.core.EntryMetadata.to_authority_dict`: the same logical fields as full metadata **minus peer/lineage-only** data (``content_hash`` and ``custom["seckit_sync_origin_host"]``). This matches the migratable “authority” shape; the encrypted SQLite joint payload continues to use full :class:`~secrets_kit.models.core.EntryMetadata` inside the blob for Phase 6A lineage.
 - **Registry** still carries slim rows (including ``entry_id`` and optional ``sync_origin_host`` for merge); resolution merges registry index with store authority where needed.
+
+## SQLite schema versions and audit
+
+The encrypted SQLite backend uses ``PRAGMA user_version`` for forward-only, idempotent migrations:
+
+- **2** — v2 ``secrets`` table (decrypt-free index columns + joint ciphertext payload); legacy v1 rows are migrated on first open.
+- **3** — adds append-only **``secrets_audit``** and **INSERT/UPDATE/DELETE** triggers on ``secrets`` (installed idempotently via ``CREATE … IF NOT EXISTS``).
+
+**``secrets_audit``** columns (authoritative DDL in ``src/secrets_kit/backends/sqlite_schema.py``): ``audit_id``, ``operation`` (`insert` / `update` / `delete`), ``changed_at`` (UTC ISO via SQLite ``strftime``), ``entry_id``, ``service``, ``account``, ``name``, ``generation``, ``tombstone_generation``, ``deleted``, ``content_hash``. The audit log **must not** store plaintext secret material, ciphertext, nonces, or other decrypted payload fields—only the safe columns above.
+
+The audit table is **not** the authority for merge or recovery; it exists for operator diagnostics and local change tracing.
 
 ## References
 

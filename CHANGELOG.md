@@ -6,6 +6,11 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+### 2026-05-05 — SQLite: schema/migration modules + ``secrets_audit`` (user_version 3)
+
+- **Scope:** `src/secrets_kit/backends/sqlite_schema.py` (new; DDL and version constants only), `src/secrets_kit/backends/sqlite_migrations.py` (new; legacy→v2, column patches, audit install), `src/secrets_kit/backends/sqlite.py` (thin wiring to `migrate_if_needed`), `tests/test_sqlite_schema_audit.py`, `docs/BACKEND_STORE_CONTRACT.md`, `docs/METADATA_REGISTRY.md`, `CHANGELOG.md`.
+- **What changed:** **Additive** open-time migration: creates **``secrets_audit``** and **INSERT/UPDATE/DELETE** triggers on ``secrets`` that log operation, timestamp, locator fields, generations, tombstone/deleted flags, and ``content_hash`` **only** (no plaintext secrets or ciphertext). ``PRAGMA user_version`` bumps to **3** when audit is installed. Existing databases get the same via idempotent ``CREATE … IF NOT EXISTS``. DDL deduplication: single canonical v2 ``CREATE TABLE secrets`` in `sqlite_schema.py`.
+
 ### 2026-05-14 — Keychain authority comments, legacy backend rejection, helper/keychain JSON
 
 - **Scope:** `src/secrets_kit/models/core.py` (`to_authority_dict`, authority Keychain comments), `src/secrets_kit/backends/security.py` (reject `icloud` / `icloud-helper` at normalize; env warning + coerce for `SECKIT_DEFAULT_BACKEND`), `src/secrets_kit/cli/commands/diagnostics.py` / `cli/parser/family_diagnostics.py` (`doctor --fix-defaults`, `legacy_backend_references`), `cli/support/defaults.py`, `utils/helper_status.py`, `cli/support/version_info.py`, tests (`test_keychain_backend_store`, `test_seckit_cli_keychain_e2e`, CLI/backend test updates), `docs/BACKEND_STORE_CONTRACT.md`, `docs/METADATA_REGISTRY.md`, `docs/LAUNCHD_VALIDATION.md`, `CHANGELOG.md`.

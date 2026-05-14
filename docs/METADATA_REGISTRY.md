@@ -160,6 +160,7 @@ The same operation is available as **`seckit migrate recover-registry`** for com
 Requirements and limits:
 
 - **`--backend secure`** or **`sqlite`**. For **SQLite**, recovery scans plaintext index columns (`service`, `account`, `name`, `metadata_json`); it does not dump the Keychain. You must be able to open the DB the same way as normal CLI use (passphrase / KEK).
+- **SQLite ``secrets_audit``:** current stores may include an append-only audit table populated by triggers on ``secrets`` (``PRAGMA user_version`` **3**+). It records locator/generation/tombstone metadata and ``content_hash`` only—**not** secret values or ciphertext; see [BACKEND_STORE_CONTRACT.md](BACKEND_STORE_CONTRACT.md#sqlite-schema-versions-and-audit).
 - The login keychain (or `--keychain`) must be readable to **`security dump-keychain`** (unlock if needed).
 - Only rows whose **`svce`** looks like **`logical:name`** are considered; other Keychain items are ignored.
 - When the item’s comment field holds valid metadata JSON that matches `service` / `account` / `name`, that metadata is reused; otherwise a minimal row is written (`source`: `recovered-keychain`, `entry_kind` inferred from the name).
@@ -173,4 +174,4 @@ Requirements and limits:
 ## [Back to README](../README.md)
 
 **Created**: 2026-03-02  
-**Updated**: 2026-05-07
+**Updated**: 2026-05-05
