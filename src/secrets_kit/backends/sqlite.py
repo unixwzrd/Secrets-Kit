@@ -1,7 +1,12 @@
-"""Portable encrypted SQLite secret store (PyNaCl SecretBox + unlock providers).
+"""
+secrets_kit.backends.sqlite
 
-v2 schema: decrypt-free index columns + single encrypted joint payload (secret + metadata).
-Legacy v1 rows (plaintext metadata_json + ciphertext = secret only) are migrated on open.
+**Portable encrypted** SQLite secret store (PyNaCl SecretBox + unlock providers).
+
+v2 keeps decrypt-free index columns and one encrypted joint payload per row;
+legacy v1 rows are migrated on first open. Schema DDL and migrations are split
+into :mod:`secrets_kit.backends.sqlite_schema` and
+:mod:`secrets_kit.backends.sqlite_migrations`.
 """
 
 from __future__ import annotations
@@ -30,23 +35,23 @@ from secrets_kit.backends.base import (
     normalize_store_locator,
     parse_joint_payload_or_legacy,
 )
-from secrets_kit.backends.security import BackendError, backend_service_name
 from secrets_kit.backends.inventory import GenpCandidate
-from secrets_kit.models.locator import locator_hash_hex, opaque_locator_hint
-from secrets_kit.models.core import EntryMetadata, Locator, ensure_entry_id, now_utc_iso
-from secrets_kit.models.lineage import LineageSnapshot
-from secrets_kit.registry.core import registry_dir
-from secrets_kit.sync.canonical_record import attach_content_hash
+from secrets_kit.backends.security import BackendError, backend_service_name
 from secrets_kit.backends.sqlite_migrations import migrate_if_needed
+from secrets_kit.backends.sqlite_schema import (
+    PRAGMA_FOREIGN_KEYS_ON,
+    SQLITE_CONNECT_TIMEOUT_S,
+)
 from secrets_kit.backends.sqlite_unlock import (
     UnlockProvider,
     build_sqlite_unlock_provider,
     clear_sqlite_unlock_cache,
 )
-from secrets_kit.backends.sqlite_schema import (
-    PRAGMA_FOREIGN_KEYS_ON,
-    SQLITE_CONNECT_TIMEOUT_S,
-)
+from secrets_kit.models.core import EntryMetadata, Locator, ensure_entry_id, now_utc_iso
+from secrets_kit.models.lineage import LineageSnapshot
+from secrets_kit.models.locator import locator_hash_hex, opaque_locator_hint
+from secrets_kit.registry.core import registry_dir
+from secrets_kit.sync.canonical_record import attach_content_hash
 
 CRYPTO_VERSION = 1
 PLAINTEXT_DEBUG_CRYPTO_VERSION = 0
@@ -57,7 +62,12 @@ _master_key_by_db: Dict[tuple[str, str, str], bytes] = {}
 
 
 def _sqlite_plaintext_debug_enabled() -> bool:
-    """Opt-in **non-production** mode: store joint payload bytes without SecretBox."""
+    """
+    Opt-in **non-production** mode: store joint payload bytes without SecretBox.
+
+    When ``SECKIT_SQLITE_PLAINTEXT_DEBUG`` is truthy (``1`` / ``true`` / ``yes``),
+    ciphertext is not applied—**for local debugging and forensics only**.
+    """
     return os.environ.get("SECKIT_SQLITE_PLAINTEXT_DEBUG", "").strip().lower() in ("1", "true", "yes")
 
 
@@ -74,13 +84,22 @@ def _warn_sqlite_plaintext_debug_once() -> None:
 
 
 def clear_sqlite_crypto_cache() -> None:
-    """Clear passphrase, KEK, and master-key caches (for tests)."""
+    """
+    **Test / isolation:** clear passphrase, KEK wrapping, and master-key caches.
+
+    Safe to call between tests; does not touch on-disk databases.
+    """
     clear_sqlite_unlock_cache()
     _master_key_by_db.clear()
 
 
 def default_sqlite_db_path(*, home: Optional[Path] = None) -> str:
-    """Default path for the SQLite store: ~/.config/seckit/secrets.db"""
+    """
+    **Default file path** for the SQLite store (under the registry directory).
+
+    Pass ``home=`` to anchor ``~`` resolution when tests or tools override the
+    user home; returns ``…/secrets.db`` beside ``registry.json``.
+    """
     return str(registry_dir(home=home) / "secrets.db")
 
 
@@ -98,31 +117,56 @@ def _abs_db_path(db_path: str) -> str:
     return str(Path(db_path).expanduser().resolve())
 
 
-def _connect(db_path: str) -> sqlite3.Connection:
+def _connect(*, db_path: str) -> sqlite3.Connection:
+    """
+    **Open** the database file with foreign keys enabled and a sane timeout.
+
+    Creates parent directories as needed. Returns a new connection; caller
+    closes or hands it to :func:`_init_schema` / :meth:`SqliteSecretStore._conn`.
+    """
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path, timeout=SQLITE_CONNECT_TIMEOUT_S)
     conn.execute(PRAGMA_FOREIGN_KEYS_ON)
     return conn
 
 
-def _init_schema(conn: sqlite3.Connection, db_path: str, unlock_provider: UnlockProvider) -> None:
-    migrate_if_needed(conn, db_path=db_path, unlock_provider=unlock_provider)
+def _init_schema(
+    *,
+    conn: sqlite3.Connection,
+    db_path: str,
+    unlock_provider: UnlockProvider,
+) -> None:
+    """
+    **Migrate-on-open:** delegate to :func:`migrate_if_needed` for this connection.
+
+    ``db_path`` unlock semantics must match how the store was created; legacy
+    promotion may decrypt and re-encrypt rows. Idempotent for already-current DBs.
+    """
+    migrate_if_needed(conn=conn, db_path=db_path, unlock_provider=unlock_provider)
 
 
 def iter_secrets_plaintext_index(
     *, db_path: str, service_filter: Optional[str] = None
 ) -> Iterator[GenpCandidate]:
-    """Yield recover candidates for SQLite.
+    """
+    **Recover path:** yield SQLite rows as generic-password–style candidates.
 
-    v2 stores metadata inside the encrypted payload; this iterator **decrypts** each row to
-    rebuild comment JSON for :func:`recover_sources.iter_recover_candidates` (unlock required).
+    v2 metadata lives inside the encrypted blob; this iterator **decrypts** each
+    row (unlock required) to rebuild comment JSON for recovery tooling. Optional
+    ``service_filter`` limits which services are scanned.
     """
     store = SqliteSecretStore(db_path=str(Path(db_path).expanduser()))
     yield from store.iter_recover_genp_candidates(service_filter=service_filter)
 
 
 class SqliteSecretStore(BackendStore):
-    """Encrypted SQLite-backed store implementing :class:`SecretStore` and :class:`BackendStore`."""
+    """
+    **BackendStore** implementation backed by encrypted SQLite.
+
+    Unlocks via passphrase or macOS Keychain–wrapped DEK (see unlock provider).
+    Opening a connection runs migrations idempotently; use ``db_path=`` and
+    optional ``unlock_provider=`` / ``kek_keychain_path=`` at construction.
+    """
 
     def __init__(
         self,
@@ -143,8 +187,8 @@ class SqliteSecretStore(BackendStore):
         return (_abs_db_path(self.db_path), type(prov).__name__, str(kc))
 
     def _conn(self) -> sqlite3.Connection:
-        conn = _connect(self.db_path)
-        _init_schema(conn, db_path=self.db_path, unlock_provider=self._unlock_provider)
+        conn = _connect(db_path=self.db_path)
+        _init_schema(conn=conn, db_path=self.db_path, unlock_provider=self._unlock_provider)
         return conn
 
     def _unlock_key(self, conn: sqlite3.Connection) -> bytes:

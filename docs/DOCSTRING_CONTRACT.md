@@ -5,6 +5,10 @@
 
 Short reference for **S3.5** (post–Phase C). Prefer **contracts** in docstrings; **design philosophy** belongs in ADRs.
 
+**Readable shape:** a one-line summary (optional ``**Markdown emphasis**`` for risk or scope), blank line, then short prose for purpose, inputs, outputs, side effects, and security/authority when relevant—see [AGENTS.md](../AGENTS.md) “Coding style and implementation rules”.
+
+**Modules:** opening ``"""`` on its own line, then the **fully qualified module name** on the next line, blank line, then summary paragraphs (same emphasis/prose style)—apply when creating or touching a module.
+
 ## What to document
 
 - **Public functions** and **CLI handlers** (`cmd_*`): **Args**, **Returns**, **Raises** where non-obvious; note **defaults** (“if omitted …”).

@@ -1,4 +1,12 @@
-"""SQLite schema migration and ALTER-table patching (no CRUD/crypto)."""
+"""
+secrets_kit.backends.sqlite_migrations
+
+**Open-time migrations** for the SQLite backend: legacy layout → v2, column
+patches, and audit tables/triggers with ``PRAGMA user_version``.
+
+Decryption happens only when promoting legacy rows; routine opens otherwise run
+DDL and pragma updates. General CRUD remains in :mod:`secrets_kit.backends.sqlite`.
+"""
 
 from __future__ import annotations
 
@@ -22,15 +30,33 @@ from secrets_kit.models.locator import locator_hash_hex, opaque_locator_hint
 from secrets_kit.sync.canonical_record import attach_content_hash
 
 
-def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+def _table_columns(*, conn: sqlite3.Connection, table: str) -> set[str]:
+    """
+    **Introspection:** column names for ``table`` via ``PRAGMA table_info``.
+
+    ``table`` must be a trusted SQL identifier (not from untrusted input).
+    Read-only; raises :exc:`sqlite3.Error` if SQLite rejects the pragma.
+    """
     cur = conn.execute(f"PRAGMA table_info({table})")
     return {str(row[1]) for row in cur.fetchall()}
 
 
-def _migrate_legacy_to_v2(conn: sqlite3.Connection, db_path: str, unlock_provider: UnlockProvider) -> None:
-    """Rename legacy ``secrets`` to ``secrets_legacy`` and repopulate v2 ``secrets``."""
+def _migrate_legacy_to_v2(
+    *,
+    conn: sqlite3.Connection,
+    db_path: str,
+    unlock_provider: UnlockProvider,
+) -> None:
+    """
+    **Legacy → v2:** rename old ``secrets``, rebuild v2 table, re-encrypt rows.
+
+    Uses ``unlock_provider`` and ``db_path`` to derive the master key, decrypts
+    each legacy row, rebuilds joint payloads, and inserts into the new table.
+    Rows that fail decryption are skipped. **Commits** when finished and drops
+    ``secrets_legacy``—callers should not assume an open outer transaction.
+    """
     conn.execute("ALTER TABLE secrets RENAME TO secrets_legacy")
-    apply_secrets_v2_table(conn)
+    apply_secrets_v2_table(conn=conn)
     key = unlock_provider.materialize_master_key(conn, db_path)
     box = nacl.secret.SecretBox(key)
     rows = conn.execute(
@@ -86,14 +112,25 @@ def _migrate_legacy_to_v2(conn: sqlite3.Connection, db_path: str, unlock_provide
     conn.commit()
 
 
-def _ensure_content_hash_column(conn: sqlite3.Connection) -> None:
-    cols = _table_columns(conn, "secrets")
+def _ensure_content_hash_column(*, conn: sqlite3.Connection) -> None:
+    """
+    **Additive column:** add ``content_hash`` to ``secrets`` if it is missing.
+
+    Issues ``ALTER TABLE`` only when needed; caller must **commit**.
+    """
+    cols = _table_columns(conn=conn, table="secrets")
     if "content_hash" not in cols:
         conn.execute("ALTER TABLE secrets ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''")
 
 
-def _ensure_corruption_columns(conn: sqlite3.Connection) -> None:
-    cols = _table_columns(conn, "secrets")
+def _ensure_corruption_columns(*, conn: sqlite3.Connection) -> None:
+    """
+    **Additive columns:** corruption flags and last validation timestamp on ``secrets``.
+
+    Adds ``corrupt``, ``corrupt_reason``, and ``last_validation_at`` when absent.
+    No commit here—migration orchestration commits after patching.
+    """
+    cols = _table_columns(conn=conn, table="secrets")
     if "corrupt" not in cols:
         conn.execute("ALTER TABLE secrets ADD COLUMN corrupt INTEGER NOT NULL DEFAULT 0")
     if "corrupt_reason" not in cols:
@@ -102,36 +139,54 @@ def _ensure_corruption_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE secrets ADD COLUMN last_validation_at TEXT NOT NULL DEFAULT ''")
 
 
-def _apply_audit_migration(conn: sqlite3.Connection) -> None:
-    """Idempotent: ensure audit table + triggers; bump user_version to v3."""
-    install_audit_schema(conn)
+def _apply_audit_migration(*, conn: sqlite3.Connection) -> None:
+    """
+    **Audit v3:** install ``secrets_audit`` + triggers and bump ``user_version``.
+
+    Idempotent. Sets ``PRAGMA user_version`` to ``SQLITE_USER_VERSION_V3`` (see
+    :mod:`secrets_kit.backends.sqlite_schema`) when the current value is lower.
+    Caller commits.
+    """
+    install_audit_schema(conn=conn)
     cur_ver = int(conn.execute("PRAGMA user_version").fetchone()[0])
     if cur_ver < SQLITE_USER_VERSION_V3:
         conn.execute(f"PRAGMA user_version = {SQLITE_USER_VERSION_V3}")
 
 
-def migrate_if_needed(conn: sqlite3.Connection, db_path: str, unlock_provider: UnlockProvider) -> None:
-    """Open-time migration: base DDL, legacy → v2, column patches, audit v3.
-
-    Preserves prior behavior for existing databases; adds ``secrets_audit`` + triggers
-    and sets ``user_version`` to 3 when audit is installed.
+def migrate_if_needed(
+    *,
+    conn: sqlite3.Connection,
+    db_path: str,
+    unlock_provider: UnlockProvider,
+) -> None:
     """
-    ensure_schema(conn)
-    _migrate_vault_meta_columns(conn)
+    **Single entry:** everything that must run before normal CRUD on this connection.
+
+    Ensures ``vault_meta`` DDL, vault_meta column patches, v2 ``secrets`` (new or
+    migrated from legacy), optional ``ALTER`` backfills, then audit schema and
+    ``user_version`` **3**. Existing stores get forward-only, idempotent DDL.
+
+    ``unlock_provider`` and ``db_path`` are required when a legacy ``secrets``
+    table without ``entry_id`` is present so rows can be re-encrypted.
+    **Commits** internally at well-defined points; do not wrap naively in an
+    outer transaction without reading the implementation.
+    """
+    ensure_schema(conn=conn)
+    _migrate_vault_meta_columns(conn=conn)
     cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='secrets'")
     has_secrets = cur.fetchone() is not None
     if not has_secrets:
-        apply_secrets_v2_table(conn)
+        apply_secrets_v2_table(conn=conn)
         conn.commit()
-        _apply_audit_migration(conn)
+        _apply_audit_migration(conn=conn)
         conn.commit()
         return
-    cols = _table_columns(conn, "secrets")
+    cols = _table_columns(conn=conn, table="secrets")
     if "entry_id" not in cols:
-        _migrate_legacy_to_v2(conn, db_path=db_path, unlock_provider=unlock_provider)
+        _migrate_legacy_to_v2(conn=conn, db_path=db_path, unlock_provider=unlock_provider)
         conn.execute(f"PRAGMA user_version = {SQLITE_USER_VERSION_V2}")
-    _ensure_corruption_columns(conn)
-    _ensure_content_hash_column(conn)
+    _ensure_corruption_columns(conn=conn)
+    _ensure_content_hash_column(conn=conn)
     conn.commit()
-    _apply_audit_migration(conn)
+    _apply_audit_migration(conn=conn)
     conn.commit()
