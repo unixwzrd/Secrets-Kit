@@ -1,6 +1,6 @@
 # launchd Validation
 
-**Updated:** 2026-05-05
+**Updated:** 2026-05-15
 
 Back: [README](../README.md)
 
@@ -78,7 +78,7 @@ This is not the right model for unattended post-logout or post-reboot services.
 
 ### `secure` backend and automated tests
 
-The **`security`** CLI is the only Keychain integration for **`--backend secure`**. **`test-scripts/seckit_launchd_smoke.sh`** uses **`--backend secure`** (alias `local`) only.
+The **`security`** CLI is the only Keychain integration for **`--backend secure`**. Automated launchd validation is now performed by Python-native tests in **`tests/test_launchd_run_flow.py`** (the shell-script smoke path is obsolete).
 
 Automated coverage (macOS):
 
@@ -89,6 +89,7 @@ Automated coverage (macOS):
 | `SECKIT_RUN_LAUNCHD_TESTS=0` | **Disable auto** on macOS (always skip the class unless you unset it again). |
 | `SECKIT_RUN_LAUNCHD_SQLITE_TESTS=1` | **Force** **`test_launch_agent_sqlite_backend_injects_env`** even in CI when combined with `SECKIT_RUN_LAUNCHD_TESTS=1`. |
 | `SECKIT_RUN_LAUNCHD_SQLITE_TESTS=0` | Skip the SQLite launchd test even when other launchd tests run. |
+| `SECKIT_RUN_LAUNCHD_SERVICE_KEYCHAIN_TESTS=1` | **Force** Python-native service-agent validation (`test_launch_agent_service_agent_temp_keychain` and `test_launch_agent_service_agent_sqlite_backend`). |
 
 `test_launch_agent_backend_secure_explicit_uses_temp_keychain` passes **`--backend secure`** explicitly to guard the **`security`** code path.
 
@@ -99,6 +100,12 @@ Use **`--backend sqlite`** with **`--db`** and non-interactive **`SECKIT_SQLITE_
 ## Mode 2: Dedicated Service Keychain LaunchAgent
 
 Use this when a user installs a service while logged in and the service may need to keep running after logout during the same boot.
+
+Automated validation is now performed by Python-native tests:
+- `test_launch_agent_service_agent_temp_keychain` — disposable keychain backend
+- `test_launch_agent_service_agent_sqlite_backend` — SQLite backend
+
+For manual operator testing, the historical shell script remains available:
 
 ```bash
 ./test-scripts/seckit_launchd_smoke.sh --mode service-agent
@@ -196,7 +203,7 @@ SECKIT_RUN_LAUNCHD_SERVICE_KEYCHAIN_TESTS=1 \
 PYTHONPATH=src python3 -m unittest tests.test_launchd_run_flow -v
 ```
 
-**LaunchDaemon / system keychain:** not covered by `make test`. The bash smoke script still supports `--mode service-daemon` for operators who accept root/system-keychain risk; the project does not run or support that path in CI.
+**LaunchDaemon / system keychain:** not covered by `make test`. The historical bash smoke script supports `--mode service-daemon` for operators who accept root/system-keychain risk; the project does not run or support that path in CI.
 
 ## Manual Reboot Test
 

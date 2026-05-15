@@ -1,7 +1,7 @@
 # test-scripts — operational runners
 
 **Created**: 2026-05-05  
-**Updated**: 2026-05-05
+**Updated**: 2026-05-15
 
 Shell entry points for **runtime** validation: subprocess smokes, optional Keychain/launchd gates, and wrapped **unittest** discovery. They are **not** install/release/bootstrap scripts (those stay under [`scripts/`](../scripts/)).
 
@@ -32,11 +32,11 @@ Nested subprocess runners (for example `smoke_full_local_runtime.sh` calling eac
 
 **Makefile (optional):** from repo root,
 
-```bash
+\```bash
 make -C test-scripts unit
 make -C test-scripts integration
 make -C test-scripts all
-```
+\```
 
 ## SQLite operational smokes (components of integration)
 
@@ -52,7 +52,7 @@ make -C test-scripts all
 | Script | Role |
 |--------|------|
 | [`run_keychain_integration.sh`](run_keychain_integration.sh) | Sets **`SECKIT_RUN_KEYCHAIN_INTEGRATION_TESTS=1`** and runs **`tests.test_keychain_backend_store`** + **`tests.test_seckit_cli_keychain_e2e`**. Requires **Darwin** + **`security`**. Not part of **`run_all_tests.sh`**. |
-| [`seckit_launchd_smoke.sh`](seckit_launchd_smoke.sh) | LaunchAgent/Daemon smoke vs Keychain; operator-owned. Agent simulator stays **[`scripts/seckit_launchd_agent_simulator.py`](../scripts/seckit_launchd_agent_simulator.py)**. See [docs/LAUNCHD_VALIDATION.md](../docs/LAUNCHD_VALIDATION.md). |
+| [`seckit_launchd_smoke.sh`](seckit_launchd_smoke.sh) | **Obsolete.** Replaced by Python-native tests in [`tests/test_launchd_run_flow.py`](../tests/test_launchd_run_flow.py). Kept temporarily for manual operator reference. See [docs/LAUNCHD_VALIDATION.md](../docs/LAUNCHD_VALIDATION.md). |
 
 ## Shared helper (do not run directly)
 

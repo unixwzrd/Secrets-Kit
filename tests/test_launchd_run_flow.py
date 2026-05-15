@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import json
 import os
 import plistlib
 import shlex
@@ -11,21 +12,27 @@ import sys
 import tempfile
 import time
 import unittest
+import uuid
 from pathlib import Path
 from unittest import mock
 
-from secrets_kit.cli.commands.secrets import cmd_set
-from secrets_kit.backends.security import delete_keychain, delete_secret, harden_keychain, keychain_path, make_temp_keychain, secret_exists
-from secrets_kit.backends.sqlite.unlock import clear_sqlite_unlock_cache
-
-from platform_guards import SKIP_MACOS_ONLY
 from macos_integration import (
     _SKIP_INTERACTIVE,
     launchd_login_keychain_enabled,
-    launchd_service_keychain_enabled,
     launchd_sqlite_enabled,
     launchd_tests_enabled,
 )
+from platform_guards import SKIP_MACOS_ONLY
+from secrets_kit.backends.security import (
+    delete_keychain,
+    delete_secret,
+    harden_keychain,
+    keychain_path,
+    make_temp_keychain,
+    secret_exists,
+)
+from secrets_kit.backends.sqlite.unlock import clear_sqlite_unlock_cache
+from secrets_kit.cli.commands.secrets import cmd_set
 
 
 def _launchd_program_arguments_for_seckit_run(
@@ -44,22 +51,156 @@ def _launchd_program_arguments_for_seckit_run(
     return run_cli_argv
 
 
-class LaunchdSmokeScriptInterfaceTest(unittest.TestCase):
-    def test_smoke_script_help_lists_supported_modes(self) -> None:
-        repo_root = Path(__file__).resolve().parents[1]
-        proc = subprocess.run(
-            ["bash", "test-scripts/seckit_launchd_smoke.sh", "--help"],
-            cwd=repo_root,
+def _write_child_script(*, path: Path, env_names: list[str], output_path: Path) -> None:
+    """Write a minimal temporary child script for launchd injection tests.
+
+    The script reads the requested environment variables and writes them
+    as a JSON object to ``output_path``.
+    """
+    code = (
+        "import json, os, sys\n"
+        f"output_file = {str(output_path)!r}\n"
+        f"env_names = {env_names!r}\n"
+        "payload = {name: os.environ.get(name, '') for name in env_names}\n"
+        "with open(output_file, 'w', encoding='utf-8') as f:\n"
+        "    json.dump(payload, f)\n"
+        "    f.write('\\n')\n"
+    )
+    path.write_text(code, encoding="utf-8")
+
+
+def _run_launchd_injection_test(
+    *,
+    label: str,
+    home: Path,
+    repo_root: Path,
+    program_arguments: list[str],
+    env_vars: dict[str, str],
+    output_path: Path,
+    timeout: float = 20.0,
+) -> dict[str, str]:
+    """Backend-agnostic launchd environment-injection validation.
+
+    Builds a LaunchAgent plist from the supplied ``program_arguments``,
+    bootstraps it into the GUI domain, kickstarts the job, and polls for
+    the output file.  Always performs cleanup via ``finally:``.
+
+    The caller is responsible for creating any temporary child scripts
+    and constructing the complete ``program_arguments`` (including
+    ``seckit run … -- <child>``) so that wrapping helpers such as
+    ``_launchd_program_arguments_for_seckit_run`` receive the full
+    command.
+
+    Returns a dict with keys:
+    - ``output_json``: child output (str)
+    - ``stdout``: child stdout (str)
+    - ``stderr``: child stderr (str)
+    - ``service_target``: launchd target string
+    - ``plist_path``: path to the generated plist
+    - ``output_path``: path to the child output file
+    """
+    service_target = f"gui/{os.getuid()}/{label}"
+    stdout_path = home / f"{label}.stdout"
+    stderr_path = home / f"{label}.stderr"
+    plist_path = home / f"{label}.plist"
+
+    plist = {
+        "Label": label,
+        "ProgramArguments": list(program_arguments),
+        "EnvironmentVariables": {
+            "HOME": str(home),
+            "PYTHONPATH": str(repo_root / "src"),
+            **env_vars,
+        },
+        "WorkingDirectory": str(repo_root),
+        "RunAtLoad": False,
+        "StandardOutPath": str(stdout_path),
+        "StandardErrorPath": str(stderr_path),
+    }
+    with plist_path.open("wb") as handle:
+        plistlib.dump(plist, handle)
+
+    bootstrapped = False
+    try:
+        bootstrap_result = subprocess.run(
+            ["launchctl", "bootstrap", f"gui/{os.getuid()}", str(plist_path)],
             capture_output=True,
             text=True,
             check=False,
         )
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIn("login-agent", proc.stdout)
-        self.assertIn("service-agent", proc.stdout)
-        self.assertIn("service-daemon", proc.stdout)
-        self.assertIn("--backend", proc.stdout)
-        self.assertIn("seckit_launchd_agent_simulator.py", proc.stdout)
+        if bootstrap_result.returncode != 0:
+            launchctl_print = subprocess.run(
+                ["launchctl", "print", service_target],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            raise AssertionError(
+                f"launchctl bootstrap failed for {service_target}\n"
+                f"plist: {plist_path}\n"
+                f"stdout: {bootstrap_result.stdout}\n"
+                f"stderr: {bootstrap_result.stderr}\n"
+                f"launchctl print: {launchctl_print.stdout}{launchctl_print.stderr}"
+            )
+        bootstrapped = True
+
+        kickstart_result = subprocess.run(
+            ["launchctl", "kickstart", "-k", service_target],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if kickstart_result.returncode != 0:
+            raise AssertionError(
+                f"launchctl kickstart failed for {service_target}\n"
+                f"stdout: {kickstart_result.stdout}\n"
+                f"stderr: {kickstart_result.stderr}"
+            )
+
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if output_path.exists():
+                break
+            time.sleep(0.2)
+
+        stdout = stdout_path.read_text(encoding="utf-8") if stdout_path.exists() else ""
+        stderr = stderr_path.read_text(encoding="utf-8") if stderr_path.exists() else ""
+
+        if not output_path.exists():
+            launchctl_print = subprocess.run(
+                ["launchctl", "print", service_target],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            raise AssertionError(
+                f"launchd output was not created for {service_target}\n"
+                f"plist: {plist_path}\n"
+                f"stdout: {stdout}\n"
+                f"stderr: {stderr}\n"
+                f"launchctl print: {launchctl_print.stdout}{launchctl_print.stderr}"
+            )
+
+        output_json = output_path.read_text(encoding="utf-8")
+        return {
+            "output_json": output_json,
+            "stdout": stdout,
+            "stderr": stderr,
+            "service_target": service_target,
+            "plist_path": str(plist_path),
+            "output_path": str(output_path),
+        }
+    finally:
+        if bootstrapped:
+            subprocess.run(
+                ["launchctl", "bootout", service_target],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        for p in (plist_path, output_path, stdout_path, stderr_path):
+            if p.exists():
+                p.unlink(missing_ok=True)
 
 
 @unittest.skipUnless(sys.platform == "darwin", SKIP_MACOS_ONLY)
@@ -560,22 +701,189 @@ class LaunchdRunFlowTest(unittest.TestCase):
             if secret_exists(service=service, account=account, name=name, path=login_keychain, backend="local"):
                 delete_secret(service=service, account=account, name=name, path=login_keychain, backend="local")
 
+    def test_launch_agent_service_agent_temp_keychain(self) -> None:
+        """Python-native launchd validation using a disposable keychain backend.
+
+        Replaces the shell-script ``service-agent`` smoke path with a
+        backend-agnostic helper that performs the same validation in pure
+        Python.
+        """
+        fixture = make_temp_keychain(password="")
+        label = f"ai.unixwzrd.seckit.launchd-svc.{os.getpid()}.{uuid.uuid4().hex[:8]}"
+        try:
+            harden_keychain(path=fixture["path"], timeout_seconds=3600)
+            with tempfile.TemporaryDirectory() as home_dir:
+                home = Path(home_dir)
+                repo_root = Path(__file__).resolve().parents[1]
+
+                with mock.patch("pathlib.Path.home", return_value=home):
+                    set_args = argparse.Namespace(
+                        name="SECKIT_TEST_ENV",
+                        value="expected-service-agent",
+                        stdin=False,
+                        allow_empty=False,
+                        type="secret",
+                        kind="generic",
+                        tags=None,
+                        comment="launchd service-agent env injection",
+                        service="launchd-svc-test",
+                        account="local",
+                        source_url="",
+                        source_label="",
+                        rotation_days=None,
+                        rotation_warn_days=None,
+                        expires_at="",
+                        domain=None,
+                        domains=None,
+                        meta=None,
+                        keychain=fixture["path"],
+                        backend="local",
+                    )
+                    self.assertEqual(cmd_set(args=set_args), 0)
+
+                child_script = home / f"{label}.child.py"
+                output_path = home / f"{label}.output.json"
+                _write_child_script(
+                    path=child_script,
+                    env_names=["SECKIT_TEST_ENV"],
+                    output_path=output_path,
+                )
+                run_argv = [
+                    sys.executable,
+                    "-m",
+                    "secrets_kit.cli",
+                    "run",
+                    "--service",
+                    "launchd-svc-test",
+                    "--account",
+                    "local",
+                    "--keychain",
+                    fixture["path"],
+                    "--",
+                    sys.executable,
+                    str(child_script),
+                    str(output_path),
+                ]
+                program_arguments = _launchd_program_arguments_for_seckit_run(
+                    run_cli_argv=run_argv,
+                    keychain_path=fixture["path"],
+                    keychain_unlock_password="",
+                )
+
+                result = _run_launchd_injection_test(
+                    label=label,
+                    home=home,
+                    repo_root=repo_root,
+                    program_arguments=program_arguments,
+                    env_vars={},
+                    output_path=output_path,
+                )
+                payload = json.loads(result["output_json"])
+                self.assertEqual(payload.get("SECKIT_TEST_ENV"), "expected-service-agent")
+        finally:
+            try:
+                delete_keychain(path=fixture["path"])
+            finally:
+                shutil.rmtree(fixture["directory"], ignore_errors=True)
+
     @unittest.skipUnless(
-        launchd_service_keychain_enabled(),
-        "set SECKIT_RUN_LAUNCHD_SERVICE_KEYCHAIN_TESTS=1 for dedicated service-keychain smoke (optional; temp-keychain launchd tests cover injection)",
+        importlib.util.find_spec("nacl") is not None,
+        "SQLite launchd test requires PyNaCl",
     )
-    def test_smoke_script_service_agent_mode(self) -> None:
-        repo_root = Path(__file__).resolve().parents[1]
-        proc = subprocess.run(
-            ["bash", "test-scripts/seckit_launchd_smoke.sh", "--mode", "service-agent"],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIn('"mode": "service-agent"', proc.stdout)
-        self.assertIn("launchd smoke test passed", proc.stdout)
+    @unittest.skipUnless(launchd_sqlite_enabled(), _SKIP_INTERACTIVE)
+    def test_launch_agent_service_agent_sqlite_backend(self) -> None:
+        """Python-native launchd validation using the SQLite backend.
+
+        Same injection logic as the keychain variant; only the secret
+        source changes.
+        """
+        label = f"ai.unixwzrd.seckit.launchd-sqlite-svc.{os.getpid()}.{uuid.uuid4().hex[:8]}"
+        with tempfile.TemporaryDirectory() as home_dir:
+            home = Path(home_dir)
+            db_file = home / "launchd-sqlite-svc.db"
+            passphrase = "launchd-sqlite-svc-dummy-passphrase!!"
+            repo_root = Path(__file__).resolve().parents[1]
+
+            prev_pass = os.environ.get("SECKIT_SQLITE_PASSPHRASE")
+            prev_unlock = os.environ.get("SECKIT_SQLITE_UNLOCK")
+            clear_sqlite_unlock_cache()
+            try:
+                os.environ["SECKIT_SQLITE_PASSPHRASE"] = passphrase
+                os.environ["SECKIT_SQLITE_UNLOCK"] = "passphrase"
+                with mock.patch("pathlib.Path.home", return_value=home):
+                    set_args = argparse.Namespace(
+                        name="SECKIT_TEST_ENV",
+                        value="expected-sqlite-service",
+                        stdin=False,
+                        allow_empty=False,
+                        type="secret",
+                        kind="generic",
+                        tags=None,
+                        comment="launchd sqlite service-agent env injection",
+                        service="launchd-sqlite-svc-test",
+                        account="local",
+                        source_url="",
+                        source_label="",
+                        rotation_days=None,
+                        rotation_warn_days=None,
+                        expires_at="",
+                        domain=None,
+                        domains=None,
+                        meta=None,
+                        keychain=None,
+                        backend="sqlite",
+                        db=str(db_file),
+                    )
+                    self.assertEqual(cmd_set(args=set_args), 0)
+            finally:
+                clear_sqlite_unlock_cache()
+                if prev_pass is None:
+                    os.environ.pop("SECKIT_SQLITE_PASSPHRASE", None)
+                else:
+                    os.environ["SECKIT_SQLITE_PASSPHRASE"] = prev_pass
+                if prev_unlock is None:
+                    os.environ.pop("SECKIT_SQLITE_UNLOCK", None)
+                else:
+                    os.environ["SECKIT_SQLITE_UNLOCK"] = prev_unlock
+
+            child_script = home / f"{label}.child.py"
+            output_path = home / f"{label}.output.json"
+            _write_child_script(
+                path=child_script,
+                env_names=["SECKIT_TEST_ENV"],
+                output_path=output_path,
+            )
+            run_argv = [
+                sys.executable,
+                "-m",
+                "secrets_kit.cli",
+                "run",
+                "--backend",
+                "sqlite",
+                "--db",
+                str(db_file),
+                "--service",
+                "launchd-sqlite-svc-test",
+                "--account",
+                "local",
+                "--",
+                sys.executable,
+                str(child_script),
+                str(output_path),
+            ]
+            result = _run_launchd_injection_test(
+                label=label,
+                home=home,
+                repo_root=repo_root,
+                program_arguments=run_argv,
+                env_vars={
+                    "SECKIT_SQLITE_PASSPHRASE": passphrase,
+                    "SECKIT_SQLITE_UNLOCK": "passphrase",
+                },
+                output_path=output_path,
+            )
+            payload = json.loads(result["output_json"])
+            self.assertEqual(payload.get("SECKIT_TEST_ENV"), "expected-sqlite-service")
 
 
 if __name__ == "__main__":
