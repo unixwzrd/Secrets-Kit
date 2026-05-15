@@ -16,6 +16,9 @@ from secrets_kit.cli.commands.import_export import cmd_export, cmd_import_env
 from secrets_kit.cli.commands.secrets import cmd_get, cmd_set
 from secrets_kit.backends.security import delete_keychain, keychain_path, lock_keychain, make_temp_keychain
 
+from macos_integration import _SKIP_INTERACTIVE, locked_keychain_tests_enabled
+from platform_guards import SKIP_MACOS_ONLY
+
 
 def _pythonpath_for_subprocess_hijacked_home(*, src_relative_to_repo: Path) -> str:
     """Build PYTHONPATH when env HOME is replaced so child Python still finds deps.
@@ -37,15 +40,11 @@ def _pythonpath_for_subprocess_hijacked_home(*, src_relative_to_repo: Path) -> s
     return os.pathsep.join(parts)
 
 
-def _locked_keychain_tests_enabled() -> bool:
-    return os.environ.get("SECKIT_RUN_LOCKED_KEYCHAIN_TESTS") == "1"
-
-
-@unittest.skipUnless(sys.platform == "darwin", "macOS-only integration test")
+@unittest.skipUnless(sys.platform == "darwin", SKIP_MACOS_ONLY)
 class DisposableKeychainFlowTest(unittest.TestCase):
     def test_direct_transfer_between_two_keychains(self) -> None:
-        src = make_temp_keychain(password="src-pass")
-        dst = make_temp_keychain(password="dst-pass")
+        src = make_temp_keychain(password="")
+        dst = make_temp_keychain(password="")
         try:
             with tempfile.TemporaryDirectory() as home_dir:
                 home = Path(home_dir)
@@ -128,7 +127,7 @@ class DisposableKeychainFlowTest(unittest.TestCase):
                 finally:
                     shutil.rmtree(fixture["directory"], ignore_errors=True)
 
-    @unittest.skipUnless(_locked_keychain_tests_enabled(), "set SECKIT_RUN_LOCKED_KEYCHAIN_TESTS=1 to run locked-keychain prompt tests")
+    @unittest.skipUnless(locked_keychain_tests_enabled(), _SKIP_INTERACTIVE)
     def test_locked_destination_fails_import(self) -> None:
         src = make_temp_keychain(password="src-pass")
         dst = make_temp_keychain(password="dst-pass")
@@ -204,7 +203,7 @@ class DisposableKeychainFlowTest(unittest.TestCase):
                     shutil.rmtree(fixture["directory"], ignore_errors=True)
 
     def test_run_injects_disposable_keychain_secret_into_child_process(self) -> None:
-        fixture = make_temp_keychain(password="run-pass")
+        fixture = make_temp_keychain(password="")
         try:
             with tempfile.TemporaryDirectory() as home_dir:
                 home = Path(home_dir)

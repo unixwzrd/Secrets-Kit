@@ -150,27 +150,16 @@ class PeerSyncDryRunTest(unittest.TestCase):
         self.assertEqual(stats["updated"], 0)
 
     def test_dry_run_conflict_same_vector_and_diff_value(self) -> None:
-        ts = "2026-06-01T12:00:00Z"
+        """Same merge vector on disk as incoming row, different secret value → dry-run conflict."""
         origin = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-        meta_in = EntryMetadata(
-            name="K",
-            service="svc",
-            account="ac",
-            updated_at=ts,
-            custom={"seckit_sync_origin_host": origin},
-        )
-        id_b, inner_entries = self._make_bundle_for_b(
-            entries_payload=[{"metadata": meta_in.to_dict(), "origin_host": origin, "value": "from-a"}],
-        )
         ensure_registry_storage(home=self.home_b)
         meta_loc = EntryMetadata(
             name="K",
             service="svc",
             account="ac",
-            updated_at=ts,
+            updated_at="2026-06-01T12:00:00Z",
             custom={"seckit_sync_origin_host": origin},
         )
-        # SQLite authority metadata must carry the merge vector (registry alone is not read for merges).
         set_secret(
             service="svc",
             account="ac",
@@ -182,9 +171,24 @@ class PeerSyncDryRunTest(unittest.TestCase):
         )
         upsert_metadata(metadata=meta_loc, home=self.home_b)
 
+        st = SqliteSecretStore(db_path=str(self.db_b), kek_keychain_path=None)
+        resolved = st.resolve_by_locator(service="svc", account="ac", name="K")
+        self.assertIsNotNone(resolved)
+        stored_meta = resolved.metadata
+        _id_b, inner_entries = self._make_bundle_for_b(
+            entries_payload=[
+                {
+                    "metadata": stored_meta.to_dict(),
+                    "origin_host": origin,
+                    "value": "from-a",
+                }
+            ],
+        )
+        clear_sqlite_crypto_cache()
+
         stats = apply_peer_sync_import(
             inner_entries=inner_entries,
-            local_host_id=id_b.host_id,
+            local_host_id=_id_b.host_id,
             dry_run=True,
             path=str(self.db_b),
             backend=BACKEND_SQLITE,

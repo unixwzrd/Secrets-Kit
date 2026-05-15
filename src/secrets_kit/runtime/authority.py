@@ -75,6 +75,7 @@ BACKEND_INTERFACE_EXPOSURE: Dict[str, RuntimeExposureLevel] = {
     "capabilities": RuntimeExposureLevel.index_only,
     "set_entry": RuntimeExposureLevel.resolved_within_handling,
     "get_secret": RuntimeExposureLevel.resolved_within_handling,
+    "metadata": RuntimeExposureLevel.resolved_within_handling,
     "resolve_by_entry_id": RuntimeExposureLevel.resolved_within_handling,
     "resolve_by_locator": RuntimeExposureLevel.resolved_within_handling,
     "delete_entry": RuntimeExposureLevel.resolved_within_handling,

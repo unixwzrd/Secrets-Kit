@@ -1,14 +1,16 @@
 # Tests layout and vocabulary notes
 
 **Created**: 2026-05-05  
-**Updated**: 2026-05-14  
+**Updated**: 2026-05-05  
 
 ## Makefile (quick reference)
 
 From the repo root:
 
 - `make` or `make help` — **index of all targets**, how to combine groups, `unittest` / `pytest-args` escapes, and environment notes.
-- `make test` — full **`unittest discover`** (canonical, serial).
+- **`make test`** — full suite, **loud** (pytest **`-v -rs`**, each case + skip summary). Needs **`pip install -e ".[test]"`**. On **macOS** outside **`CI`**, launchd jobs run when **`gui/<uid>`** exists.
+- **`make test-quiet`** / **`make test-ci`** — full suite, **quiet** (pytest **`-q`**; exit code for CI; traceback only on failure).
+- **`make test-unittest`** — same scope via **`unittest discover`** (no pytest).
 - `make test-parallel` — **`pytest -n 8`** by default (`pip install -e ".[test]"`).
 - `make test-groups` — runs each **group** in order (same modules as a full run when taken together; fails fast on the first broken group).
 
@@ -16,6 +18,9 @@ Exact module lists are the `TEST_*` variables at the top of `Makefile`; do not d
 
 | Make target | Area |
 |-------------|------|
+| `test` | Full suite, **loud** pytest (`-v -rs`) |
+| `test-quiet` / `test-ci` | Full suite, **quiet** pytest (`-q`) |
+| `test-unittest` | Full **`unittest discover`** (`-v`) |
 | `test-sqlite` | `test_sqlite_*` modules |
 | `test-contract` | `test_backend_store_contract`, `test_backend_resolution` |
 | `test-backends` | **contract + all sqlite** (one invocation) |
@@ -25,13 +30,20 @@ Exact module lists are the `TEST_*` variables at the top of `Makefile`; do not d
 | `test-registry` | Registry permissions, slim, v2 |
 | `test-models` | Models, identity, schemas, authority invariants, enrollment |
 | `test-keychain` | Keychain backend/inventory/real/disposable, CLI Keychain E2E |
+| `test-keychain-live` | macOS: pytest Keychain modules only (`-n 0`; same as auto in **`make test`** on console) |
+| `test-launchd-live` | macOS: pytest launchd module only (`-n 0`) |
 | `test-reconciliation` | `tests/reconciliation/` package only |
-| `test-misc` | Export shell, import dotenv, import guards, operator config, leakage |
+| `test-operational-live` | macOS opt-in: Keychain + launchd live pytest slice |
 
 Custom slices:
 
 - `make unittest ARGS="tests.test_foo tests.test_bar -v"`
 - `make pytest-args ARGS="tests/test_sqlite_*.py -n 4 --tb=short"` (needs `.[test]` for xdist)
+
+## Platform skips
+
+- **`tests/platform_guards.py`** — macOS-only tests skip with **`skipped: macOS only`** on Linux CI.
+- **`test_configure_unix_ipc_socket_on_af_unix`** — open `AF_UNIX`, platform `setsockopt`, bind (CLI ↔ `seckitd` transport; not Keychain, not peer auth).
 
 ## Parser and CLI
 
@@ -50,8 +62,21 @@ When adding tests, tag confusing cases with short comments referencing `docs/ARC
 
 Live `security` CLI tests (`test_keychain_backend_store`, `test_seckit_cli_keychain_e2e`) are **skipped by default** so CI sandboxes and Linux runners stay fast. On a Mac developer machine:
 
+**Make (recommended — env vars only apply to that command):**
+
 ```bash
-export SECKIT_RUN_KEYCHAIN_INTEGRATION_TESTS=1
+make test-keychain-live          # SECKIT_RUN_KEYCHAIN_INTEGRATION_TESTS=1 + pytest -n 0
+make test-launchd-live          # SECKIT_RUN_LAUNCHD_TESTS=1 + pytest -n 0
+make test-operational-live      # both flags + pytest Keychain + launchd modules
+```
+
+No-password temp keychains use `security create-keychain -p ''` / `unlock-keychain -p ''` so **recent macOS does not prompt** interactively (avoids pytest hanging on password prompts).
+
+Manual:
+
+```bash
+# Live Keychain/launchd tests auto-run on macOS when logged in at the GUI (`launchctl print gui/$UID`).
+# Opt-out: SECKIT_RUN_KEYCHAIN_INTEGRATION_TESTS=0 (or LAUNCHD_* / LOCKED_* equivalents).
 PYTHONPATH=src python3 -m unittest tests.test_keychain_backend_store tests.test_seckit_cli_keychain_e2e -v
 ```
 

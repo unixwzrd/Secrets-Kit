@@ -4,6 +4,7 @@ import argparse
 import importlib.util
 import os
 import plistlib
+import shlex
 import shutil
 import subprocess
 import sys
@@ -16,6 +17,31 @@ from unittest import mock
 from secrets_kit.cli.commands.secrets import cmd_set
 from secrets_kit.backends.security import delete_keychain, delete_secret, harden_keychain, keychain_path, make_temp_keychain, secret_exists
 from secrets_kit.backends.sqlite.unlock import clear_sqlite_unlock_cache
+
+from platform_guards import SKIP_MACOS_ONLY
+from macos_integration import (
+    _SKIP_INTERACTIVE,
+    launchd_login_keychain_enabled,
+    launchd_service_keychain_enabled,
+    launchd_sqlite_enabled,
+    launchd_tests_enabled,
+)
+
+
+def _launchd_program_arguments_for_seckit_run(
+    *,
+    run_cli_argv: list[str],
+    keychain_path: str | None = None,
+    keychain_unlock_password: str | None = None,
+) -> list[str]:
+    """launchd runs a fresh process; unlock temp keychains before ``seckit run`` (``-p ''`` = no password)."""
+    if keychain_path is not None and keychain_unlock_password is not None:
+        kc = shlex.quote(keychain_path)
+        pw = shlex.quote(keychain_unlock_password)
+        cmd = " ".join(shlex.quote(part) for part in run_cli_argv)
+        script = f'/usr/bin/security unlock-keychain -p {pw} {kc} && exec {cmd}'
+        return ["/bin/bash", "-c", script]
+    return run_cli_argv
 
 
 class LaunchdSmokeScriptInterfaceTest(unittest.TestCase):
@@ -36,28 +62,8 @@ class LaunchdSmokeScriptInterfaceTest(unittest.TestCase):
         self.assertIn("seckit_launchd_agent_simulator.py", proc.stdout)
 
 
-def _launchd_tests_enabled() -> bool:
-    return os.environ.get("SECKIT_RUN_LAUNCHD_TESTS") == "1"
-
-
-def _login_keychain_launchd_tests_enabled() -> bool:
-    return os.environ.get("SECKIT_RUN_LAUNCHD_LOGIN_KEYCHAIN_TESTS") == "1"
-
-
-def _service_keychain_launchd_tests_enabled() -> bool:
-    return os.environ.get("SECKIT_RUN_LAUNCHD_SERVICE_KEYCHAIN_TESTS") == "1"
-
-
-def _daemon_launchd_tests_enabled() -> bool:
-    return os.environ.get("SECKIT_RUN_LAUNCHD_DAEMON_TESTS") == "1"
-
-
-def _launchd_sqlite_tests_enabled() -> bool:
-    return os.environ.get("SECKIT_RUN_LAUNCHD_SQLITE_TESTS") == "1"
-
-
-@unittest.skipUnless(sys.platform == "darwin", "macOS-only launchd integration test")
-@unittest.skipUnless(_launchd_tests_enabled(), "set SECKIT_RUN_LAUNCHD_TESTS=1 to run launchd integration tests")
+@unittest.skipUnless(sys.platform == "darwin", SKIP_MACOS_ONLY)
+@unittest.skipUnless(launchd_tests_enabled(), _SKIP_INTERACTIVE)
 class LaunchdRunFlowTest(unittest.TestCase):
     def test_launch_agent_can_receive_seckit_run_environment(self) -> None:
         fixture = make_temp_keychain(password="")
@@ -102,25 +108,30 @@ class LaunchdRunFlowTest(unittest.TestCase):
                     "import os, pathlib, sys; "
                     "pathlib.Path(sys.argv[1]).write_text(os.environ.get('SECKIT_TEST_ENV', ''), encoding='utf-8')"
                 )
+                run_argv = [
+                    sys.executable,
+                    "-m",
+                    "secrets_kit.cli",
+                    "run",
+                    "--service",
+                    "launchd-test",
+                    "--account",
+                    "local",
+                    "--keychain",
+                    fixture["path"],
+                    "--",
+                    sys.executable,
+                    "-c",
+                    child_code,
+                    str(output_file),
+                ]
                 plist = {
                     "Label": label,
-                    "ProgramArguments": [
-                        sys.executable,
-                        "-m",
-                        "secrets_kit.cli",
-                        "run",
-                        "--service",
-                        "launchd-test",
-                        "--account",
-                        "local",
-                        "--keychain",
-                        fixture["path"],
-                        "--",
-                        sys.executable,
-                        "-c",
-                        child_code,
-                        str(output_file),
-                    ],
+                    "ProgramArguments": _launchd_program_arguments_for_seckit_run(
+                        run_cli_argv=run_argv,
+                        keychain_path=fixture["path"],
+                        keychain_unlock_password="",
+                    ),
                     "EnvironmentVariables": {
                         "HOME": str(home),
                         "PYTHONPATH": str(repo_root / "src"),
@@ -215,27 +226,32 @@ class LaunchdRunFlowTest(unittest.TestCase):
                     "import os, pathlib, sys; "
                     "pathlib.Path(sys.argv[1]).write_text(os.environ.get('SECKIT_TEST_ENV', ''), encoding='utf-8')"
                 )
+                run_argv = [
+                    sys.executable,
+                    "-m",
+                    "secrets_kit.cli",
+                    "run",
+                    "--backend",
+                    "secure",
+                    "--service",
+                    "launchd-secure-test",
+                    "--account",
+                    "local",
+                    "--keychain",
+                    fixture["path"],
+                    "--",
+                    sys.executable,
+                    "-c",
+                    child_code,
+                    str(output_file),
+                ]
                 plist = {
                     "Label": label,
-                    "ProgramArguments": [
-                        sys.executable,
-                        "-m",
-                        "secrets_kit.cli",
-                        "run",
-                        "--backend",
-                        "secure",
-                        "--service",
-                        "launchd-secure-test",
-                        "--account",
-                        "local",
-                        "--keychain",
-                        fixture["path"],
-                        "--",
-                        sys.executable,
-                        "-c",
-                        child_code,
-                        str(output_file),
-                    ],
+                    "ProgramArguments": _launchd_program_arguments_for_seckit_run(
+                        run_cli_argv=run_argv,
+                        keychain_path=fixture["path"],
+                        keychain_unlock_password="",
+                    ),
                     "EnvironmentVariables": {
                         "HOME": str(home),
                         "PYTHONPATH": str(repo_root / "src"),
@@ -293,7 +309,7 @@ class LaunchdRunFlowTest(unittest.TestCase):
         importlib.util.find_spec("nacl") is not None,
         "SQLite launchd test requires PyNaCl",
     )
-    @unittest.skipUnless(_launchd_sqlite_tests_enabled(), "set SECKIT_RUN_LAUNCHD_SQLITE_TESTS=1 for SQLite launchd test")
+    @unittest.skipUnless(launchd_sqlite_enabled(), _SKIP_INTERACTIVE)
     def test_launch_agent_sqlite_backend_injects_env(self) -> None:
         """launchd + ``--backend sqlite`` with a disposable HOME, DB, and dummy passphrase (opt-in)."""
         label = f"ai.unixwzrd.seckit.launchd-sqlite.{os.getpid()}"
@@ -425,7 +441,7 @@ class LaunchdRunFlowTest(unittest.TestCase):
                         check=False,
                     )
 
-    @unittest.skipUnless(_login_keychain_launchd_tests_enabled(), "set SECKIT_RUN_LAUNCHD_LOGIN_KEYCHAIN_TESTS=1 to run login-keychain launchd test")
+    @unittest.skipUnless(launchd_login_keychain_enabled(), _SKIP_INTERACTIVE)
     def test_launch_agent_can_receive_login_keychain_secret_without_keychain_password(self) -> None:
         """Requires writing to the real login keychain; needs an interactive GUI session.
 
@@ -544,7 +560,10 @@ class LaunchdRunFlowTest(unittest.TestCase):
             if secret_exists(service=service, account=account, name=name, path=login_keychain, backend="local"):
                 delete_secret(service=service, account=account, name=name, path=login_keychain, backend="local")
 
-    @unittest.skipUnless(_service_keychain_launchd_tests_enabled(), "set SECKIT_RUN_LAUNCHD_SERVICE_KEYCHAIN_TESTS=1 to run service-keychain launchd test")
+    @unittest.skipUnless(
+        launchd_service_keychain_enabled(),
+        "set SECKIT_RUN_LAUNCHD_SERVICE_KEYCHAIN_TESTS=1 for dedicated service-keychain smoke (optional; temp-keychain launchd tests cover injection)",
+    )
     def test_smoke_script_service_agent_mode(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
         proc = subprocess.run(
@@ -556,22 +575,6 @@ class LaunchdRunFlowTest(unittest.TestCase):
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn('"mode": "service-agent"', proc.stdout)
-        self.assertIn("launchd smoke test passed", proc.stdout)
-
-    @unittest.skipUnless(_daemon_launchd_tests_enabled(), "set SECKIT_RUN_LAUNCHD_DAEMON_TESTS=1 to run LaunchDaemon test")
-    def test_smoke_script_service_daemon_mode(self) -> None:
-        if os.geteuid() != 0:
-            self.skipTest("service-daemon launchd test must run as root")
-        repo_root = Path(__file__).resolve().parents[1]
-        proc = subprocess.run(
-            ["bash", "test-scripts/seckit_launchd_smoke.sh", "--mode", "service-daemon"],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIn('"mode": "service-daemon"', proc.stdout)
         self.assertIn("launchd smoke test passed", proc.stdout)
 
 

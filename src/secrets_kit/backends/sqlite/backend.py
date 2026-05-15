@@ -31,10 +31,9 @@ from secrets_kit.backends.base import (
     BackendStore,
     IndexRow,
     ResolvedEntry,
-    build_joint_payload_bytes,
     normalize_store_locator,
-    parse_joint_payload_or_legacy,
 )
+from secrets_kit.backends.sqlite.payload_codec import build_joint_payload_bytes, parse_joint_payload_or_legacy
 from secrets_kit.backends.keychain.inventory import GenpCandidate
 from secrets_kit.backends.security import BackendError, backend_service_name
 from secrets_kit.backends.sqlite.migrations import migrate_if_needed

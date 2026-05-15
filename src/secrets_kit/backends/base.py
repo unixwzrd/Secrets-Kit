@@ -19,7 +19,7 @@ SetAtomicity = Literal["atomic", "eventual", "best_effort"]
 
 # Version constants (align SQLite Keychain and wire format evolution).
 INDEX_SCHEMA_VERSION = 1
-PAYLOAD_SCHEMA_VERSION = 1  # Must match :data:`JOINT_PAYLOAD_VERSION`.
+PAYLOAD_SCHEMA_VERSION = 1  # Must match ``v`` in SQLite :mod:`secrets_kit.backends.sqlite.payload_codec`.
 BACKEND_IMPL_VERSION = 1
 
 
@@ -187,6 +187,10 @@ class BackendStore(ABC):
         """Return plaintext secret for active (non-deleted) entry."""
 
     @abstractmethod
+    def metadata(self, *, service: str, account: str, name: str) -> Dict[str, Any]:
+        """Return operator-shaped attribute dict (aligned with Keychain ``find-generic-password -g`` output)."""
+
+    @abstractmethod
     def resolve_by_entry_id(self, *, entry_id: str) -> Optional[ResolvedEntry]:
         """Load authority for one entry id, or None if missing/deleted.
 
@@ -251,63 +255,6 @@ class BackendStore(ABC):
     def import_authority(self, *args: Any, **kwargs: Any) -> Any:
         """Import authority from :meth:`export_authority` wire format."""
         raise NotImplementedError("import_authority is not implemented for this backend")
-
-
-JOINT_PAYLOAD_VERSION = PAYLOAD_SCHEMA_VERSION
-
-
-def build_joint_payload_bytes(*, secret: str, metadata: EntryMetadata) -> bytes:
-    """UTF-8 JSON body encrypted as the SQLite authority blob (adapter-internal helper).
-
-    Kept here so callers share one version constant; SQLite adapter performs encryption.
-    """
-    import json
-
-    from dataclasses import asdict
-
-    payload = {"v": JOINT_PAYLOAD_VERSION, "secret": secret, "metadata": asdict(metadata)}
-    return json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
-
-
-def parse_joint_payload_or_legacy(
-    *,
-    plain: bytes,
-    legacy_metadata_json: Optional[str],
-    service: str,
-    account: str,
-    name: str,
-) -> tuple[str, EntryMetadata]:
-    """Parse decrypted blob: joint v1 JSON, or legacy UTF-8 secret string + sidecar metadata_json."""
-    import json
-
-    text = plain.decode("utf-8")
-    try:
-        obj = json.loads(text)
-        if isinstance(obj, dict) and obj.get("v") == JOINT_PAYLOAD_VERSION and "secret" in obj and "metadata" in obj:
-            meta_raw = obj["metadata"]
-            if isinstance(meta_raw, dict):
-                return str(obj["secret"]), EntryMetadata.from_dict(meta_raw)
-    except (json.JSONDecodeError, TypeError, KeyError, ValueError):
-        pass
-    if legacy_metadata_json and legacy_metadata_json.strip():
-        parsed = EntryMetadata.from_keychain_comment(legacy_metadata_json)
-        if parsed is not None:
-            return text, parsed
-    return text, _minimal_metadata_locator(service=service, account=account, name=name)
-
-
-def _minimal_metadata_locator(*, service: str, account: str, name: str) -> EntryMetadata:
-    from secrets_kit.models.core import EntryMetadata, now_utc_iso
-
-    ts = now_utc_iso()
-    return EntryMetadata(
-        name=name,
-        service=service,
-        account=account,
-        source="legacy-sqlite",
-        created_at=ts,
-        updated_at=ts,
-    )
 
 
 def normalize_store_locator(*, service: str, account: str, name: str) -> Locator:

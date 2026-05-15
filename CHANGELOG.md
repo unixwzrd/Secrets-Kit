@@ -1,8 +1,53 @@
 # Secrets-Kit Changelog
 
 **Created**: 2026-03-10  
-**Updated**: 2026-05-14   on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+**Updated**: 2026-05-05   on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+### 2026-05-05 — `make test` loud / `make test-quiet` for CI (no flags to remember)
+
+- **Scope:** `Makefile`, `pytest.ini`, `pyproject.toml`, `tests/README.md`, `AGENTS.md`, `README.md`, `CHANGELOG.md`.
+- **What changed:** **`make test`** = serial pytest **`-v -rs --tb=short --color=yes`** (hardcoded). **`make test-quiet`** / **`make test-ci`** = **`-q --tb=short`** (minimal; exit code on failure). No **`PYTEST_FLAGS`** overrides. **`pytest.ini`** no longer forces **`-v`** globally so quiet mode stays quiet.
+
+### 2026-05-05 — Unified Unix peer-uid test + short macOS-only skip text
+
+- **Scope:** `tests/platform_guards.py`, `tests/test_seckitd_phase5b.py`, `tests/README.md`, `CHANGELOG.md`.
+- **What changed:** Single **`test_get_unix_peer_uid_uses_platform_socket_option`** (Linux `SO_PEERCRED` vs macOS `getpeereid` in one test). macOS Keychain/launchd skips use **`skipped: macOS only`**.
+
+### 2026-05-05 — Test fixes: no root daemon unittest, no-password keychains, peer dry-run conflict
+
+- **Scope:** `tests/test_launchd_run_flow.py`, `tests/macos_integration.py`, `tests/test_disposable_keychain_flow.py`, `tests/test_peer_sync_dry_run.py`, `docs/LAUNCHD_VALIDATION.md`, `CHANGELOG.md`.
+- **What changed:** Removed **`test_smoke_script_service_daemon_mode`** from the suite (root/system keychain is operator-only via `test-scripts/seckit_launchd_smoke.sh`, not supported in `make test`). Disposable keychain transfer/run tests use **`make_temp_keychain(password="")`** to avoid GUI password prompts. **`test_dry_run_conflict_same_vector_and_diff_value`** builds incoming metadata from the SQLite row after `set_secret` so merge vectors match and a true dry-run **conflict** is asserted.
+
+### 2026-05-05 — macOS live tests auto-run on GUI login (`tests/macos_integration.py`)
+
+- **Scope:** `tests/macos_integration.py` (new), `test_launchd_run_flow.py`, `test_keychain_backend_store.py`, `test_seckit_cli_keychain_e2e.py`, `test_disposable_keychain_flow.py`, `tests/README.md`, `CHANGELOG.md`.
+- **What changed:** Keychain integration, login-keychain launchd, service-keychain smoke, locked-keychain, and related gates **auto-enable** on macOS when **`launchctl print gui/$UID`** works and not **CI**. **`SECKIT_RUN_*=0`** opts out; **`=1`** forces (SSH). LaunchDaemon test still requires **root** inside the test.
+
+### 2026-05-05 — Launchd tests auto-run on interactive macOS (`gui/<uid>`)
+
+- **Scope:** `tests/test_launchd_run_flow.py`, `docs/LAUNCHD_VALIDATION.md`, `docs/SECKIT_RUN_AND_BACKEND_REWORK_PLAN.md`, `tests/README.md`, `AGENTS.md`, `CHANGELOG.md`.
+- **What changed:** Temp-keychain and SQLite launchd unittests run under **`make test`** when **`launchctl print gui/$UID`** succeeds and **`CI` / `GITHUB_ACTIONS`** are unset. **`SECKIT_RUN_LAUNCHD_TESTS=0`** disables auto; **`=1`** forces. **`SECKIT_RUN_LAUNCHD_SQLITE_TESTS=0`** still skips only the SQLite job; auto SQLite follows base launchd gating but not CI. Login-keychain, **`service-agent`** smoke, and LaunchDaemon cases stay on their existing env gates.
+
+### 2026-05-15 — Verbose default for `make test` (+ `test-quiet`, `test-ci`)
+
+- **Scope:** `Makefile`, `tests/README.md`, `AGENTS.md`, `CHANGELOG.md`.
+- **What changed:** **`make test`** and grouped **`test-*`** unittest targets use **`-v`** by default (`UNITTEST_FLAGS`, overridable). Added **`make test-quiet`** (`-q` only for full discover) and **`make test-ci`** (alias of **`make test`** — verbose is preferred in CI for failure context).
+
+### 2026-05-15 — Makefile live-test convenience + non-interactive temp keychains
+
+- **Scope:** `Makefile`, `src/secrets_kit/backends/security.py` (`create_keychain` / `unlock_keychain_with_password`), `tests/README.md`, `CHANGELOG.md`.
+- **What changed:** Added **`make test-keychain-live`**, **`test-launchd-live`**, and **`test-operational-live`** so opt-in integration env vars apply only inside the recipe (no shell export/unset). Empty-password test keychains now use **`security … -p ''`** so **macOS does not prompt** interactively during `make_temp_keychain(password="")` / pytest.
+
+### 2026-05-05 — Pytest `PYTEST_FLAGS` default (`-q` + `-rs`)
+
+- **Scope:** `Makefile`, `CHANGELOG.md`.
+- **What changed:** **`PYTEST_FLAGS ?= -q -rs`** centralizes pytest verbosity for **`make test-parallel`**, **`test-parallel-auto`**, and **`*-live`** targets (skip reason summary is pytest-only). Override example: **`make test-parallel PYTEST_FLAGS='-v -rs'`**. **`test-parallel-auto`** uses **`pytest … -n auto`** (typo fix).
+
+### 2026-05-05 — Backend architecture cleanup (resolver, codec, operator defaults)
+
+- **Scope:** `src/secrets_kit/backends/security.py`, `base.py`, `sqlite/payload_codec.py` (new), `messages.py` (new), `keychain/backend.py`, `registry/core.py`, `cli/support/defaults.py`, `cli/commands/diagnostics.py`, `runtime/authority.py`, `cli/strings/en.py`, `docs/DEFAULTS.md`, `docs/SECKIT_RUN_AND_BACKEND_REWORK_PLAN.md`, `docs/BACKEND_STORE_CONTRACT.md`, tests; removed stub packages `backends/postgres/`, `backends/oracle/`.
+- **What changed:** Canonical store factory is `resolve_backend_store`; `resolve_secret_store` is a **deprecated** shim. `set_secret` / `get_secret` / `delete_secret` / `get_secret_metadata` / `secret_exists` delegate through `BackendStore`; `BackendStore` adds abstract `metadata`, implemented for Keychain + SQLite. SQLite joint-payload JSON helpers live in `sqlite/payload_codec.py` (no on-disk format change). Operator JSON is **not** auto-rewritten for unsupported `backend` values; invalid values fail during defaults application, `doctor` emits `invalid_backend_references`, and `doctor --fix-defaults` **removes** a bad `backend` key from `defaults.json` only.
 
 ### 2026-05-14 — Makefile `make help` + optional pytest-xdist parallel tests
 

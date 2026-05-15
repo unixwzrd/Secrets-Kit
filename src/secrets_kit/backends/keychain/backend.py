@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 import uuid
 from dataclasses import replace
-from typing import Callable, Iterator, Optional
+from typing import Any, Callable, Dict, Iterator, Optional
 
 from secrets_kit.backends.base import (
     INDEX_SCHEMA_VERSION,
@@ -120,6 +120,10 @@ class KeychainBackendStore(BackendStore):
     def get_secret(self, *, service: str, account: str, name: str) -> str:
         loc = Locator.from_parts(service=service, account=account, name=name)
         return self._cli.get(service=loc.service, account=loc.account, name=loc.name)
+
+    def metadata(self, *, service: str, account: str, name: str) -> Dict[str, Any]:
+        loc = Locator.from_parts(service=service, account=account, name=name)
+        return self._cli.metadata(service=loc.service, account=loc.account, name=loc.name)
 
     def resolve_by_entry_id(self, *, entry_id: str) -> Optional[ResolvedEntry]:
         want = str(entry_id).strip()

@@ -12,13 +12,13 @@ from secrets_kit.backends.security import check_security_cli, delete_keychain, m
 from secrets_kit.backends.keychain import KeychainBackendStore
 from secrets_kit.models.core import EntryMetadata
 
+from macos_integration import _SKIP_INTERACTIVE, keychain_integration_enabled
+from platform_guards import SKIP_MACOS_ONLY
 
-_MACOS_KEYCHAIN_INTEGRATION = os.environ.get("SECKIT_RUN_KEYCHAIN_INTEGRATION_TESTS") == "1"
 
-
-@unittest.skipUnless(sys.platform == "darwin", "macOS-only Keychain test")
+@unittest.skipUnless(sys.platform == "darwin", SKIP_MACOS_ONLY)
 @unittest.skipUnless(check_security_cli(), "security CLI not available")
-@unittest.skipUnless(_MACOS_KEYCHAIN_INTEGRATION, "set SECKIT_RUN_KEYCHAIN_INTEGRATION_TESTS=1 to run live Keychain tests")
+@unittest.skipUnless(keychain_integration_enabled(), _SKIP_INTERACTIVE)
 class KeychainBackendStoreAuthorityTest(unittest.TestCase):
     def test_set_entry_stores_authority_comment_without_sync_fields(self) -> None:
         fixture = make_temp_keychain(password="")

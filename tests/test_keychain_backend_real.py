@@ -5,6 +5,7 @@ import shutil
 import sys
 import unittest
 
+from platform_guards import SKIP_MACOS_ONLY
 from secrets_kit.backends.security import (
     check_security_cli,
     delete_keychain,
@@ -17,11 +18,11 @@ from secrets_kit.backends.security import (
 )
 
 
-@unittest.skipUnless(sys.platform == "darwin", "macOS-only backend test")
+@unittest.skipUnless(sys.platform == "darwin", SKIP_MACOS_ONLY)
 @unittest.skipUnless(check_security_cli(), "security CLI not available")
 class KeychainBackendRealTest(unittest.TestCase):
     def test_temp_keychain_crud_and_metadata(self) -> None:
-        fixture = make_temp_keychain()
+        fixture = make_temp_keychain(password="")
         path = fixture["path"]
         try:
             set_secret(

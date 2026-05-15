@@ -1,25 +1,32 @@
-"""Keychain and secret-store backends for seckit.
+"""Keychain and secret-store helpers for seckit.
 
-``resolve_secret_store`` returns either :class:`SecurityCliStore` (macOS ``security`` CLI against
-the login keychain or ``--keychain`` path) or :class:`SqliteSecretStore` (encrypted SQLite via
-PyNaCl). Canonical backend ids: ``secure`` (alias: ``local``) and ``sqlite``. There is no
-``seckit-keychain-helper`` or other bundled Mach-O on the Keychain path; older trees or PATH
-entries may still ship that binary, but this package does not execute it.
+Public :class:`~secrets_kit.backends.base.BackendStore` construction:
+:func:`~secrets_kit.backends.base.resolve_backend_store`.
 
-Additional backends (PGP, vault, broker) should implement :class:`SecretStore`,
-extend :func:`normalize_backend` / validation, and register in :func:`resolve_secret_store`
-and ``secrets_kit.cli``.
+This module defines :func:`normalize_backend`, the macOS ``security`` CLI adapter
+:class:`SecurityCliStore`, and convenience functions ``set_secret`` / ``get_secret`` /
+``delete_secret`` / … that delegate to :class:`~secrets_kit.backends.base.BackendStore`.
+
+Canonical backend ids: ``secure`` (alias: ``local``) and ``sqlite``.
 """
 
 from __future__ import annotations
 
 import ast
+import warnings
 import os
+from dataclasses import replace
 from pathlib import Path
 import re
 import subprocess
 import tempfile
-from typing import Any, Dict, FrozenSet, Optional, Protocol
+from typing import Any, Dict, FrozenSet, Optional, Protocol, TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from secrets_kit.backends.base import BackendStore
+
+from secrets_kit.backends.messages import BACKEND_NORMALIZE_HINT
+from secrets_kit.models.core import EntryMetadata
 
 
 class BackendError(RuntimeError):
@@ -31,17 +38,6 @@ BACKEND_SECURE = "secure"
 
 BACKEND_SQLITE = "sqlite"
 """Portable encrypted SQLite store (PyNaCl)."""
-
-_LEGACY_BACKEND_TOKENS: FrozenSet[str] = frozenset({"icloud", "icloud-helper"})
-
-LEGACY_BACKEND_ERROR_MESSAGE = (
-    "Unsupported backend id 'icloud' / 'icloud-helper' (removed). Use --backend secure or local "
-    "for the login/custom Keychain via the /usr/bin/security CLI, or --backend sqlite for the "
-    "encrypted file store. For cross-host secrets use export/import or peer bundles. "
-    "If defaults.json still lists a legacy backend, it is rewritten to 'secure' when loaded; "
-    "otherwise run `seckit doctor --fix-defaults` or edit ~/.config/seckit/defaults.json. "
-    "Unset SECKIT_DEFAULT_BACKEND if it still uses a legacy value."
-)
 
 _BACKEND_ALIASES: Dict[str, str] = {
     "local": BACKEND_SECURE,
@@ -60,25 +56,16 @@ _KNOWN_NORMALIZED: FrozenSet[str] = frozenset({BACKEND_SECURE, BACKEND_SQLITE})
 def normalize_backend(backend: str) -> str:
     """Return canonical backend id (``secure``, ``sqlite``).
 
-    Accepts alias ``local`` only. Legacy ids ``icloud`` / ``icloud-helper`` are rejected; use
-    migration (defaults load / ``seckit doctor --fix-defaults``).
+    Accepts alias ``local`` → ``secure``. Any other id raises :exc:`BackendError`.
     """
     raw = backend.strip().lower().replace("_", "-")
-    if raw in _LEGACY_BACKEND_TOKENS:
-        raise BackendError(LEGACY_BACKEND_ERROR_MESSAGE)
     normalized = _BACKEND_ALIASES.get(raw, raw)
     if normalized not in _KNOWN_NORMALIZED:
         raise BackendError(
-            f"unsupported backend: {backend!r} (expected {BACKEND_SECURE}, {BACKEND_SQLITE}, or alias local)"
+            f"unsupported backend: {backend!r} (expected {BACKEND_SECURE}, {BACKEND_SQLITE}, or alias local). "
+            f"{BACKEND_NORMALIZE_HINT}"
         )
     return normalized
-
-
-def is_legacy_backend_id(value: object) -> bool:
-    """True for removed ``icloud`` / ``icloud-helper`` backend tokens (any casing, underscore ok)."""
-    if value is None:
-        return False
-    return str(value).strip().lower().replace("_", "-") in _LEGACY_BACKEND_TOKENS
 
 
 def is_secure_backend(backend: str) -> bool:
@@ -176,26 +163,48 @@ def resolve_secret_store(
     path: Optional[str] = None,
     kek_keychain_path: Optional[str] = None,
 ) -> SecretStore:
-    """Resolve the concrete :class:`SecretStore` for ``backend``.
+    """Deprecated: use :func:`secrets_kit.backends.base.resolve_backend_store`.
 
     * ``secure``: macOS ``security`` CLI; ``path`` is an optional keychain file.
     * ``sqlite``: encrypted SQLite file; ``path`` is the database path (default ``~/.config/seckit/secrets.db``).
       When :envvar:`SECKIT_SQLITE_UNLOCK` is ``keychain``, ``kek_keychain_path`` (or
       :envvar:`SECKIT_SQLITE_KEK_KEYCHAIN`) selects the keychain file that holds the KEK.
     """
-    normalized = _validate_backend(backend=backend, path=path)
-    if normalized == BACKEND_SQLITE:
-        from secrets_kit.backends.sqlite import SqliteSecretStore, default_sqlite_db_path
+    warnings.warn(
+        "resolve_secret_store is deprecated; use resolve_backend_store from secrets_kit.backends.base",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    _validate_backend(backend=backend, path=path)
+    from secrets_kit.backends.base import resolve_backend_store
 
-        db_path = path or default_sqlite_db_path()
-        kc = kek_keychain_path
-        if not kc:
-            env_kc = os.environ.get("SECKIT_SQLITE_KEK_KEYCHAIN", "").strip()
-            kc = os.path.expanduser(env_kc) if env_kc else None
-        else:
-            kc = os.path.expanduser(kc)
-        return SqliteSecretStore(db_path=os.path.expanduser(db_path), kek_keychain_path=kc)
-    return SecurityCliStore(path=path)
+    return cast(SecretStore, resolve_backend_store(backend=backend, path=path, kek_keychain_path=kek_keychain_path))
+
+
+def _access_backend_store(
+    *,
+    backend: str,
+    path: Optional[str],
+    kek_keychain_path: Optional[str],
+) -> BackendStore:
+    from secrets_kit.backends.base import resolve_backend_store
+
+    _validate_backend(backend=backend, path=path)
+    return resolve_backend_store(backend=backend, path=path, kek_keychain_path=kek_keychain_path)
+
+
+def _entry_metadata_for_secret_set(*, service: str, account: str, name: str, comment: str) -> EntryMetadata:
+    from secrets_kit.models.core import ensure_entry_id, now_utc_iso
+
+    if comment.strip():
+        parsed = EntryMetadata.from_keychain_comment(comment)
+        if parsed is not None:
+            meta = ensure_entry_id(parsed)
+            return replace(meta, name=name, service=service, account=account)
+    ts = now_utc_iso()
+    return ensure_entry_id(
+        EntryMetadata(name=name, service=service, account=account, created_at=ts, updated_at=ts, source="manual")
+    )
 
 
 def _run_security(*, args: list[str], stdin: Optional[str] = None) -> str:
@@ -308,9 +317,11 @@ def set_secret(
     backend: str = "secure",
     kek_keychain_path: Optional[str] = None,
 ) -> None:
-    """Create or update a keychain secret entry."""
-    store = resolve_secret_store(backend=backend, path=path, kek_keychain_path=kek_keychain_path)
-    store.set(service=service, account=account, name=name, value=value, comment=comment, label=label)
+    """Create or update a secret entry in the configured backend."""
+    del label  # Keychain metadata uses the logical name; kept for call-site API stability.
+    store = _access_backend_store(backend=backend, path=path, kek_keychain_path=kek_keychain_path)
+    meta = _entry_metadata_for_secret_set(service=service, account=account, name=name, comment=comment)
+    store.set_entry(service=service, account=account, name=name, secret=value, metadata=meta)
 
 
 def get_secret(
@@ -322,9 +333,9 @@ def get_secret(
     backend: str = "secure",
     kek_keychain_path: Optional[str] = None,
 ) -> str:
-    """Read secret value from keychain."""
-    store = resolve_secret_store(backend=backend, path=path, kek_keychain_path=kek_keychain_path)
-    return store.get(service=service, account=account, name=name)
+    """Read secret value from backend."""
+    store = _access_backend_store(backend=backend, path=path, kek_keychain_path=kek_keychain_path)
+    return store.get_secret(service=service, account=account, name=name)
 
 
 def get_secret_metadata(
@@ -336,8 +347,8 @@ def get_secret_metadata(
     backend: str = "secure",
     kek_keychain_path: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Read keychain metadata attributes for one secret."""
-    store = resolve_secret_store(backend=backend, path=path, kek_keychain_path=kek_keychain_path)
+    """Read store-backed metadata attributes for one secret."""
+    store = _access_backend_store(backend=backend, path=path, kek_keychain_path=kek_keychain_path)
     return store.metadata(service=service, account=account, name=name)
 
 
@@ -350,8 +361,8 @@ def secret_exists(
     backend: str = "secure",
     kek_keychain_path: Optional[str] = None,
 ) -> bool:
-    """Return whether a keychain item exists for one logical secret."""
-    store = resolve_secret_store(backend=backend, path=path, kek_keychain_path=kek_keychain_path)
+    """Return whether an entry exists for one logical secret."""
+    store = _access_backend_store(backend=backend, path=path, kek_keychain_path=kek_keychain_path)
     return store.exists(service=service, account=account, name=name)
 
 
@@ -364,9 +375,9 @@ def delete_secret(
     backend: str = "secure",
     kek_keychain_path: Optional[str] = None,
 ) -> None:
-    """Delete secret from keychain."""
-    store = resolve_secret_store(backend=backend, path=path, kek_keychain_path=kek_keychain_path)
-    store.delete(service=service, account=account, name=name)
+    """Delete secret from backend."""
+    store = _access_backend_store(backend=backend, path=path, kek_keychain_path=kek_keychain_path)
+    store.delete_entry(service=service, account=account, name=name)
 
 
 def check_security_cli() -> bool:
@@ -413,15 +424,16 @@ def doctor_roundtrip(
 def create_keychain(*, path: str, password: Optional[str] = None) -> str:
     """Create a dedicated test keychain file.
 
-    If *password* is ``None``, create a no-password keychain (non-interactive reads work more
-    broadly, e.g. under ``launchd``). If *password* is set, use ``-p`` as usual.
+    If *password* is ``None`` or empty, create a **no-password** keychain using ``-p ''``.
+    On recent macOS, ``create-keychain`` *without* ``-p`` prompts interactively; an explicit
+    empty password keeps automation non-interactive. Non-empty *password* uses ``-p`` as usual.
     """
     target = keychain_path(path=path)
     Path(target).parent.mkdir(parents=True, exist_ok=True)
     if password:
         _run_security(args=["create-keychain", "-p", password, target])
     else:
-        _run_security(args=["create-keychain", target])
+        _run_security(args=["create-keychain", "-p", "", target])
     return target
 
 
@@ -432,20 +444,20 @@ def delete_keychain(*, path: str) -> None:
 
 
 def unlock_keychain_with_password(*, path: str, password: Optional[str] = None) -> str:
-    """Unlock a keychain using a password, or unlock a no-password keychain if *password* is omitted."""
+    """Unlock a keychain using a password, or ``-p ''`` for a no-password keychain (non-interactive)."""
     target = keychain_path(path=path)
     if password:
         _run_security(args=["unlock-keychain", "-p", password, target])
     else:
-        _run_security(args=["unlock-keychain", target])
+        _run_security(args=["unlock-keychain", "-p", "", target])
     return target
 
 
 def make_temp_keychain(*, password: str = "seckit-test-password") -> Dict[str, str]:
     """Create and unlock a temporary keychain for regression tests.
 
-    Pass ``password=""`` to create an **unprotected** keychain (no ``-p``), which tends to work
-    for non-interactive and ``launchd`` subprocess reads. Any other string uses ``-p`` as usual.
+    Pass ``password=""`` for a **no-password** keychain (``create-keychain`` / ``unlock-keychain`` use
+    ``-p ''`` so ``security`` does not prompt interactively on recent macOS). Any other string uses ``-p`` as usual.
     """
     temp_dir = tempfile.mkdtemp(prefix="seckit-keychain-")
     path = os.path.join(temp_dir, "test.keychain-db")

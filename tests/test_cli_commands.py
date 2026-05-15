@@ -89,11 +89,11 @@ class CliCommandsTest(unittest.TestCase):
 
     def test_config_parser_routes_subcommands(self) -> None:
         parser = build_parser()
-        args = parser.parse_args(["config", "set", "backend", "icloud"])
+        args = parser.parse_args(["config", "set", "backend", "phantom-backend"])
         self.assertEqual(args.command, "config")
         self.assertEqual(args.config_command, "set")
         self.assertEqual(args.key, "backend")
-        self.assertEqual(args.value, "icloud")
+        self.assertEqual(args.value, "phantom-backend")
 
     def test_defaults_alias_parser_sets_command_defaults(self) -> None:
         """Argparse stores the invoked name; main() must skip _apply_defaults for both config and defaults."""
@@ -114,11 +114,11 @@ class CliCommandsTest(unittest.TestCase):
                 payload = json.loads(dpath.read_text(encoding="utf-8"))
                 self.assertEqual(payload.get("backend"), "secure")
 
-    def test_config_set_rejects_legacy_icloud_backend(self) -> None:
+    def test_config_set_rejects_invalid_backend_value(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
             with mock.patch.object(Path, "home", return_value=home), redirect_stderr(io.StringIO()):
-                code = cmd_config_set(args=argparse.Namespace(key="backend", value="icloud-helper"))
+                code = cmd_config_set(args=argparse.Namespace(key="backend", value="phantom-backend"))
         self.assertEqual(code, 1)
 
     def test_config_set_rejects_invalid_backend(self) -> None:
@@ -204,15 +204,15 @@ class CliCommandsTest(unittest.TestCase):
             self.assertIn("metadata/keychain drift detected", err.getvalue())
             self.assertTrue(payload["defaults"])
             self.assertEqual(payload["entries_using_registry_fallback"], [])
-            self.assertEqual(payload.get("legacy_backend_references"), [])
+            self.assertEqual(payload.get("invalid_backend_references"), [])
 
-    def test_doctor_reports_legacy_backend_in_defaults_json(self) -> None:
+    def test_doctor_reports_invalid_backend_in_defaults_json(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
             config_dir = home / ".config" / "seckit"
             config_dir.mkdir(parents=True, mode=0o700)
             (config_dir / "defaults.json").write_text(
-                json.dumps({"backend": "icloud-helper"}), encoding="utf-8"
+                json.dumps({"backend": "phantom-backend"}), encoding="utf-8"
             )
             out = io.StringIO()
             err = io.StringIO()
@@ -229,7 +229,7 @@ class CliCommandsTest(unittest.TestCase):
                 code = cmd_doctor(args=argparse.Namespace(fix_defaults=False))
         self.assertEqual(code, 0, msg=err.getvalue())
         payload = json.loads(out.getvalue())
-        refs = payload.get("legacy_backend_references") or []
+        refs = payload.get("invalid_backend_references") or []
         self.assertTrue(any(r.get("source") == "defaults.json" for r in refs))
 
     def test_lock_dry_run_shows_backend_command(self) -> None:
@@ -297,13 +297,13 @@ class CliCommandsTest(unittest.TestCase):
             self.assertEqual(args.rotation_warn_days, 14)
             self.assertEqual(args.backend, "secure")
 
-    def test_apply_defaults_coerces_legacy_backend_in_defaults_file(self) -> None:
+    def test_apply_defaults_rejects_invalid_backend_in_defaults_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
             config_dir = home / ".config" / "seckit"
             config_dir.mkdir(parents=True, exist_ok=True)
             (config_dir / "defaults.json").write_text(
-                json.dumps({"service": "s", "account": "a", "backend": "icloud-helper"}),
+                json.dumps({"service": "s", "account": "a", "backend": "phantom-backend"}),
                 encoding="utf-8",
             )
             args = argparse.Namespace(
@@ -320,10 +320,10 @@ class CliCommandsTest(unittest.TestCase):
                 keychain=None,
             )
             with mock.patch("pathlib.Path.home", return_value=home):
-                _apply_defaults(args=args)
-            self.assertEqual(args.backend, "secure")
+                with self.assertRaises(ValidationError):
+                    _apply_defaults(args=args)
 
-    def test_apply_defaults_rejects_legacy_explicit_backend(self) -> None:
+    def test_apply_defaults_rejects_invalid_explicit_backend(self) -> None:
         args = argparse.Namespace(
             command="get",
             service="sync-test",
@@ -334,7 +334,7 @@ class CliCommandsTest(unittest.TestCase):
             tag=None,
             rotation_days=None,
             rotation_warn_days=None,
-            backend="icloud-helper",
+            backend="phantom-backend",
             keychain=None,
         )
         with tempfile.TemporaryDirectory() as tmp:

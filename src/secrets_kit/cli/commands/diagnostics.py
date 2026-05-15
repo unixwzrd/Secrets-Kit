@@ -14,11 +14,11 @@ from secrets_kit.backends.security import (
     check_security_cli,
     doctor_roundtrip,
     harden_keychain,
-    is_legacy_backend_id,
     keychain_accessible,
     keychain_path,
     keychain_policy,
     lock_keychain,
+    normalize_backend,
     unlock_keychain,
 )
 from secrets_kit.models.core import EntryMetadata, ValidationError
@@ -29,7 +29,8 @@ from secrets_kit.registry.core import (
     ensure_defaults_storage,
     ensure_registry_storage,
     load_registry,
-    migrate_legacy_operator_backend_in_file,
+    registry_dir,
+    save_defaults,
 )
 from secrets_kit.registry.resolve import _read_metadata
 from secrets_kit.utils.helper_status import helper_status
@@ -38,6 +39,44 @@ from secrets_kit.cli.support.args import _backend_access_kwargs, _backend_arg, _
 from secrets_kit.cli.support.interaction import _confirm, _fatal, _format_tags, _print_table
 from secrets_kit.cli.support.metadata_selection import _resolve_status
 from secrets_kit.cli.support.version_info import _cli_version, _version_info_dict
+
+
+def _scan_invalid_backend_references() -> list[dict]:
+    """Return configs/env whose ``backend`` value does not :func:`normalize_backend`."""
+    refs: list[dict] = []
+    env_b = os.environ.get("SECKIT_DEFAULT_BACKEND", "").strip()
+    if env_b:
+        try:
+            normalize_backend(env_b)
+        except BackendError:
+            refs.append({"source": "env", "var": "SECKIT_DEFAULT_BACKEND", "value": env_b})
+    try:
+        dpath = defaults_path()
+        if dpath.exists():
+            raw = json.loads(dpath.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                b = raw.get("backend")
+                if b is not None:
+                    try:
+                        normalize_backend(str(b))
+                    except BackendError:
+                        refs.append({"source": "defaults.json", "path": str(dpath), "value": b})
+    except (json.JSONDecodeError, OSError, TypeError):
+        pass
+    try:
+        cpath = registry_dir() / "config.json"
+        if cpath.exists():
+            raw = json.loads(cpath.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                b = raw.get("backend")
+                if b is not None:
+                    try:
+                        normalize_backend(str(b))
+                    except BackendError:
+                        refs.append({"source": "config.json", "path": str(cpath), "value": b})
+    except (json.JSONDecodeError, OSError, TypeError):
+        pass
+    return refs
 
 
 def cmd_doctor(*, args: argparse.Namespace) -> int:
@@ -54,51 +93,29 @@ def cmd_doctor(*, args: argparse.Namespace) -> int:
         "metadata_keychain_drift": [],
         "entries_using_registry_fallback": [],
         "rotation_warnings": [],
-        "legacy_backend_references": [],
+        "invalid_backend_references": [],
         "reconcile_read_only_tools": (
             "seckit reconcile inspect|lineage|explain|verify — SQLite lineage diagnostics; "
             "report-only (no auto-repair)"
         ),
     }
 
-    legacy_refs: list[dict] = []
-    env_b = os.environ.get("SECKIT_DEFAULT_BACKEND", "").strip()
-    if env_b and is_legacy_backend_id(env_b):
-        legacy_refs.append({"source": "env", "var": "SECKIT_DEFAULT_BACKEND", "value": env_b})
-    try:
-        dpath_pre = defaults_path()
-        if dpath_pre.exists():
-            raw_defaults = json.loads(dpath_pre.read_text(encoding="utf-8"))
-            if isinstance(raw_defaults, dict):
-                b0 = raw_defaults.get("backend")
-                if b0 is not None and is_legacy_backend_id(str(b0)):
-                    legacy_refs.append({"source": "defaults.json", "path": str(dpath_pre), "value": b0})
-    except (json.JSONDecodeError, OSError, TypeError):
-        pass
-
     if getattr(args, "fix_defaults", False):
         try:
             dfix = defaults_path()
             if dfix.exists():
                 payload_fix = json.loads(dfix.read_text(encoding="utf-8"))
-                if isinstance(payload_fix, dict):
-                    migrate_legacy_operator_backend_in_file(path=dfix, payload=payload_fix)
-        except (json.JSONDecodeError, OSError, TypeError, ValueError):
-            pass
-        # defaults.json may be rewritten; re-read raw for reporting
-        legacy_refs = [r for r in legacy_refs if r.get("source") != "defaults.json"]
-        try:
-            dpath2 = defaults_path()
-            if dpath2.exists():
-                raw2 = json.loads(dpath2.read_text(encoding="utf-8"))
-                if isinstance(raw2, dict):
-                    b2 = raw2.get("backend")
-                    if b2 is not None and is_legacy_backend_id(str(b2)):
-                        legacy_refs.append({"source": "defaults.json", "path": str(dpath2), "value": b2})
-        except (json.JSONDecodeError, OSError, TypeError):
+                if isinstance(payload_fix, dict) and "backend" in payload_fix:
+                    try:
+                        normalize_backend(str(payload_fix["backend"]))
+                    except BackendError:
+                        cleaned = {k: v for k, v in payload_fix.items() if k != "backend"}
+                        save_defaults(payload=cleaned)
+        except (json.JSONDecodeError, OSError, TypeError, ValueError, RegistryError):
             pass
 
-    status["legacy_backend_references"] = legacy_refs
+    status["invalid_backend_references"] = _scan_invalid_backend_references()
+
     if is_secure_backend(backend):
         if check_security_cli():
             status["security_cli"] = True

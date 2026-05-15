@@ -109,7 +109,7 @@ Public identity exchange uses the same pattern—copy only **`*.pub.json`** (or 
 
 ### Launchd checks on the other host
 
-Opt-in launchd tests (`SECKIT_RUN_LAUNCHD_TESTS=1`, **`SECKIT_RUN_LAUNCHD_SQLITE_TESTS=1`**, etc.) are documented in [LAUNCHD_VALIDATION.md](LAUNCHD_VALIDATION.md). Run them **on that machine** (not “through” SSH for the job itself): either sit at a desktop session there or SSH in, `cd` to your checkout (Git or **tarball** copy), ensure **`pip install`** / env matches, and execute the unittest commands. A user who is already logged in at the console often has an easier time with login-keychain–backed flows than a headless SSH session alone.
+Launchd coverage is documented in [LAUNCHD_VALIDATION.md](LAUNCHD_VALIDATION.md). On **macOS** with a normal **console login**, **`make test`** already runs the temp-keychain and SQLite launchd unittests when **`launchctl print gui/$UID`** succeeds (use **`SECKIT_RUN_LAUNCHD_TESTS=0`** to skip, or **`=1`** to force from SSH). Run heavier checks **on that machine** (not only an SSH session without a GUI domain): **`SECKIT_RUN_LAUNCHD_LOGIN_KEYCHAIN_TESTS=1`**, **`SECKIT_RUN_LAUNCHD_SERVICE_KEYCHAIN_TESTS=1`**, **`SECKIT_RUN_LAUNCHD_SQLITE_TESTS=1`** / **`=0`**, etc. A user who is already logged in at the console often has an easier time with login-keychain–backed flows than a headless SSH session alone.
 
 ## Two-machine walkthrough (SQLite example)
 

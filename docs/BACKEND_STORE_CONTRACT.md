@@ -50,6 +50,17 @@ The encrypted SQLite backend uses ``PRAGMA user_version`` for forward-only, idem
 
 The audit table is **not** the authority for merge or recovery; it exists for operator diagnostics and local change tracing.
 
+## Glossary (authority / store surface)
+
+| Term | Meaning |
+|------|---------|
+| **Authority** | The durable secret plus authoritative :class:`~secrets_kit.models.core.EntryMetadata` for one entry (often encrypted at rest). |
+| **Index** | Decrypt-free rows from :meth:`~secrets_kit.backends.base.BackendStore.iter_index` (hashes, hints, lineage fields) — not a substitute for authority. |
+| **Resolve** | Load :class:`~secrets_kit.backends.base.ResolvedEntry` in-process via :meth:`~secrets_kit.backends.base.BackendStore.resolve_by_locator` / :meth:`~secrets_kit.backends.base.BackendStore.resolve_by_entry_id` — *resolved-within-handling* until materialized. |
+| **Materialize** | Operator-visible transfer (stdout, env, files, IPC) after internal resolution — see [RUNTIME_AUTHORITY_ADR.md](RUNTIME_AUTHORITY_ADR.md). |
+| **Locator** | Normalized ``(service, account, name)`` triple identifying an entry at runtime (:class:`~secrets_kit.models.core.Locator`). |
+| **Peer** | Another host or process participating in sync; not the local :class:`BackendStore` instance. |
+
 ## References
 
 - [RUNTIME_AUTHORITY_ADR.md](RUNTIME_AUTHORITY_ADR.md) — resolve vs materialize, ``ResolvedEntry``.

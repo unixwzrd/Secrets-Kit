@@ -246,7 +246,7 @@ Rules:
 ### Phase 6: Required launchd Support Test
 
 - [x] Add a launchd integration test for `seckit run`.
-- [x] Gate automated execution behind `SECKIT_RUN_LAUNCHD_TESTS=1` because CI/headless sessions may not have a usable per-user launchd context.
+- [x] Gate automated execution: on macOS, **auto-run** when `launchctl print gui/$UID` succeeds and not in `CI`/`GITHUB_ACTIONS`; **`SECKIT_RUN_LAUNCHD_TESTS=1`** forces on, **`=0`** disables auto. Headless CI skips unless explicitly forced.
 - [x] Generate a temporary LaunchAgent plist for the current user.
 - [x] Use `seckit run` as the launched command wrapper.
 - [x] Have the launched child write a selected env value to a temporary file.
@@ -294,7 +294,7 @@ PYTHONPATH=src python3 -m unittest discover
 ```
 
 - [x] Run disposable-keychain integration tests on macOS.
-- [x] Run launchd integration validation before release, either through `SECKIT_RUN_LAUNCHD_TESTS=1` or the documented manual release check.
+- [x] Run launchd integration validation before release via **`make test`** on an interactive Mac, **`SECKIT_RUN_LAUNCHD_TESTS=1`**, or the documented manual release check.
 - [ ] Run service-keychain LaunchAgent validation with `SECKIT_RUN_LAUNCHD_SERVICE_KEYCHAIN_TESTS=1`.
 - [ ] Run LaunchDaemon service-keychain validation with `SECKIT_RUN_LAUNCHD_DAEMON_TESTS=1`.
 - [x] Confirm docs no longer recommend `export` where `run` is safer.
@@ -324,6 +324,6 @@ PYTHONPATH=src python3 -m unittest discover
 - Dotenv import can add new keys and update existing service values intentionally.
 - The storage backend is abstracted enough to add future `SecretStore` implementations (e.g. more vault types).
 - `--backend local --keychain <path>` remains usable for isolated tests.
-- Legacy backend strings **`icloud`** / **`icloud-helper`** in config or env normalize to **`secure`** (compat only; not advertised as CLI choices).
+- Unsupported `backend` strings in config or env fail fast at CLI resolution time unless corrected (supported: **`secure`**, **`local`**, **`sqlite`**).
 - Test suite imports cleanly and passes.
 - Docs clearly explain the safer `run` workflow and backend limitations.

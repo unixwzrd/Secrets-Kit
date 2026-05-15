@@ -11,7 +11,6 @@ from typing import Dict
 from secrets_kit.backends.security import (
     BACKEND_SECURE,
     BackendError,
-    is_legacy_backend_id,
     is_secure_backend,
     is_sqlite_backend,
     normalize_backend,
@@ -21,7 +20,6 @@ from secrets_kit.registry.core import (
     RegistryError,
     defaults_path,
     load_defaults,
-    migrate_legacy_operator_backend_in_file,
     registry_dir,
     save_defaults,
 )
@@ -57,7 +55,6 @@ def _load_default_config() -> Dict[str, object]:
             raise ValidationError(f"invalid config json: {legacy_path} ({exc})") from exc
         if not isinstance(payload, dict):
             raise ValidationError(f"invalid config json: {legacy_path} (top-level must be object)")
-        payload = migrate_legacy_operator_backend_in_file(path=legacy_path, payload=payload)
         for key, value in payload.items():
             defaults.setdefault(str(key), value)
     return defaults
@@ -80,15 +77,11 @@ def _load_defaults() -> Dict[str, object]:
     for key, env_var in env_map.items():
         value = os.getenv(env_var)
         if value:
-            if key == "backend" and is_legacy_backend_id(value):
-                import sys
-
-                print(
-                    f"WARNING: {env_var}={value!r} uses a removed backend id; effective backend is {BACKEND_SECURE!r}. "
-                    "Unset this variable or set it to secure, local, or sqlite.\n",
-                    file=sys.stderr,
-                )
-                defaults[key] = BACKEND_SECURE
+            if key == "backend":
+                try:
+                    defaults[key] = normalize_backend(value)
+                except BackendError as exc:
+                    raise ValidationError(str(exc)) from exc
             else:
                 defaults[key] = value
     return defaults

@@ -80,12 +80,15 @@ This is not the right model for unattended post-logout or post-reboot services.
 
 The **`security`** CLI is the only Keychain integration for **`--backend secure`**. **`test-scripts/seckit_launchd_smoke.sh`** uses **`--backend secure`** (alias `local`) only.
 
-Automated coverage (macOS, opt-in):
+Automated coverage (macOS):
 
 | Variable | What it enables |
 | --- | --- |
-| `SECKIT_RUN_LAUNCHD_TESTS=1` | Temp-keychain + optional login-keychain launchd tests in `tests/test_launchd_run_flow.py` |
-| `SECKIT_RUN_LAUNCHD_SQLITE_TESTS=1` | Adds **`test_launch_agent_sqlite_backend_injects_env`**: disposable `HOME`, SQLite DB, **dummy** `SECKIT_SQLITE_PASSPHRASE` / `SECKIT_SQLITE_UNLOCK=passphrase` in the plist (**do not** put production passphrases in real plists). Requires PyNaCl. |
+| *(unset, interactive Mac)* | **Auto:** temp-keychain launchd tests + SQLite launchd test (when PyNaCl installed) run if **`launchctl print gui/$UID`** succeeds and **`CI` / `GITHUB_ACTIONS`** are not set. Matches **Terminal.app while logged in at the console** in most setups. |
+| `SECKIT_RUN_LAUNCHD_TESTS=1` | **Force** the same unittest class on (e.g. SSH session); may still fail if **`bootstrap gui/$UID`** is not allowed. |
+| `SECKIT_RUN_LAUNCHD_TESTS=0` | **Disable auto** on macOS (always skip the class unless you unset it again). |
+| `SECKIT_RUN_LAUNCHD_SQLITE_TESTS=1` | **Force** **`test_launch_agent_sqlite_backend_injects_env`** even in CI when combined with `SECKIT_RUN_LAUNCHD_TESTS=1`. |
+| `SECKIT_RUN_LAUNCHD_SQLITE_TESTS=0` | Skip the SQLite launchd test even when other launchd tests run. |
 
 `test_launch_agent_backend_secure_explicit_uses_temp_keychain` passes **`--backend secure`** explicitly to guard the **`security`** code path.
 
@@ -180,9 +183,9 @@ cat "$TMPDIR/seckit-launchd-smoke-$(id -un)/service-agent-result.txt"
 
 ## Gated Tests
 
-Normal validation does not run live launchd tests by default.
+**Default (`make test` on macOS):** temp-keychain and SQLite launchd tests in `tests/test_launchd_run_flow.py` run **automatically** when this user has a **`gui/<uid>`** launchd domain (see **`launchctl print gui/$UID`**) and the process is **not** running under **`CI=true`** or **`GITHUB_ACTIONS=true`**. Set **`SECKIT_RUN_LAUNCHD_TESTS=0`** to skip them on a workstation; set **`SECKIT_RUN_LAUNCHD_TESTS=1`** to force them on (e.g. unusual SSH setups).
 
-**Login keychain unittest** (`test_launch_agent_can_receive_login_keychain_secret_without_keychain_password`): provisioning calls `seckit set` against the **real** login keychain. That needs a session where Keychain allows non-prompt writes—typically **Terminal.app on the console** with the user logged in at the GUI. Over **SSH only**, macOS often returns `SecKeychainItemCreateFromContent ... User interaction is not allowed` and the test will fail; that is an environment limit, not a seckit logic error.
+**Login keychain unittest** (`test_launch_agent_can_receive_login_keychain_secret_without_keychain_password`): runs automatically with **`make test`** on a normal **GUI login** (same gate as other launchd tests). Provisioning calls `seckit set` against the **real** login keychain. That needs a session where Keychain allows non-prompt writes—typically **Terminal.app on the console** with the user logged in at the GUI. Over **SSH only**, macOS often returns `SecKeychainItemCreateFromContent ... User interaction is not allowed` and the test will fail; that is an environment limit, not a seckit logic error.
 
 Run all user LaunchAgent tests:
 
@@ -193,13 +196,7 @@ SECKIT_RUN_LAUNCHD_SERVICE_KEYCHAIN_TESTS=1 \
 PYTHONPATH=src python3 -m unittest tests.test_launchd_run_flow -v
 ```
 
-Run the LaunchDaemon test:
-
-```bash
-sudo SECKIT_RUN_LAUNCHD_TESTS=1 \
-  SECKIT_RUN_LAUNCHD_DAEMON_TESTS=1 \
-  PYTHONPATH=src python3 -m unittest tests.test_launchd_run_flow -v
-```
+**LaunchDaemon / system keychain:** not covered by `make test`. The bash smoke script still supports `--mode service-daemon` for operators who accept root/system-keychain risk; the project does not run or support that path in CI.
 
 ## Manual Reboot Test
 

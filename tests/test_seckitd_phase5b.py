@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import sys
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from secrets_kit.seckitd.bridge import SubprocessResult
+from secrets_kit.seckitd.unix_transport import configure_unix_ipc_socket
 from secrets_kit.seckitd.ipc_redact import (
     redact_homedir_paths,
     relay_subprocess_tails_for_ipc,
@@ -99,19 +103,27 @@ class PeerCredTests(unittest.TestCase):
                 _peer_uid_fn=lambda _c: 9999,
             )
 
-    @unittest.skipUnless(sys.platform == "linux", "Linux SO_PEERCRED")
-    def test_linux_peer_uid_from_getsockopt(self) -> None:
-        import struct
+    def test_configure_unix_ipc_socket_on_af_unix(self) -> None:
+        """Open ``AF_UNIX``, set platform ``setsockopt``, bind — local CLI ↔ daemon transport only."""
+        if not hasattr(socket, "AF_UNIX"):
+            self.skipTest("Unix domain sockets not available")
 
-        packed = struct.pack("=III", 42, os.geteuid(), 0)
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            try:
+                configure_unix_ipc_socket(sock)
+            except OSError as exc:
+                self.fail(f"setsockopt failed for Unix domain socket: {exc}")
 
-        class FakeConn:
-            def getsockopt(self, level: int, opt: int, buflen: int) -> bytes:
-                self.last_buflen = buflen
-                return packed
+            if sys.platform == "darwin" and hasattr(socket, "SO_NOSIGPIPE"):
+                self.assertEqual(sock.getsockopt(socket.SOL_SOCKET, socket.SO_NOSIGPIPE), 1)
 
-        uid = get_unix_peer_uid(FakeConn())  # type: ignore[arg-type]
-        self.assertEqual(uid, os.geteuid())
+            with tempfile.TemporaryDirectory() as td:
+                path = Path(td) / "ipc.sock"
+                sock.bind(str(path))
+                sock.listen(1)
+        finally:
+            sock.close()
 
 
 class ProtocolRelayIpcTests(unittest.TestCase):

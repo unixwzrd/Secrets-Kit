@@ -18,7 +18,7 @@ Resolution order:
 3. `~/.config/seckit/defaults.json`
 4. current OS user for `account` only
 
-**Legacy `~/.config/seckit/config.json`:** merged after `defaults.json` only for keys missing from `defaults.json`. If `backend` is an old **`icloud`** / **`icloud-helper`** value, Secrets-Kit rewrites that file to **`secure`** on read when permissions allow (same for `defaults.json`).
+**Legacy `~/.config/seckit/config.json`:** merged after `defaults.json` only for keys missing from `defaults.json`. Unsupported `backend` values are **not** rewritten automatically—`seckit` fails during defaults application until you set `backend` to `secure`, `local`, or `sqlite` (or use `seckit doctor --fix-defaults` to **remove** an invalid `backend` key from `defaults.json` only).
 
 **`seckit list`:** lists entries in **`registry.json`**, not every generic password in Keychain Access. Items must have been created/registered through seckit (or metadata imported) to appear.
 

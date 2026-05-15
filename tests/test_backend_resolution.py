@@ -20,11 +20,11 @@ class BackendResolutionTest(unittest.TestCase):
         self.assertEqual(normalize_backend("local"), BACKEND_SECURE)
         self.assertEqual(normalize_backend("secure"), BACKEND_SECURE)
 
-    def test_normalize_backend_rejects_legacy_icloud_ids(self) -> None:
-        for legacy in ("icloud", "iCloud", "icloud-helper", "iCloud-Helper"):
-            with self.subTest(legacy=legacy):
+    def test_normalize_backend_rejects_unknown_ids(self) -> None:
+        for raw in ("phantom-backend", "vault", "any-other-token"):
+            with self.subTest(raw=raw):
                 with self.assertRaises(BackendError):
-                    normalize_backend(legacy)
+                    normalize_backend(raw)
 
     def test_normalize_backend_sqlite(self) -> None:
         from secrets_kit.backends.security import BACKEND_SQLITE
@@ -33,28 +33,30 @@ class BackendResolutionTest(unittest.TestCase):
 
     @unittest.skipUnless(importlib.util.find_spec("nacl") is not None, "requires PyNaCl")
     def test_resolve_sqlite_store(self) -> None:
-        from secrets_kit.backends.security import resolve_secret_store
+        from secrets_kit.backends.base import resolve_backend_store
         from secrets_kit.backends.sqlite import SqliteSecretStore
 
         with tempfile.TemporaryDirectory() as d:
             db = os.path.join(d, "x.db")
             os.environ["SECKIT_SQLITE_PASSPHRASE"] = "test-passphrase-for-sqlite!!"
             try:
-                store = resolve_secret_store(backend="sqlite", path=db)
+                store = resolve_backend_store(backend="sqlite", path=db)
                 self.assertIsInstance(store, SqliteSecretStore)
             finally:
                 del os.environ["SECKIT_SQLITE_PASSPHRASE"]
 
     @unittest.skipUnless(importlib.util.find_spec("nacl") is not None, "requires PyNaCl")
     def test_resolve_sqlite_store_with_explicit_kek_path(self) -> None:
-        from secrets_kit.backends.security import resolve_secret_store
+        from secrets_kit.backends.base import resolve_backend_store
         from secrets_kit.backends.sqlite import SqliteSecretStore
 
         with tempfile.TemporaryDirectory() as d:
             db = os.path.join(d, "x.db")
             os.environ["SECKIT_SQLITE_PASSPHRASE"] = "test-passphrase-for-sqlite!!"
             try:
-                store = resolve_secret_store(backend="sqlite", path=db, kek_keychain_path="/tmp/nonexistent-for-resolve-only.kc")
+                store = resolve_backend_store(
+                    backend="sqlite", path=db, kek_keychain_path="/tmp/nonexistent-for-resolve-only.kc"
+                )
                 self.assertIsInstance(store, SqliteSecretStore)
             finally:
                 del os.environ["SECKIT_SQLITE_PASSPHRASE"]

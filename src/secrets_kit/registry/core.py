@@ -12,8 +12,6 @@ from secrets_kit.models.core import EntryMetadata, ensure_entry_id, normalize_cu
 
 _VALIDATE_REGISTRY_METADATA = os.environ.get("SECKIT_VALIDATE_REGISTRY_METADATA") == "1"
 
-_LEGACY_OPERATOR_BACKEND_TOKENS = frozenset({"icloud", "icloud-helper"})
-
 # On-disk registry.json top-level ``version`` (v2 = slim index only).
 REGISTRY_FILE_VERSION = 2
 LEGACY_REGISTRY_FILE_VERSION = 1
@@ -190,33 +188,6 @@ def merge_into_slim_registry_entry(*, incoming: EntryMetadata, existing: Optiona
     )
 
 
-def migrate_legacy_operator_backend_in_file(*, path: Path, payload: Dict[str, object]) -> Dict[str, object]:
-    """Rewrite ``backend`` to ``secure`` on disk if it is a removed legacy id.
-
-    Called when loading ``defaults.json`` or legacy ``config.json`` so old installs self-heal.
-    """
-    from secrets_kit.backends.security import BACKEND_SECURE
-
-    raw = payload.get("backend")
-    if raw is None:
-        return payload
-    token = str(raw).strip().lower().replace("_", "-")
-    if token not in _LEGACY_OPERATOR_BACKEND_TOKENS:
-        return payload
-    updated = dict(payload)
-    updated["backend"] = BACKEND_SECURE
-    try:
-        if path.exists():
-            _check_secure_perms(path=path, max_mode=0o600)
-        _atomic_write_json(path=path, payload=updated)
-        os.chmod(path, 0o600)
-    except OSError:
-        return payload
-    except RegistryError:
-        return payload
-    return updated
-
-
 def load_registry(*, home: Optional[Path] = None) -> Dict[str, EntryMetadata]:
     """Load metadata registry into keyed mapping.
 
@@ -300,7 +271,7 @@ def load_defaults(*, home: Optional[Path] = None) -> Dict[str, object]:
     payload = json.loads(dpath.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise RegistryError(f"invalid defaults json: {dpath} (top-level must be object)")
-    return migrate_legacy_operator_backend_in_file(path=dpath, payload=payload)
+    return payload
 
 
 def save_defaults(*, payload: Dict[str, object], home: Optional[Path] = None) -> None:

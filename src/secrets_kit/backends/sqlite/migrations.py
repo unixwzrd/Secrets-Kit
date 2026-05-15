@@ -16,7 +16,8 @@ import nacl.exceptions
 import nacl.secret
 from dataclasses import replace
 
-from secrets_kit.backends.base import BACKEND_IMPL_VERSION, build_joint_payload_bytes, parse_joint_payload_or_legacy
+from secrets_kit.backends.base import BACKEND_IMPL_VERSION
+from secrets_kit.backends.sqlite.payload_codec import build_joint_payload_bytes, parse_joint_payload_or_legacy
 from secrets_kit.backends.sqlite.schema import (
     SQLITE_USER_VERSION_V2,
     SQLITE_USER_VERSION_V3,

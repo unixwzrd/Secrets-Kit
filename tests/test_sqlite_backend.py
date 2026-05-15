@@ -5,7 +5,8 @@ import os
 import tempfile
 import unittest
 
-from secrets_kit.backends.security import BACKEND_SQLITE, BackendError, get_secret, resolve_secret_store, set_secret
+from secrets_kit.backends.base import resolve_backend_store
+from secrets_kit.backends.security import BACKEND_SQLITE, BackendError, get_secret, set_secret
 
 # Importing secrets_kit.backends.sqlite requires PyNaCl; keep collection working without it.
 if importlib.util.find_spec("nacl") is None:
@@ -92,7 +93,7 @@ else:
                 get_secret(service="svc", account="acct", name="N", path=self.db, backend=BACKEND_SQLITE),
                 "v",
             )
-            store = resolve_secret_store(backend=BACKEND_SQLITE, path=self.db)
+            store = resolve_backend_store(backend=BACKEND_SQLITE, path=self.db)
             self.assertIsInstance(store, SqliteSecretStore)
 
         def test_plaintext_index_for_recover(self) -> None:

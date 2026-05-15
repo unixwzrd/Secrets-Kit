@@ -13,6 +13,9 @@ from pathlib import Path
 
 from secrets_kit.backends.security import check_security_cli, delete_keychain, make_temp_keychain
 
+from macos_integration import _SKIP_INTERACTIVE, keychain_integration_enabled
+from platform_guards import SKIP_MACOS_ONLY
+
 
 def _seckit_argv() -> list[str]:
     override = os.environ.get("SECKIT_BIN", "").strip()
@@ -24,10 +27,10 @@ def _seckit_argv() -> list[str]:
     return []
 
 
-@unittest.skipUnless(sys.platform == "darwin", "macOS-only")
+@unittest.skipUnless(sys.platform == "darwin", SKIP_MACOS_ONLY)
 @unittest.skipUnless(check_security_cli(), "security CLI not available")
 @unittest.skipUnless(bool(_seckit_argv()), "seckit not on PATH (pip install -e . or set SECKIT_BIN)")
-@unittest.skipUnless(os.environ.get("SECKIT_RUN_KEYCHAIN_INTEGRATION_TESTS") == "1", "set SECKIT_RUN_KEYCHAIN_INTEGRATION_TESTS=1 for live seckit CLI Keychain E2E")
+@unittest.skipUnless(keychain_integration_enabled(), _SKIP_INTERACTIVE)
 class SeckitCliKeychainE2eTest(unittest.TestCase):
     def test_cli_set_get_delete_temp_keychain(self) -> None:
         seckit = _seckit_argv()
