@@ -11,7 +11,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from secrets_kit.identity.core import export_public_identity, init_identity, load_identity
-from secrets_kit.backends.security import BACKEND_SQLITE, get_secret, set_secret
+from secrets_kit.backends.operations import get_secret, set_secret
+from secrets_kit.backends.registry import BACKEND_SQLITE
 from secrets_kit.models.core import EntryMetadata
 from secrets_kit.identity.peers import add_peer_from_file, get_peer
 from secrets_kit.registry.core import ensure_registry_storage, load_registry, upsert_metadata

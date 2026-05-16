@@ -12,7 +12,8 @@ import sys
 from dataclasses import replace
 from pathlib import Path
 
-from secrets_kit.backends.security import BackendError, get_secret
+from secrets_kit.backends.errors import BackendError
+from secrets_kit.backends.operations import get_secret
 from secrets_kit.cli.constants.exit_codes import EXIT_CODES
 from secrets_kit.cli.support.args import _backend_access_kwargs
 from secrets_kit.cli.support.interaction import _confirm, _fatal
@@ -68,7 +69,7 @@ def cmd_sync_export(*, args: argparse.Namespace) -> int:
                 metadata=replace(meta, content_hash=""),
             )
             try:
-                from secrets_kit.backends.base import resolve_backend_store
+                from secrets_kit.backends.registry import resolve_backend_store
 
                 store = resolve_backend_store(**_backend_access_kwargs(args))
                 if hasattr(store, "read_lineage_snapshot"):

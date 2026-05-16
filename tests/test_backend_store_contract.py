@@ -9,8 +9,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from secrets_kit.backends.base import INDEX_SCHEMA_VERSION, PAYLOAD_SCHEMA_VERSION, resolve_backend_store
-from secrets_kit.backends.security import BACKEND_SQLITE
+from secrets_kit.backends.base import INDEX_SCHEMA_VERSION, PAYLOAD_SCHEMA_VERSION
+from secrets_kit.backends.registry import BACKEND_SQLITE, resolve_backend_store
 from secrets_kit.models.core import EntryMetadata
 
 if importlib.util.find_spec("nacl") is not None:

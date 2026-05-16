@@ -9,7 +9,8 @@ from __future__ import annotations
 import argparse
 import os
 
-from secrets_kit.backends.security import BackendError, get_secret
+from secrets_kit.backends.errors import BackendError
+from secrets_kit.backends.operations import get_secret
 from secrets_kit.cli.support.args import _backend_access_kwargs
 from secrets_kit.models.core import EntryMetadata
 

@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from secrets_kit.backends.security import BACKEND_SQLITE, is_sqlite_backend
+from secrets_kit.backends.registry import BACKEND_SQLITE, is_sqlite_backend
 from secrets_kit.cli.constants.exit_codes import EXIT_CODES
 from secrets_kit.cli.support.args import _backend_access_kwargs
 from secrets_kit.cli.support.interaction import _fatal

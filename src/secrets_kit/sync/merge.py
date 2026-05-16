@@ -11,16 +11,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Set, Tuple
 
 from secrets_kit.backends.base import normalize_store_locator
-from secrets_kit.backends.security import (
-    BACKEND_SQLITE,
-    BackendError,
-    delete_secret,
-    get_secret,
-    is_sqlite_backend,
-    normalize_backend,
-    secret_exists,
-    set_secret,
-)
+from secrets_kit.backends.errors import BackendError
+from secrets_kit.backends.operations import delete_secret, get_secret, secret_exists, set_secret
+from secrets_kit.backends.registry import BACKEND_SQLITE, is_sqlite_backend, normalize_backend
 from secrets_kit.importers import ImportCandidate
 from secrets_kit.models.core import (
     EntryMetadata,

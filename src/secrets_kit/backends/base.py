@@ -1,10 +1,11 @@
-"""Backend abstraction layer: index rows, capabilities, security posture, and store protocol.
+"""Backend contracts: index rows, capabilities, security posture, and store protocol.
 
 CLI and application code should depend on these types and on :class:`BackendStore` only —
 not on SQLite row layout, ciphertext shapes, or Keychain comment wire format. Durable
 identity and portable import/export expectations for stores are summarized in
 ``docs/BACKEND_STORE_CONTRACT.md``; keep this module free of backend-specific DDL or
-``security`` CLI details.
+``security`` CLI details. Concrete store construction lives in
+``secrets_kit.backends.registry``.
 """
 
 from __future__ import annotations
@@ -191,7 +192,7 @@ class BackendStore(ABC):
 
     @abstractmethod
     def metadata(self, *, service: str, account: str, name: str) -> Dict[str, Any]:
-        """Return operator-shaped attribute dict (aligned with Keychain ``find-generic-password -g`` output)."""
+        """Return an operator-facing metadata dictionary for one locator."""
 
     @abstractmethod
     def resolve_by_entry_id(self, *, entry_id: str) -> Optional[ResolvedEntry]:
@@ -263,35 +264,3 @@ class BackendStore(ABC):
 def normalize_store_locator(*, service: str, account: str, name: str) -> Locator:
     """Normalize locator at BackendStore boundaries."""
     return Locator.from_parts(service=service, account=account, name=name)
-
-
-def resolve_backend_store(
-    *,
-    backend: str,
-    path: Optional[str] = None,
-    kek_keychain_path: Optional[str] = None,
-) -> BackendStore:
-    """Concrete :class:`BackendStore` for ``secure`` or ``sqlite`` (canonical ids)."""
-    import os
-
-    from secrets_kit.backends.security import BACKEND_SQLITE, normalize_backend
-
-    normalized = normalize_backend(backend)
-    if normalized == BACKEND_SQLITE:
-        from secrets_kit.backends.sqlite import (
-            SqliteSecretStore,
-            default_sqlite_db_path,
-        )
-
-        db_path = path or default_sqlite_db_path()
-        kc = kek_keychain_path
-        if not kc:
-            env_kc = os.environ.get("SECKIT_SQLITE_KEK_KEYCHAIN", "").strip()
-            kc = os.path.expanduser(env_kc) if env_kc else None
-        else:
-            kc = os.path.expanduser(kc)
-        return SqliteSecretStore(db_path=os.path.expanduser(db_path), kek_keychain_path=kc)
-
-    from secrets_kit.backends.keychain import KeychainBackendStore
-
-    return KeychainBackendStore(path=path)

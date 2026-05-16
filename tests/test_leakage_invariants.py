@@ -9,9 +9,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from secrets_kit.backends.base import resolve_backend_store
+from secrets_kit.backends.registry import resolve_backend_store
 from tests.leakage_needles import LEAKAGE_NEEDLES
-from secrets_kit.backends.security import BACKEND_SQLITE
+from secrets_kit.backends.registry import BACKEND_SQLITE
 from secrets_kit.models.locator import opaque_locator_hint
 from secrets_kit.models.core import EntryMetadata
 

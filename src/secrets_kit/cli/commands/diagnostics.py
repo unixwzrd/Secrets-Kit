@@ -12,19 +12,10 @@ import os
 import sys
 from dataclasses import asdict
 
-from secrets_kit.backends.security import (
-    BACKEND_SQLITE,
-    BackendError,
-    check_security_cli,
-    doctor_roundtrip,
-    harden_keychain,
-    keychain_accessible,
-    keychain_path,
-    keychain_policy,
-    lock_keychain,
-    normalize_backend,
-    unlock_keychain,
-)
+from secrets_kit.backends.errors import BackendError
+from secrets_kit.backends.keychain.security_cli import check_security_cli, harden_keychain, keychain_accessible, keychain_path, keychain_policy, lock_keychain, unlock_keychain
+from secrets_kit.backends.operations import doctor_roundtrip
+from secrets_kit.backends.registry import BACKEND_SQLITE, normalize_backend
 from secrets_kit.cli.constants.exit_codes import EXIT_CODES
 from secrets_kit.cli.support.args import (
     _backend_access_kwargs,
@@ -37,13 +28,10 @@ from secrets_kit.cli.support.args import (
 from secrets_kit.cli.support.interaction import (
     _confirm,
     _fatal,
-    _format_tags,
-    _print_table,
 )
 from secrets_kit.cli.support.metadata_selection import _resolve_status
 from secrets_kit.cli.support.version_info import _cli_version, _version_info_dict
 from secrets_kit.models.core import EntryMetadata, ValidationError
-from secrets_kit.recovery.recover_sources import iter_recover_candidates
 from secrets_kit.registry.core import (
     RegistryError,
     defaults_path,
@@ -106,11 +94,8 @@ def cmd_doctor(*, args: argparse.Namespace) -> int:
     - Invalid backend references in the registry
     Emits a single JSON object to stdout.
     """
-    from secrets_kit.backends.security import (
-        is_secure_backend,
-        is_sqlite_backend,
-        secret_exists,
-    )
+    from secrets_kit.backends.operations import secret_exists
+    from secrets_kit.backends.registry import is_secure_backend, is_sqlite_backend
 
     backend = _backend_arg(args)
     status: dict = {
@@ -297,7 +282,7 @@ def cmd_backend_index(*, args: argparse.Namespace) -> int:
     Uses ``BackendStore.iter_index``; no secret values are materialised.
     """
     try:
-        from secrets_kit.backends.base import resolve_backend_store
+        from secrets_kit.backends.registry import resolve_backend_store
 
         store = resolve_backend_store(
             backend=_backend_arg(args),
@@ -318,7 +303,7 @@ def cmd_rebuild_index(*, args: argparse.Namespace) -> int:
     by re-scanning the encrypted payloads without materialising plaintext.
     """
     try:
-        from secrets_kit.backends.base import resolve_backend_store
+        from secrets_kit.backends.registry import resolve_backend_store
 
         store = resolve_backend_store(
             backend=_backend_arg(args),

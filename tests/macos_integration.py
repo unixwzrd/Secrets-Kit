@@ -62,7 +62,7 @@ def keychain_integration_enabled() -> bool:
     if sys.platform != "darwin":
         return False
     try:
-        from secrets_kit.backends.security import check_security_cli
+        from secrets_kit.backends.keychain.security_cli import check_security_cli
     except ImportError:
         return False
     if not check_security_cli():
@@ -74,7 +74,7 @@ def locked_keychain_tests_enabled() -> bool:
     if sys.platform != "darwin":
         return False
     try:
-        from secrets_kit.backends.security import check_security_cli
+        from secrets_kit.backends.keychain.security_cli import check_security_cli
     except ImportError:
         return False
     if not check_security_cli():

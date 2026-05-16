@@ -11,20 +11,14 @@ import getpass
 import json
 import os
 
-from secrets_kit.backends.security import (
-    BACKEND_SECURE,
-    BackendError,
-    is_secure_backend,
-    is_sqlite_backend,
-    normalize_backend,
-)
+from secrets_kit.backends.errors import BackendError
+from secrets_kit.backends.registry import BACKEND_SECURE, is_secure_backend, is_sqlite_backend, normalize_backend
 from secrets_kit.models.core import ENTRY_KIND_VALUES, ValidationError
 from secrets_kit.registry.core import (
     RegistryError,
     defaults_path,
     load_defaults,
     registry_dir,
-    save_defaults,
 )
 
 CONFIG_STORABLE_KEYS: frozenset[str] = frozenset(

@@ -11,12 +11,8 @@ import json
 import os
 from datetime import datetime, timezone
 
-from secrets_kit.backends.security import (
-    BackendError,
-    delete_secret,
-    get_secret,
-    set_secret,
-)
+from secrets_kit.backends.errors import BackendError
+from secrets_kit.backends.operations import delete_secret, get_secret, set_secret
 from secrets_kit.cli.constants.exit_codes import EXIT_CODES
 from secrets_kit.cli.support.args import (
     _backend_access_kwargs,

@@ -9,11 +9,9 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
-from secrets_kit.backends.keychain.inventory import GenpCandidate
 from secrets_kit.cli.commands.config import (
     cmd_config_path,
     cmd_config_set,
-    cmd_config_show,
     cmd_config_unset,
 )
 from secrets_kit.cli.commands.diagnostics import (
@@ -23,7 +21,8 @@ from secrets_kit.cli.commands.diagnostics import (
     cmd_version,
 )
 from secrets_kit.cli.commands.import_export import cmd_import_env
-from secrets_kit.cli.commands.migrate import cmd_migrate_metadata, cmd_recover_registry
+from secrets_kit.cli.commands.migrate import cmd_recover_registry
+from secrets_kit.recovery.recover_sources import RecoverCandidate
 from secrets_kit.cli.commands.secrets import cmd_delete, cmd_get, cmd_run, cmd_set
 from secrets_kit.cli.commands.service_ops import cmd_service_copy
 from secrets_kit.cli.constants.exit_codes import EXIT_CODES
@@ -188,7 +187,7 @@ class CliCommandsTest(unittest.TestCase):
                 mock.patch("secrets_kit.cli.commands.diagnostics.ensure_registry_storage", return_value=f"{tmp}/registry.json"), \
                 mock.patch("secrets_kit.cli.commands.diagnostics.doctor_roundtrip", return_value=None), \
                 mock.patch("secrets_kit.cli.commands.diagnostics.load_registry") as load_registry_mock, \
-                mock.patch("secrets_kit.backends.security.secret_exists", return_value=False), \
+                mock.patch("secrets_kit.backends.operations.secret_exists", return_value=False), \
                 redirect_stdout(out), \
                 redirect_stderr(err):
                 from secrets_kit.models.core import EntryMetadata
@@ -227,7 +226,7 @@ class CliCommandsTest(unittest.TestCase):
                 mock.patch("secrets_kit.cli.commands.diagnostics.ensure_registry_storage", return_value=str(config_dir / "registry.json")), \
                 mock.patch("secrets_kit.cli.commands.diagnostics.doctor_roundtrip"), \
                 mock.patch("secrets_kit.cli.commands.diagnostics.load_registry", return_value={}), \
-                mock.patch("secrets_kit.backends.security.secret_exists", return_value=True), \
+                mock.patch("secrets_kit.backends.operations.secret_exists", return_value=True), \
                 mock.patch("secrets_kit.cli.commands.diagnostics._read_metadata") as read_meta, \
                 redirect_stdout(out), \
                 redirect_stderr(err):
@@ -400,8 +399,8 @@ class CliCommandsTest(unittest.TestCase):
         }
         icmt = json.dumps(payload, separators=(",", ":"), sort_keys=True)
         candidates = [
-            GenpCandidate(account="u", service="svc", name="lowercase-bad", comment=""),
-            GenpCandidate(account="miafour", service="hermes", name="OPENAI_API_KEY", comment=icmt),
+            RecoverCandidate(account="u", service="svc", name="lowercase-bad", comment=""),
+            RecoverCandidate(account="miafour", service="hermes", name="OPENAI_API_KEY", comment=icmt),
         ]
 
         def _iter(**_: object):
@@ -720,7 +719,7 @@ class CliCommandsTest(unittest.TestCase):
         self.assertIn("run requires a target command", err.getvalue())
 
     def test_run_reports_which_secret_failed_to_read(self) -> None:
-        from secrets_kit.backends.security import BackendError
+        from secrets_kit.backends.errors import BackendError
         from secrets_kit.models.core import EntryMetadata
 
         args = argparse.Namespace(
@@ -756,7 +755,7 @@ class CliCommandsTest(unittest.TestCase):
         self.assertIn("--names/--tag", err.getvalue())
 
     def test_read_metadata_falls_back_to_registry_when_keychain_metadata_read_fails(self) -> None:
-        from secrets_kit.backends.security import BackendError
+        from secrets_kit.backends.errors import BackendError
         from secrets_kit.models.core import EntryMetadata
         from secrets_kit.registry.resolve import _read_metadata
 

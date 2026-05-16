@@ -11,7 +11,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from secrets_kit.backends.security import check_security_cli, delete_keychain, make_temp_keychain
+from secrets_kit.backends.keychain.security_cli import check_security_cli, delete_keychain, make_temp_keychain
 
 from macos_integration import _SKIP_INTERACTIVE, keychain_integration_enabled
 from platform_guards import SKIP_MACOS_ONLY

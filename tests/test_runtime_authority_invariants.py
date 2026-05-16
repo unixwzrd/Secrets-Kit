@@ -17,7 +17,8 @@ from secrets_kit.cli.commands.migrate import cmd_recover_registry
 from secrets_kit.cli.commands.secrets import cmd_explain, cmd_get, cmd_list
 from secrets_kit.cli.support.defaults import _apply_defaults
 from secrets_kit.cli.parser.base import build_parser
-from secrets_kit.backends.security import BACKEND_SQLITE, set_secret
+from secrets_kit.backends.operations import set_secret
+from secrets_kit.backends.registry import BACKEND_SQLITE
 from secrets_kit.models.core import EntryMetadata
 from secrets_kit.registry.core import ensure_registry_storage, upsert_metadata
 from secrets_kit.runtime.authority import BACKEND_INTERFACE_EXPOSURE, backend_interface_exposure_complete

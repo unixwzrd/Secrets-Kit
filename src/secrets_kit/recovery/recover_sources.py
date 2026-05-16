@@ -9,11 +9,24 @@ Supports **secure** (Keychain dump) and **sqlite** (plaintext index columns only
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Iterator
 
-from secrets_kit.backends.security import BackendError, is_secure_backend, is_sqlite_backend, keychain_path
-from secrets_kit.backends.keychain.inventory import GenpCandidate, dump_keychain_text, iter_seckit_genp_candidates
-from secrets_kit.backends.sqlite import iter_secrets_plaintext_index
+from secrets_kit.backends.errors import BackendError
+from secrets_kit.backends.keychain.inventory import dump_keychain_text, iter_seckit_genp_candidates
+from secrets_kit.backends.keychain.security_cli import keychain_path
+from secrets_kit.backends.registry import is_secure_backend, is_sqlite_backend
+from secrets_kit.backends.sqlite.recovery import iter_sqlite_recovery_candidates
+
+
+@dataclass(frozen=True)
+class RecoverCandidate:
+    """Neutral recovery candidate shape used by registry rebuild tooling."""
+
+    account: str
+    service: str
+    name: str
+    comment: str
 
 
 def iter_recover_candidates(
@@ -22,17 +35,29 @@ def iter_recover_candidates(
     service_filter: str | None,
     keychain_file: str | None,
     sqlite_db: str | None,
-) -> Iterator[GenpCandidate]:
+) -> Iterator[RecoverCandidate]:
     """Yield candidates in store order; same shape for Keychain and SQLite."""
     want = service_filter.strip() if service_filter else None
     if is_secure_backend(backend):
         kc = keychain_path(path=keychain_file)
         dump = dump_keychain_text(path=kc)
-        yield from iter_seckit_genp_candidates(dump, service_filter=want)
+        for cand in iter_seckit_genp_candidates(dump, service_filter=want):
+            yield RecoverCandidate(
+                account=cand.account,
+                service=cand.service,
+                name=cand.name,
+                comment=cand.comment,
+            )
         return
     if is_sqlite_backend(backend):
         if not sqlite_db or not str(sqlite_db).strip():
             raise BackendError("SQLite recover requires a database path (--db or defaults / SECKIT_SQLITE_DB)")
-        yield from iter_secrets_plaintext_index(db_path=str(sqlite_db).strip(), service_filter=want)
+        for cand in iter_sqlite_recovery_candidates(db_path=str(sqlite_db).strip(), service_filter=want):
+            yield RecoverCandidate(
+                account=cand.account,
+                service=cand.service,
+                name=cand.name,
+                comment=cand.metadata_comment,
+            )
         return
     raise BackendError(f"recover does not support backend {backend!r} (use secure or sqlite)")

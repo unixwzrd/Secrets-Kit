@@ -9,13 +9,13 @@ import sys
 import tempfile
 import unittest
 
-from secrets_kit.backends.security import BackendError, check_security_cli, delete_keychain, make_temp_keychain
+from secrets_kit.backends.errors import BackendError
+from secrets_kit.backends.keychain.security_cli import check_security_cli, delete_keychain, make_temp_keychain
 from secrets_kit.backends.sqlite.unlock import (
-    KeychainUnlockProvider,
     PassphraseUnlockProvider,
     build_sqlite_unlock_provider,
     clear_sqlite_unlock_cache,
-    derive_legacy_master_key,
+    derive_passphrase_master_key,
 )
 
 if importlib.util.find_spec("nacl") is None:
@@ -42,17 +42,17 @@ else:
                     del os.environ[key]
             self._dir.cleanup()
 
-        def test_derive_legacy_master_key_deterministic(self) -> None:
+        def test_derive_passphrase_master_key_deterministic(self) -> None:
             import nacl.pwhash.argon2id as argon2
 
             salt = b"\x00" * argon2.SALTBYTES
-            k1 = derive_legacy_master_key(
+            k1 = derive_passphrase_master_key(
                 passphrase="pw",
                 salt=salt,
                 opslimit=argon2.OPSLIMIT_MIN,
                 memlimit=argon2.MEMLIMIT_MIN,
             )
-            k2 = derive_legacy_master_key(
+            k2 = derive_passphrase_master_key(
                 passphrase="pw",
                 salt=salt,
                 opslimit=argon2.OPSLIMIT_MIN,
@@ -89,12 +89,12 @@ else:
                 shutil.rmtree(fixture["directory"], ignore_errors=True)
 
         def test_keychain_store_rejects_passphrase_vault(self) -> None:
-            """Opening a legacy passphrase vault with KeychainUnlockProvider must error."""
+            """Opening a passphrase vault with KeychainUnlockProvider must error."""
             if sys.platform != "darwin" or not check_security_cli():
                 self.skipTest("requires macOS security CLI")
             fixture = make_temp_keychain(password="kc-pass")
             try:
-                os.environ["SECKIT_SQLITE_PASSPHRASE"] = "legacy-passphrase-here!!!!"
+                os.environ["SECKIT_SQLITE_PASSPHRASE"] = "passphrase-vault-secret!!!!"
                 leg = SqliteSecretStore(db_path=self.db)
                 leg.set(service="s", account="a", name="K", value="v")
                 clear_sqlite_crypto_cache()

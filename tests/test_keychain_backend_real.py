@@ -1,21 +1,12 @@
 from __future__ import annotations
 
-import os
 import shutil
 import sys
 import unittest
 
 from platform_guards import SKIP_MACOS_ONLY
-from secrets_kit.backends.security import (
-    check_security_cli,
-    delete_keychain,
-    delete_secret,
-    get_secret,
-    get_secret_metadata,
-    make_temp_keychain,
-    secret_exists,
-    set_secret,
-)
+from secrets_kit.backends.keychain.security_cli import check_security_cli, delete_keychain, make_temp_keychain
+from secrets_kit.backends.operations import delete_secret, get_secret, get_secret_metadata, secret_exists, set_secret
 
 
 @unittest.skipUnless(sys.platform == "darwin", SKIP_MACOS_ONLY)

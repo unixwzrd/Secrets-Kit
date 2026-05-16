@@ -5,8 +5,10 @@ import os
 import tempfile
 import unittest
 
-from secrets_kit.backends.base import resolve_backend_store
-from secrets_kit.backends.security import BACKEND_SQLITE, BackendError, get_secret, set_secret
+from secrets_kit.backends.registry import resolve_backend_store
+from secrets_kit.backends.errors import BackendError
+from secrets_kit.backends.operations import get_secret, set_secret
+from secrets_kit.backends.registry import BACKEND_SQLITE
 
 # Importing secrets_kit.backends.sqlite requires PyNaCl; keep collection working without it.
 if importlib.util.find_spec("nacl") is None:
@@ -16,7 +18,8 @@ if importlib.util.find_spec("nacl") is None:
             self.skipTest("Install project dependencies to run SQLite backend tests (pip install -e .)")
 
 else:
-    from secrets_kit.backends.sqlite import SqliteSecretStore, clear_sqlite_crypto_cache, default_sqlite_db_path, iter_secrets_plaintext_index
+    from secrets_kit.backends.sqlite import SqliteSecretStore, clear_sqlite_crypto_cache, default_sqlite_db_path
+    from secrets_kit.backends.sqlite.recovery import iter_sqlite_recovery_candidates
 
     class SqliteBackendTest(unittest.TestCase):
         def setUp(self) -> None:
@@ -112,9 +115,9 @@ else:
                 value="t",
                 comment="",
             )
-            all_rows = list(iter_secrets_plaintext_index(db_path=self.db))
+            all_rows = list(iter_sqlite_recovery_candidates(db_path=self.db))
             self.assertEqual(len(all_rows), 2)
-            filtered = list(iter_secrets_plaintext_index(db_path=self.db, service_filter="hermes"))
+            filtered = list(iter_sqlite_recovery_candidates(db_path=self.db, service_filter="hermes"))
             self.assertEqual(len(filtered), 1)
             self.assertEqual(filtered[0].name, "API_KEY")
 

@@ -8,13 +8,9 @@ from __future__ import annotations
 
 from typing import Dict, Optional
 
-from secrets_kit.backends.security import (
-    BackendError,
-    get_secret_metadata,
-    is_secure_backend,
-    is_sqlite_backend,
-    secret_exists,
-)
+from secrets_kit.backends.errors import BackendError
+from secrets_kit.backends.operations import get_secret_metadata, secret_exists
+from secrets_kit.backends.registry import is_secure_backend, is_sqlite_backend
 from secrets_kit.models.core import EntryMetadata
 from secrets_kit.registry.core import load_registry
 
@@ -47,7 +43,7 @@ def _read_metadata(
     ):
         res_store = None
         try:
-            from secrets_kit.backends.base import resolve_backend_store
+            from secrets_kit.backends.registry import resolve_backend_store
 
             store = resolve_backend_store(backend=backend, path=path, kek_keychain_path=kek_keychain_path)
             resolved = store.resolve_by_locator(service=service, account=account, name=name)

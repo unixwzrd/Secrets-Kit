@@ -11,13 +11,9 @@ import json
 import shutil
 from pathlib import Path
 
-from secrets_kit.backends.security import (
-    BackendError,
-    check_security_cli,
-    get_secret,
-    secret_exists,
-    set_secret,
-)
+from secrets_kit.backends.errors import BackendError
+from secrets_kit.backends.keychain.security_cli import check_security_cli
+from secrets_kit.backends.operations import get_secret, secret_exists, set_secret
 from secrets_kit.cli.commands.import_export import cmd_import_env
 from secrets_kit.cli.constants.exit_codes import EXIT_CODES
 from secrets_kit.cli.support.args import (
@@ -175,7 +171,7 @@ def cmd_recover_registry(*, args: argparse.Namespace) -> int:
     keychain comments contain valid metadata are preserved; others get
     auto-inferred ``entry_kind`` and fresh timestamps.
     """
-    from secrets_kit.backends.security import is_secure_backend, is_sqlite_backend
+    from secrets_kit.backends.registry import is_secure_backend, is_sqlite_backend
 
     backend = _backend_arg(args)
     if is_secure_backend(backend):

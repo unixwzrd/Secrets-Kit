@@ -9,11 +9,7 @@ from __future__ import annotations
 import argparse
 import os
 
-from secrets_kit.backends.security import (
-    BACKEND_SECURE,
-    is_secure_backend,
-    is_sqlite_backend,
-)
+from secrets_kit.backends.registry import BACKEND_SECURE, is_secure_backend, is_sqlite_backend
 from secrets_kit.backends.sqlite import default_sqlite_db_path
 
 

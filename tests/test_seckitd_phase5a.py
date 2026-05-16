@@ -25,7 +25,8 @@ from secrets_kit.sync.bundle import build_bundle, parse_bundle_file
 from secrets_kit.sync.envelope import build_transport_message
 
 if importlib.util.find_spec("nacl") is not None:
-    from secrets_kit.backends.security import BACKEND_SQLITE, get_secret, set_secret
+    from secrets_kit.backends.operations import get_secret, set_secret
+    from secrets_kit.backends.registry import BACKEND_SQLITE
     from secrets_kit.backends.sqlite import SqliteSecretStore, clear_sqlite_crypto_cache
 else:
 

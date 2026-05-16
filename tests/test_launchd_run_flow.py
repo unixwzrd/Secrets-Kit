@@ -23,14 +23,8 @@ from macos_integration import (
     launchd_tests_enabled,
 )
 from platform_guards import SKIP_MACOS_ONLY
-from secrets_kit.backends.security import (
-    delete_keychain,
-    delete_secret,
-    harden_keychain,
-    keychain_path,
-    make_temp_keychain,
-    secret_exists,
-)
+from secrets_kit.backends.keychain.security_cli import delete_keychain, harden_keychain, keychain_path, make_temp_keychain
+from secrets_kit.backends.operations import delete_secret, secret_exists
 from secrets_kit.backends.sqlite.unlock import clear_sqlite_unlock_cache
 from secrets_kit.cli.commands.secrets import cmd_set
 

@@ -10,7 +10,8 @@ from pathlib import Path
 
 from dataclasses import replace
 
-from secrets_kit.backends.security import BACKEND_SQLITE, get_secret, secret_exists, set_secret
+from secrets_kit.backends.operations import get_secret, secret_exists, set_secret
+from secrets_kit.backends.registry import BACKEND_SQLITE
 from secrets_kit.models.core import EntryMetadata
 from secrets_kit.registry.core import ensure_registry_storage, upsert_metadata
 from secrets_kit.sync.canonical_record import compute_record_content_hash

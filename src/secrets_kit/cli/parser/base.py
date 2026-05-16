@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import argparse
 
-from secrets_kit.backends.security import BACKEND_CHOICES
+from secrets_kit.backends.registry import BACKEND_CHOICES
 from secrets_kit.cli.parser.formatter import SeckitHelpFormatter
 from secrets_kit.cli.strings.en import STRINGS
 from secrets_kit.cli.parser.daemon import add_daemon_commands

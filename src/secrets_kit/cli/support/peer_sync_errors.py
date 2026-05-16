@@ -6,7 +6,7 @@ User-facing errors for peer sync and bundle workflows (no secret values).
 
 from __future__ import annotations
 
-from secrets_kit.backends.security import BackendError
+from secrets_kit.backends.errors import BackendError
 from secrets_kit.identity.core import IdentityError
 from secrets_kit.registry.core import RegistryError
 from secrets_kit.sync.bundle import SyncBundleError

@@ -1,14 +1,12 @@
-"""Keychain :class:`~secrets_kit.backends.base.BackendStore` adapter (``security`` CLI).
+"""Keychain :class:`~secrets_kit.backends.base.BackendStore` adapter.
 
 Metadata today lives in the **generic-password comment** (structured JSON) alongside the
-secret — honest posture flags surface that comments are not encrypted. A future layout can
-store ciphertext elsewhere without changing :class:`~secrets_kit.backends.base.BackendStore`.
+secret. Comments are migrated forward when entries are resolved; decrypt-free
+index scans never rewrite Keychain state.
 """
 
 from __future__ import annotations
 
-import re
-import uuid
 from dataclasses import replace
 from typing import Any, Callable, Dict, Iterator, Optional
 
@@ -26,48 +24,15 @@ from secrets_kit.backends.keychain.inventory import (
     dump_keychain_text,
     iter_seckit_genp_candidates,
 )
-from secrets_kit.backends.security import BackendError, SecurityCliStore, keychain_path
+from secrets_kit.backends.errors import BackendError
+from secrets_kit.backends.keychain.migrations import (
+    entry_id_from_comment,
+    metadata_and_entry_id,
+    stable_entry_id_from_locator,
+)
+from secrets_kit.backends.keychain.security_cli import SecurityCliStore, keychain_path
 from secrets_kit.models.core import EntryMetadata, Locator, ensure_entry_id, now_utc_iso
 from secrets_kit.models.locator import locator_hash_hex, opaque_locator_hint
-
-# Temporary migration compatibility: extract UUID from comment without full JSON parse.
-# Must not become permanent architecture; see docs/METADATA_SEMANTICS_ADR.md.
-_ENTRY_ID_UUID_RE = re.compile(
-    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
-)
-
-
-def _entry_id_from_comment_shim(comment: str) -> str:
-    """Extract a UUID ``entry_id`` from a keychain comment via regex fallback.
-
-    Temporary migration compatibility; see ``docs/METADATA_SEMANTICS_ADR.md``.
-    """
-    m = _ENTRY_ID_UUID_RE.search(comment or "")
-    return m.group(0) if m else ""
-
-
-def _stable_entry_id_from_locator(*, service: str, account: str, name: str) -> str:
-    """Deterministic id for legacy items with no ``entry_id`` in comment (read-only index)."""
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"seckit:keychain:{service}:{account}:{name}"))
-
-
-def _meta_and_entry_id(
-    *, service: str, account: str, name: str, comment: str
-) -> tuple[EntryMetadata, str]:
-    """Parse metadata from a keychain comment and return a stable ``entry_id``.
-
-    When the comment lacks valid metadata, creates a synthetic record and
-    derives a deterministic UUID from the locator.
-    """
-    parsed = EntryMetadata.from_keychain_comment(comment)
-    if parsed is None:
-        meta = EntryMetadata(name=name, service=service, account=account, source="keychain-manual", comment="")
-        eid = _stable_entry_id_from_locator(service=service, account=account, name=name)
-        return meta, eid
-    meta = replace(parsed, name=name, service=service, account=account)
-    if str(meta.entry_id).strip():
-        return meta, str(meta.entry_id).strip()
-    return meta, _stable_entry_id_from_locator(service=service, account=account, name=name)
 
 
 class KeychainBackendStore(BackendStore):
@@ -115,6 +80,17 @@ class KeychainBackendStore(BackendStore):
         kc = keychain_path(path=self._path)
         return dump_keychain_text(path=kc)
 
+    def _write_current_comment(self, *, service: str, account: str, name: str, secret: str, metadata: EntryMetadata) -> None:
+        """Rewrite one item with current structured metadata after resolution."""
+        self._cli.set(
+            service=service,
+            account=account,
+            name=name,
+            value=secret,
+            comment=metadata.to_keychain_comment(),
+            label=name,
+        )
+
     def set_entry(
         self,
         *,
@@ -156,7 +132,7 @@ class KeychainBackendStore(BackendStore):
             return None
         dump = self._dump_text()
         for cand in iter_seckit_genp_candidates(dump):
-            _meta, eid = _meta_and_entry_id(
+            meta, eid, needs_migration = metadata_and_entry_id(
                 service=cand.service, account=cand.account, name=cand.name, comment=cand.comment
             )
             if eid != want:
@@ -165,12 +141,16 @@ class KeychainBackendStore(BackendStore):
                 secret = self._cli.get(service=cand.service, account=cand.account, name=cand.name)
             except BackendError:
                 return None
-            full = EntryMetadata.from_keychain_comment(cand.comment)
-            if full is None:
-                full = replace(_meta, entry_id=eid)
-            else:
-                full = ensure_entry_id(replace(full, name=cand.name, service=cand.service, account=cand.account))
-            return ResolvedEntry(secret=secret, metadata=full)
+            if needs_migration:
+                meta = replace(meta, updated_at=meta.updated_at or now_utc_iso())
+                self._write_current_comment(
+                    service=cand.service,
+                    account=cand.account,
+                    name=cand.name,
+                    secret=secret,
+                    metadata=meta,
+                )
+            return ResolvedEntry(secret=secret, metadata=meta)
         return None
 
     def resolve_by_locator(self, *, service: str, account: str, name: str) -> Optional[ResolvedEntry]:
@@ -184,16 +164,21 @@ class KeychainBackendStore(BackendStore):
         except BackendError:
             return None
         comment = str(raw.get("comment", "") or "")
-        meta = EntryMetadata.from_keychain_comment(comment)
-        if meta is None:
-            meta = EntryMetadata(
-                name=loc.name,
+        meta, _eid, needs_migration = metadata_and_entry_id(
+            service=loc.service,
+            account=loc.account,
+            name=loc.name,
+            comment=comment,
+        )
+        if needs_migration:
+            meta = replace(meta, updated_at=meta.updated_at or now_utc_iso())
+            self._write_current_comment(
                 service=loc.service,
                 account=loc.account,
-                source="keychain-manual",
-                comment="",
+                name=loc.name,
+                secret=secret,
+                metadata=meta,
             )
-        meta = ensure_entry_id(replace(meta, name=loc.name, service=loc.service, account=loc.account))
         return ResolvedEntry(secret=secret, metadata=meta)
 
     def delete_entry(self, *, service: str, account: str, name: str) -> None:
@@ -209,9 +194,9 @@ class KeychainBackendStore(BackendStore):
 
     def _index_row_for_candidate(self, cand: GenpCandidate) -> IndexRow:
         """Build an ``IndexRow`` from a keychain generic-password candidate."""
-        eid = _entry_id_from_comment_shim(cand.comment)
+        eid = entry_id_from_comment(cand.comment)
         if not eid:
-            eid = _stable_entry_id_from_locator(service=cand.service, account=cand.account, name=cand.name)
+            eid = stable_entry_id_from_locator(service=cand.service, account=cand.account, name=cand.name)
         lh = opaque_locator_hint(entry_id=eid)
         lhash = locator_hash_hex(service=cand.service, account=cand.account, name=cand.name)
         return IndexRow(

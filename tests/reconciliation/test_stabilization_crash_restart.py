@@ -8,7 +8,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from secrets_kit.backends.security import BACKEND_SQLITE, secret_exists, set_secret
+from secrets_kit.backends.operations import secret_exists, set_secret
+from secrets_kit.backends.registry import BACKEND_SQLITE
 from secrets_kit.registry.core import ensure_registry_storage, upsert_metadata
 from secrets_kit.sync.canonical_record import compute_record_content_hash
 from secrets_kit.sync.merge import apply_peer_sync_import

@@ -5,7 +5,7 @@ secrets_kit.backends.sqlite.migrations
 patches, and audit tables/triggers with ``PRAGMA user_version``.
 
 Decryption happens only when promoting legacy rows; routine opens otherwise run
-DDL and pragma updates. General CRUD remains in :mod:`secrets_kit.backends.sqlite.backend`.
+DDL and pragma updates. General CRUD remains in :mod:`secrets_kit.backends.sqlite.store`.
 """
 
 from __future__ import annotations
@@ -17,7 +17,8 @@ import nacl.secret
 from dataclasses import replace
 
 from secrets_kit.backends.base import BACKEND_IMPL_VERSION
-from secrets_kit.backends.sqlite.payload_codec import build_joint_payload_bytes, parse_joint_payload_or_legacy
+from secrets_kit.backends.sqlite.legacy_payload import parse_current_or_legacy_payload_for_migration
+from secrets_kit.backends.sqlite.payload_codec import JOINT_PAYLOAD_VERSION, build_joint_payload_bytes
 from secrets_kit.backends.sqlite.schema import (
     SQLITE_USER_VERSION_V2,
     SQLITE_USER_VERSION_V3,
@@ -69,12 +70,13 @@ def _migrate_legacy_to_v2(
         except nacl.exceptions.CryptoError:
             continue
         meta_json_str = meta_json if isinstance(meta_json, str) else ""
-        secret_val, meta = parse_joint_payload_or_legacy(
+        secret_val, meta = parse_current_or_legacy_payload_for_migration(
             plain=plain,
             legacy_metadata_json=meta_json_str or None,
             service=str(svc),
             account=str(acct),
             name=str(nm),
+            current_version=JOINT_PAYLOAD_VERSION,
         )
         meta = ensure_entry_id(meta)
         meta = replace(meta, name=str(nm), service=str(svc), account=str(acct))

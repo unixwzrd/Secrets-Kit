@@ -14,7 +14,7 @@ from unittest import mock
 
 from secrets_kit.cli.commands.import_export import cmd_export, cmd_import_env
 from secrets_kit.cli.commands.secrets import cmd_get, cmd_set
-from secrets_kit.backends.security import delete_keychain, keychain_path, lock_keychain, make_temp_keychain
+from secrets_kit.backends.keychain.security_cli import delete_keychain, lock_keychain, make_temp_keychain
 
 from macos_integration import _SKIP_INTERACTIVE, locked_keychain_tests_enabled
 from platform_guards import SKIP_MACOS_ONLY

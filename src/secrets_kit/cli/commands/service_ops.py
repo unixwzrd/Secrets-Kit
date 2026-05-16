@@ -9,12 +9,8 @@ from __future__ import annotations
 import argparse
 import json
 
-from secrets_kit.backends.security import (
-    BackendError,
-    get_secret,
-    secret_exists,
-    set_secret,
-)
+from secrets_kit.backends.errors import BackendError
+from secrets_kit.backends.operations import get_secret, secret_exists, set_secret
 from secrets_kit.cli.constants.exit_codes import EXIT_CODES
 from secrets_kit.cli.support.args import (
     _backend_access_kwargs,

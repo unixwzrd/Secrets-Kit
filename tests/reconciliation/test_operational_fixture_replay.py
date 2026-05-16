@@ -10,7 +10,8 @@ import unittest
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-from secrets_kit.backends.security import BACKEND_SQLITE, set_secret
+from secrets_kit.backends.operations import set_secret
+from secrets_kit.backends.registry import BACKEND_SQLITE
 from secrets_kit.registry.core import ensure_registry_storage, upsert_metadata
 from secrets_kit.sync.canonical_record import compute_record_content_hash
 

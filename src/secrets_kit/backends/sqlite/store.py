@@ -4,7 +4,7 @@ secrets_kit.backends.sqlite
 **Portable encrypted** SQLite secret store (PyNaCl SecretBox + unlock providers).
 
 v2 keeps decrypt-free index columns and one encrypted joint payload per row;
-legacy v1 rows are migrated on first open. Schema DDL and migrations are split
+old rows are migrated on first open. Schema DDL and migrations are split
 into :mod:`secrets_kit.backends.sqlite.schema` and
 :mod:`secrets_kit.backends.sqlite.migrations`.
 """
@@ -17,7 +17,7 @@ import sqlite3
 import sys
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterator, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterator, Optional, Tuple
 
 import nacl.exceptions
 import nacl.secret
@@ -32,12 +32,11 @@ from secrets_kit.backends.base import (
     ResolvedEntry,
     normalize_store_locator,
 )
-from secrets_kit.backends.keychain.inventory import GenpCandidate
-from secrets_kit.backends.security import BackendError, backend_service_name
+from secrets_kit.backends.errors import BackendError
 from secrets_kit.backends.sqlite.migrations import migrate_if_needed
 from secrets_kit.backends.sqlite.payload_codec import (
     build_joint_payload_bytes,
-    parse_joint_payload_or_legacy,
+    parse_current_payload,
 )
 from secrets_kit.backends.sqlite.queries import (
     sql_select_deleted_by_locator,
@@ -65,6 +64,9 @@ from secrets_kit.models.lineage import LineageSnapshot
 from secrets_kit.models.locator import locator_hash_hex, opaque_locator_hint
 from secrets_kit.registry.core import registry_dir
 from secrets_kit.sync.canonical_record import attach_content_hash
+
+if TYPE_CHECKING:
+    from secrets_kit.backends.sqlite.recovery import SqliteRecoveryCandidate
 
 CRYPTO_VERSION = 1
 PLAINTEXT_DEBUG_CRYPTO_VERSION = 0
@@ -156,24 +158,10 @@ def _init_schema(
     """
     **Migrate-on-open:** delegate to :func:`migrate_if_needed` for this connection.
 
-    ``db_path`` unlock semantics must match how the store was created; legacy
+    ``db_path`` unlock semantics must match how the store was created; old
     promotion may decrypt and re-encrypt rows. Idempotent for already-current DBs.
     """
     migrate_if_needed(conn=conn, db_path=db_path, unlock_provider=unlock_provider)
-
-
-def iter_secrets_plaintext_index(
-    *, db_path: str, service_filter: Optional[str] = None
-) -> Iterator[GenpCandidate]:
-    """
-    **Recover path:** yield SQLite rows as generic-password–style candidates.
-
-    v2 metadata lives inside the encrypted blob; this iterator **decrypts** each
-    row (unlock required) to rebuild comment JSON for recovery tooling. Optional
-    ``service_filter`` limits which services are scanned.
-    """
-    store = SqliteSecretStore(db_path=str(Path(db_path).expanduser()))
-    yield from store.iter_recover_genp_candidates(service_filter=service_filter)
 
 
 class SqliteSecretStore(BackendStore):
@@ -539,16 +527,10 @@ class SqliteSecretStore(BackendStore):
                 plain = box.decrypt(ciphertext, nonce)
             except nacl.exceptions.CryptoError as exc:
                 raise BackendError("decryption failed (wrong passphrase or corrupted data)") from exc
-        service = str(row["service"])
-        account = str(row["account"])
-        name = str(row["name"])
-        secret_val, meta = parse_joint_payload_or_legacy(
-            plain=plain,
-            legacy_metadata_json=None,
-            service=str(service),
-            account=str(account),
-            name=str(name),
-        )
+        try:
+            secret_val, meta = parse_current_payload(plain=plain)
+        except (ValueError, TypeError, KeyError) as exc:
+            raise BackendError("unsupported SQLite payload; open-time migration did not promote this row") from exc
         return ResolvedEntry(secret=secret_val, metadata=meta)
 
     def _materialize_payload_storage(
@@ -739,10 +721,9 @@ class SqliteSecretStore(BackendStore):
                 raise BackendError("secret not found")
             resolved = self._decrypt_resolved(conn, row)
             comment = resolved.metadata.to_keychain_comment()
-            svc = backend_service_name(service=service, name=name)
             return {
                 "account": account,
-                "service_name": svc,
+                "service_name": f"{service}:{name}",
                 "label": name,
                 "comment": comment,
                 "created_at_raw": "",
@@ -879,17 +860,19 @@ class SqliteSecretStore(BackendStore):
         finally:
             conn.close()
 
-    def iter_recover_genp_candidates(self, *, service_filter: Optional[str] = None) -> Iterator[GenpCandidate]:
-        """Yield ``GenpCandidate`` objects for recovery tooling.
+    def iter_recovery_candidates(self, *, service_filter: Optional[str] = None) -> Iterator["SqliteRecoveryCandidate"]:
+        """Yield SQLite-local recovery candidates.
 
         Optional ``service_filter`` limits which services are scanned.
         """
+        from secrets_kit.backends.sqlite.recovery import SqliteRecoveryCandidate
+
         for _idx, resolved in self.iter_unlocked():
             if service_filter and resolved.metadata.service != service_filter:
                 continue
-            yield GenpCandidate(
+            yield SqliteRecoveryCandidate(
                 account=resolved.metadata.account,
                 service=resolved.metadata.service,
                 name=resolved.metadata.name,
-                comment=resolved.metadata.to_keychain_comment(),
+                metadata_comment=resolved.metadata.to_keychain_comment(),
             )

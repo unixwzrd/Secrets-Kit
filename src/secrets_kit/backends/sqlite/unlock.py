@@ -1,7 +1,7 @@
 """
 secrets_kit.backends.sqlite.unlock
 
-SQLite vault unlock: passphrase KDF (legacy) or macOS Keychain-wrapped DEK.
+SQLite vault unlock: passphrase KDF or macOS Keychain-wrapped DEK.
 """
 
 from __future__ import annotations
@@ -16,7 +16,8 @@ from typing import Callable, Protocol
 
 import nacl.pwhash
 import nacl.secret
-from secrets_kit.backends.security import BackendError, _run_security
+from secrets_kit.backends.errors import BackendError
+from secrets_kit.backends.keychain.security_cli import run_security
 from secrets_kit.models.core import now_utc_iso
 
 UNLOCK_PASSPHRASE = "passphrase"
@@ -82,8 +83,8 @@ def passphrase_for_store(db_path: str) -> str:
     return phrase
 
 
-def derive_legacy_master_key(*, passphrase: str, salt: bytes, opslimit: int, memlimit: int) -> bytes:
-    """Argon2id KDF for legacy vaults (salt + params stored in vault_meta). Public for tests."""
+def derive_passphrase_master_key(*, passphrase: str, salt: bytes, opslimit: int, memlimit: int) -> bytes:
+    """Argon2id KDF for passphrase-backed vaults (salt + params stored in vault_meta)."""
     return nacl.pwhash.argon2id.kdf(
         nacl.secret.SecretBox.KEY_SIZE,
         passphrase.encode("utf-8"),
@@ -139,7 +140,7 @@ def _read_kek_b64(*, db_path: str, keychain_path: str | None) -> str:
         ["find-generic-password", "-a", account, "-s", service, "-w"],
         keychain_path,
     )
-    return _run_security(args=args)
+    return run_security(args=args)
 
 
 def _write_kek_b64(*, db_path: str, keychain_path: str | None, kek_b64: str) -> None:
@@ -162,7 +163,7 @@ def _write_kek_b64(*, db_path: str, keychain_path: str | None, kek_b64: str) -> 
         ],
         keychain_path,
     )
-    _run_security(args=args)
+    run_security(args=args)
 
 
 def _read_kek_bytes_required(*, db_path: str, keychain_path: str | None) -> bytes:
@@ -204,7 +205,7 @@ class UnlockProvider(Protocol):
 
 
 class PassphraseUnlockProvider:
-    """Legacy passphrase + Argon2id KDF, or error if vault is keychain-wrapped."""
+    """Passphrase + Argon2id KDF, or error if vault is keychain-wrapped."""
 
     @property
     def provider_name(self) -> str:
@@ -229,7 +230,7 @@ class PassphraseUnlockProvider:
             opslimit = nacl.pwhash.argon2id.OPSLIMIT_MODERATE
             memlimit = nacl.pwhash.argon2id.MEMLIMIT_MODERATE
             created = now_utc_iso()
-            key = derive_legacy_master_key(passphrase=phrase, salt=salt, opslimit=opslimit, memlimit=memlimit)
+            key = derive_passphrase_master_key(passphrase=phrase, salt=salt, opslimit=opslimit, memlimit=memlimit)
             conn.execute(
                 """
                 INSERT INTO vault_meta (id, kdf_salt, opslimit, memlimit, created_at, wrapped_dek, unlock_provider)
@@ -245,7 +246,7 @@ class PassphraseUnlockProvider:
                 "This SQLite vault stores a keychain-wrapped DEK. Set SECKIT_SQLITE_UNLOCK=keychain "
                 "(and ensure the KEK item is readable in the keychain)."
             )
-        return derive_legacy_master_key(passphrase=phrase, salt=salt, opslimit=opslimit, memlimit=memlimit)
+        return derive_passphrase_master_key(passphrase=phrase, salt=salt, opslimit=opslimit, memlimit=memlimit)
 
 
 class KeychainUnlockProvider:
@@ -319,7 +320,7 @@ def build_sqlite_unlock_provider(
 ) -> UnlockProvider:
     """Build provider from ``mode`` or :envvar:`SECKIT_SQLITE_UNLOCK`.
 
-    * ``passphrase`` (default): Argon2id KDF from :envvar:`SECKIT_SQLITE_PASSPHRASE` (legacy layout).
+    * ``passphrase`` (default): Argon2id KDF from :envvar:`SECKIT_SQLITE_PASSPHRASE`.
     * ``keychain``: KEK in Keychain; requires macOS. Optional :envvar:`SECKIT_SQLITE_KEK_KEYCHAIN` or
       ``kek_keychain_path`` selects the keychain file (default: login keychain via ``security`` defaults).
     """

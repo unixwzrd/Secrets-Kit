@@ -5,7 +5,7 @@ secrets_kit.backends.sqlite.schema
 tiny helpers that execute them.
 
 Migration branching, unlock, and crypto live elsewhere—see
-:mod:`secrets_kit.backends.sqlite.migrations` and :mod:`secrets_kit.backends.sqlite.backend`.
+:mod:`secrets_kit.backends.sqlite.migrations` and :mod:`secrets_kit.backends.sqlite.store`.
 """
 
 from __future__ import annotations
