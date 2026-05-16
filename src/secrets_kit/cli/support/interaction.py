@@ -11,12 +11,35 @@ import sys
 from datetime import datetime
 
 from secrets_kit.cli.constants.exit_codes import EXIT_CODES
+from secrets_kit.cli.strings import exit_message
 from secrets_kit.models.core import ValidationError
 
 
-def _fatal(*, message: str, code: int = EXIT_CODES["EINVAL"]) -> int:
-    print(f"ERROR: {message}", file=sys.stderr)
-    return code
+def _fatal(
+    *,
+    message: str = "",
+    code: int | None = None,
+    code_name: str = "",
+) -> int:
+    """Print an error to stderr and return an exit code.
+
+    Parameters:
+        message: Override message (defaults to the localized message for ``code_name``).
+        code: Override numeric exit code (defaults to ``EXIT_CODES[code_name]``).
+        code_name: Exit code name from ``EXIT_CODES`` / ``EXIT_MESSAGES``.
+
+    When ``code_name`` is provided, both the numeric code and the human-readable
+    message are resolved automatically from the locale tables. Explicit ``message``
+    or ``code`` values override the auto-resolved defaults.
+    """
+    if code_name:
+        numeric = EXIT_CODES.get(code_name, EXIT_CODES["EINVAL"])
+        text = message or exit_message(code_name=code_name)
+    else:
+        numeric = code if code is not None else EXIT_CODES["EINVAL"]
+        text = message or "error"
+    print(f"ERROR: {text}", file=sys.stderr)
+    return numeric
 
 
 def _confirm(*, prompt: str) -> bool:

@@ -12,7 +12,7 @@ Lookup: ``STRINGS["KEY"]``. Stub locales (``es``, ``it``) re-export this dict un
 
 from __future__ import annotations
 
-__all__ = ("STRINGS",)
+__all__ = ("STRINGS", "EXIT_MESSAGES")
 
 STRINGS: dict[str, str] = {
     "MAIN_HELP_EPILOG": """\
@@ -323,4 +323,43 @@ defaults.json only fills omitted CLI flags like --service and --backend.""",
     "MIGRATE_RECOVER_REGISTRY_HELP": (
         "Compatibility alias for `seckit recover` (rebuild registry from the store)"
     ),
+}
+
+EXIT_MESSAGES: dict[str, str] = {
+    # --- Generic POSIX ---
+    "EXIT_SUCCESS": "success",
+    "EPERM": "operation not permitted",
+    "ENOENT": "no such file or directory",
+    "EIO": "input/output error",
+    "EINVAL": "invalid argument",
+    "ENOEXEC": "exec format error",
+    "ECANCELED": "operation cancelled by user",
+    "ECONNREFUSED": "connection refused",
+    "EACCES": "permission denied",
+    "EEXIST": "file already exists",
+    "ENODEV": "no such device",
+    "EISDIR": "is a directory",
+    "ENOTDIR": "not a directory",
+    "ENOSPC": "no space left on device",
+    "ETIMEDOUT": "connection timed out",
+    "ENETUNREACH": "network is unreachable",
+    # --- Application-specific ---
+    "EAPP_BACKEND_NOT_FOUND": "backend not found or not available",
+    "EAPP_REGISTRY_CORRUPT": "registry is corrupt",
+    "EAPP_SYNC_CONFLICT": "sync conflict detected",
+    "EAPP_KEYCHAIN_NOT_FOUND": "keychain not found",
+    "EAPP_LAUNCHD_FAILED": "launchd operation failed",
+    "EAPP_INJECTION_FAILED": "secret injection failed",
+    "EAPP_METADATA_DRIFT": "metadata drift detected",
+    "EAPP_JOURNAL_INVALID": "journal entry invalid",
+    "EAPP_SECURITY_CLI_MISSING": "security CLI not found",
+    "EAPP_PEER_NOT_FOUND": "peer not found",
+    "EAPP_BUNDLE_INVALID": "invalid peer bundle",
+    "EAPP_ENROLLMENT_FAILED": "enrollment failed",
+    "EAPP_ROTATION_OVERDUE": "rotation overdue",
+    "EAPP_EXPORT_FAILED": "export failed",
+    "EAPP_IMPORT_FAILED": "import failed",
+    "EAPP_CONFIG_INVALID": "invalid configuration",
+    "EAPP_DAEMON_NOT_RUNNING": "daemon is not running",
+    "EAPP_VERSION_MISMATCH": "version mismatch",
 }

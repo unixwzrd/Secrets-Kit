@@ -195,4 +195,3 @@ def _validate_config_entry(*, key: str, value: str) -> object:
             raise ValidationError(f"{key} must be non-negative")
         return n
     return v
-    return v
