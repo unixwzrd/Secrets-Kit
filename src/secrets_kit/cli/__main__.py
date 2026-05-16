@@ -1,4 +1,8 @@
-"""Entry point for ``python -m secrets_kit.cli``."""
+"""
+secrets_kit.cli.__main__
+
+Entry point for ``python -m secrets_kit.cli``.
+"""
 
 from __future__ import annotations
 

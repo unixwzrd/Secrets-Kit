@@ -1,4 +1,8 @@
-"""Mechanical locator_hash and opaque locator_hint (no semantic prefixes)."""
+"""
+secrets_kit.models.locator
+
+Mechanical locator_hash and opaque locator_hint (no semantic prefixes).
+"""
 
 from __future__ import annotations
 

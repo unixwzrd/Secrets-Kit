@@ -1,4 +1,8 @@
-"""Host identity subcommands."""
+"""
+secrets_kit.cli.commands.identity
+
+Host identity subcommands.
+"""
 
 from __future__ import annotations
 
@@ -6,8 +10,16 @@ import argparse
 import json
 from pathlib import Path
 
-from secrets_kit.identity.core import IdentityError, export_public_identity, identity_dir, identity_secret_path, init_identity, load_identity
+from secrets_kit.cli.constants.exit_codes import EXIT_CODES
 from secrets_kit.cli.support.interaction import _fatal
+from secrets_kit.identity.core import (
+    IdentityError,
+    export_public_identity,
+    identity_dir,
+    identity_secret_path,
+    init_identity,
+    load_identity,
+)
 
 
 def cmd_identity_init(*, args: argparse.Namespace) -> int:
@@ -27,7 +39,7 @@ def cmd_identity_init(*, args: argparse.Namespace) -> int:
             print(f"secret: {identity_secret_path()}")
         return 0
     except IdentityError as exc:
-        return _fatal(message=str(exc), code=1)
+        return _fatal(message=str(exc), code=EXIT_CODES["EPERM"])
 
 
 def cmd_identity_show(*, args: argparse.Namespace) -> int:
@@ -48,7 +60,7 @@ def cmd_identity_show(*, args: argparse.Namespace) -> int:
             print(f"identity_dir: {payload['identity_dir']}")
         return 0
     except IdentityError as exc:
-        return _fatal(message=str(exc), code=1)
+        return _fatal(message=str(exc), code=EXIT_CODES["EPERM"])
 
 
 def cmd_identity_export(*, args: argparse.Namespace) -> int:
@@ -61,4 +73,11 @@ def cmd_identity_export(*, args: argparse.Namespace) -> int:
             print(f"wrote {out}")
         return 0
     except IdentityError as exc:
-        return _fatal(message=str(exc), code=1)
+        return _fatal(message=str(exc), code=EXIT_CODES["EPERM"])
+        if getattr(args, "json", False) or out is None:
+            print(json.dumps(pub, indent=2, sort_keys=True))
+        else:
+            print(f"wrote {out}")
+        return 0
+    except IdentityError as exc:
+        return _fatal(message=str(exc), code=EXIT_CODES["EPERM"])

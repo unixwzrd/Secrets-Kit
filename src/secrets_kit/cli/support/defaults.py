@@ -1,4 +1,8 @@
-"""Operator defaults (defaults.json, env, legacy config merge)."""
+"""
+secrets_kit.cli.support.defaults
+
+Operator defaults (defaults.json, env, legacy config merge).
+"""
 
 from __future__ import annotations
 
@@ -6,7 +10,6 @@ import argparse
 import getpass
 import json
 import os
-from typing import Dict
 
 from secrets_kit.backends.security import (
     BACKEND_SECURE,
@@ -39,8 +42,8 @@ CONFIG_STORABLE_KEYS: frozenset[str] = frozenset(
 )
 
 
-def _load_default_config() -> Dict[str, object]:
-    defaults: Dict[str, object] = {}
+def _load_default_config() -> dict[str, object]:
+    defaults: dict[str, object] = {}
     dpath = defaults_path()
     if dpath.exists():
         try:
@@ -60,8 +63,8 @@ def _load_default_config() -> Dict[str, object]:
     return defaults
 
 
-def _load_defaults() -> Dict[str, object]:
-    defaults: Dict[str, object] = {}
+def _load_defaults() -> dict[str, object]:
+    defaults: dict[str, object] = {}
     defaults.update(_load_default_config())
     env_map = {
         "service": "SECKIT_DEFAULT_SERVICE",
@@ -191,4 +194,5 @@ def _validate_config_entry(*, key: str, value: str) -> object:
         if n < 0:
             raise ValidationError(f"{key} must be non-negative")
         return n
+    return v
     return v

@@ -1,4 +1,8 @@
-"""``python -m secrets_kit.seckitd``."""
+"""
+secrets_kit.seckitd.__main__
+
+``python -m secrets_kit.seckitd``.
+"""
 
 from __future__ import annotations
 

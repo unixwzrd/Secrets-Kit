@@ -1,7 +1,11 @@
-"""argparse wiring for migrate, identity, peer, reconcile, and sync command trees.
+"""
+secrets_kit.cli.parser.family_sync_peer
+
+argparse wiring for migrate, identity, peer, reconcile, and sync command trees.
 
 ``migrate`` parent is registered before identity/peer/reconcile/sync for stable ``seckit --help``.
 Human-facing prose is ``STRINGS[...]`` from :mod:`secrets_kit.cli.strings.en`.
+
 """
 
 from __future__ import annotations

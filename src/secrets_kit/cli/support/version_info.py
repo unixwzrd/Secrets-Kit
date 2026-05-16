@@ -1,9 +1,12 @@
-"""Version and diagnostic JSON for ``seckit version``."""
+"""
+secrets_kit.cli.support.version_info
+
+Version and diagnostic JSON for ``seckit version``.
+"""
 
 from __future__ import annotations
 
 import sys
-from typing import Dict
 
 from secrets_kit.utils.helper_status import helper_status
 from secrets_kit.version_meta import package_version_string
@@ -17,10 +20,10 @@ def _cli_version() -> str:
     return package_version_string()
 
 
-def _version_info_dict() -> Dict[str, object]:
+def _version_info_dict() -> dict[str, object]:
     """Build a JSON-safe dict for `seckit version --json` / `--info` (no secret values)."""
     status = helper_status()
-    info: Dict[str, object] = {
+    info: dict[str, object] = {
         "version": _cli_version(),
         "platform": sys.platform,
         "python": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",

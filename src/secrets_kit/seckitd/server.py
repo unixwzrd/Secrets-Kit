@@ -1,4 +1,8 @@
-"""Unix domain socket listener for ``seckitd``."""
+"""
+secrets_kit.seckitd.server
+
+Unix domain socket listener for ``seckitd``.
+"""
 
 from __future__ import annotations
 
@@ -10,11 +14,16 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from secrets_kit.seckitd.framing import FramingError, frame_json, parse_json_object, read_frame
-from secrets_kit.seckitd.unix_transport import configure_unix_ipc_socket
+from secrets_kit.seckitd.framing import (
+    FramingError,
+    frame_json,
+    parse_json_object,
+    read_frame,
+)
 from secrets_kit.seckitd.loopback_transport import LoopbackTransport
 from secrets_kit.seckitd.peer_cred import PeerCredentialError, verify_unix_peer_euid
 from secrets_kit.seckitd.protocol import DaemonState, handle_request
+from secrets_kit.seckitd.unix_transport import configure_unix_ipc_socket
 
 
 def runtime_loopback_enabled() -> bool:

@@ -1,4 +1,8 @@
-"""User-private runtime paths for ``seckitd`` Unix sockets."""
+"""
+secrets_kit.seckitd.paths
+
+User-private runtime paths for ``seckitd`` Unix sockets.
+"""
 
 from __future__ import annotations
 

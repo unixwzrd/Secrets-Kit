@@ -1,9 +1,12 @@
-"""Minimal loopback opaque transport for Phase 5D runtime testing (no framework)."""
+"""
+secrets_kit.seckitd.loopback_transport
+
+Minimal loopback opaque transport for Phase 5D runtime testing (no framework).
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Optional
 
 
 @dataclass
@@ -13,8 +16,9 @@ class LoopbackTransport:
     ``inject_connect_failures`` / ``inject_send_failures`` consume one failure per event for tests.
     """
 
+    inboxes: dict[str, list[bytes]] = field(default_factory=dict)
     bytes_sent: int = 0
-    chunks: List[bytes] = field(default_factory=list)
+    chunks: list[bytes] = field(default_factory=list)
     _connected: bool = False
     inject_connect_failures: int = 0
     inject_send_failures: int = 0

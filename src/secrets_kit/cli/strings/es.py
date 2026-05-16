@@ -1,4 +1,8 @@
-"""Spanish CLI strings (stub: same ``STRINGS`` mapping as English until translated)."""
+"""
+secrets_kit.cli.strings.es
+
+Spanish CLI strings (stub: same ``STRINGS`` mapping as English until translated).
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,8 @@
-"""User-facing errors for peer sync and bundle workflows (no secret values)."""
+"""
+secrets_kit.cli.support.peer_sync_errors
+
+User-facing errors for peer sync and bundle workflows (no secret values).
+"""
 
 from __future__ import annotations
 

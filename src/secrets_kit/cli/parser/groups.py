@@ -1,9 +1,13 @@
-"""Shared argparse *parent* parser (scope and backend flags).
+"""
+secrets_kit.cli.parser.groups
+
+Shared argparse *parent* parser (scope and backend flags).
 
 ``make_common_parent`` returns a parser with ``add_help=False`` meant only as
 ``parents=[common]`` when defining leaf commands. Human-facing ``help=`` for
 shared flags comes from :mod:`secrets_kit.cli.strings.en` (``STRINGS``). This
 module does not register subcommands or handler ``func`` defaults.
+
 """
 
 from __future__ import annotations

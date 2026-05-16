@@ -1,11 +1,14 @@
-"""Mirror for minimal transport message wrapper dicts (not sync bundle v1)."""
+"""
+secrets_kit.schemas.envelope
+
+Mirror for minimal transport message wrapper dicts (not sync bundle v1).
+"""
 
 from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
 from pydantic import Field, field_validator
-
 from secrets_kit.schemas.base import BaseSchema
 
 

@@ -1,16 +1,20 @@
-"""Compatibility JSON for ``seckit helper status`` / ``seckit version --json``.
+"""
+secrets_kit.utils.helper_status
+
+Compatibility JSON for ``seckit helper status`` / ``seckit version --json``.
 
 No separate native binary is shipped; macOS Keychain access uses the ``security`` CLI
 (``--backend secure``). This module reports ``backend_availability`` and whether **sqlite**
 is available (PyNaCl import). Portable cross-host transfer uses export/import or peer bundles.
+
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 
-def helper_status() -> Dict[str, Any]:
+def helper_status() -> dict[str, Any]:
     """JSON for ``seckit helper status`` and ``seckit version --json`` (no secrets)."""
     sqlite_ok = False
     try:

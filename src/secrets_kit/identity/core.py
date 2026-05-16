@@ -1,4 +1,8 @@
-"""Local host identity: Ed25519 (signing) + X25519 (Box) key material storage."""
+"""
+secrets_kit.identity.core
+
+Local host identity: Ed25519 (signing) + X25519 (Box) key material storage.
+"""
 
 from __future__ import annotations
 
@@ -14,7 +18,6 @@ from typing import Any, Dict, Optional
 
 import nacl.public
 import nacl.signing
-
 from secrets_kit.registry.core import registry_dir
 
 IDENTITY_PUBLIC_FORMAT = "seckit.identity_public"

@@ -1,16 +1,20 @@
-"""CLI user interaction and tabular output helpers."""
+"""
+secrets_kit.cli.support.interaction
+
+CLI user interaction and tabular output helpers.
+"""
 
 from __future__ import annotations
 
 import getpass
 import sys
-from datetime import datetime, timezone
-from typing import List, Optional
+from datetime import datetime
 
+from secrets_kit.cli.constants.exit_codes import EXIT_CODES
 from secrets_kit.models.core import ValidationError
 
 
-def _fatal(*, message: str, code: int = 2) -> int:
+def _fatal(*, message: str, code: int = EXIT_CODES["EINVAL"]) -> int:
     print(f"ERROR: {message}", file=sys.stderr)
     return code
 
@@ -23,7 +27,7 @@ def _confirm(*, prompt: str) -> bool:
     return answer in {"y", "yes"}
 
 
-def _read_value(*, value: Optional[str], use_stdin: bool, allow_empty: bool) -> str:
+def _read_value(*, value: str | None, use_stdin: bool, allow_empty: bool) -> str:
     if use_stdin:
         data = sys.stdin.read()
     else:
@@ -33,7 +37,7 @@ def _read_value(*, value: Optional[str], use_stdin: bool, allow_empty: bool) -> 
     return data.strip()
 
 
-def _read_password(*, value: Optional[str], use_stdin: bool, prompt: str = "password: ") -> str:
+def _read_password(*, value: str | None, use_stdin: bool, prompt: str = "password: ") -> str:
     if use_stdin:
         data = sys.stdin.read()
         return data.strip()
@@ -42,17 +46,17 @@ def _read_password(*, value: Optional[str], use_stdin: bool, prompt: str = "pass
     return getpass.getpass(prompt)
 
 
-def _format_tags(*, tags: List[str]) -> str:
+def _format_tags(*, tags: list[str]) -> str:
     return ",".join(tags) if tags else "-"
 
 
-def _print_table(*, headers: List[str], rows: List[List[str]]) -> None:
+def _print_table(*, headers: list[str], rows: list[list[str]]) -> None:
     widths = [len(header) for header in headers]
     for row in rows:
         for idx, cell in enumerate(row):
             widths[idx] = max(widths[idx], len(cell))
 
-    def fmt(values: List[str]) -> str:
+    def fmt(values: list[str]) -> str:
         return "  ".join(value.ljust(widths[idx]) for idx, value in enumerate(values))
 
     print(fmt(headers))
@@ -60,7 +64,7 @@ def _print_table(*, headers: List[str], rows: List[List[str]]) -> None:
         print(fmt(row))
 
 
-def _parse_timestamp(value: Optional[str]) -> Optional[datetime]:
+def _parse_timestamp(value: str | None) -> datetime | None:
     if not value:
         return None
     try:

@@ -1,12 +1,15 @@
-"""Export helpers for shell runtime usage."""
+"""
+secrets_kit.utils.exporters
+
+Export helpers for shell runtime usage.
+"""
 
 from __future__ import annotations
 
 import shlex
-from typing import Dict
 
 
-def export_shell_lines(*, env_map: Dict[str, str]) -> str:
+def export_shell_lines(*, env_map: dict[str, str]) -> str:
     """Render shell export lines with safe quoting."""
     lines = []
     for key in sorted(env_map):

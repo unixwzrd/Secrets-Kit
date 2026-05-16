@@ -1,13 +1,17 @@
-"""Minimal transport **message** wrapper helpers (no network I/O).
+"""
+secrets_kit.sync.envelope
+
+Minimal transport **message** wrapper helpers (no network I/O).
 
 This is **not** sync bundle v1 JSON, **not** a session record, and **not** a
 protocol runtime. Intermediaries must ignore ``payload_type`` for routing; it is
 informational for endpoints only.
+
 """
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Optional
+from typing import Any, Mapping
 
 # Normative JSON keys for the Phase 4 conceptual wrapper (wire framing is separate).
 KEY_MESSAGE_ID = "message_id"
@@ -27,9 +31,9 @@ def build_transport_message(
     timestamp: str,
     payload_type: str,
     payload: str,
-    message_id: Optional[str] = None,
-    forward_token: Optional[str] = None,
-    ttl: Optional[int] = None,
+    message_id: str | None = None,
+    forward_token: str | None = None,
+    ttl: int | None = None,
 ) -> dict[str, Any]:
     """Build a minimal routed-transport message dict (opaque ``payload`` slot)."""
     msg: dict[str, Any] = {

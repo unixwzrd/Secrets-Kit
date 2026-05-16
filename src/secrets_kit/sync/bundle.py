@@ -1,4 +1,8 @@
-"""Signed + encrypted peer bundle format (PyNaCl only; no network)."""
+"""
+secrets_kit.sync.bundle
+
+Signed + encrypted peer bundle format (PyNaCl only; no network).
+"""
 
 from __future__ import annotations
 
@@ -14,7 +18,6 @@ import nacl.public
 import nacl.secret
 import nacl.signing
 import nacl.utils
-
 from secrets_kit.identity.core import HostIdentity, fingerprint_from_verify_key
 from secrets_kit.models.core import now_utc_iso
 

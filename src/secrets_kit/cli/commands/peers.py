@@ -1,4 +1,8 @@
-"""Trusted peer subcommands."""
+"""
+secrets_kit.cli.commands.peers
+
+Trusted peer subcommands.
+"""
 
 from __future__ import annotations
 
@@ -6,12 +10,17 @@ import argparse
 import json
 from pathlib import Path
 
-from secrets_kit.identity.core import IdentityError
-from secrets_kit.identity.peers import add_peer_from_file, get_peer, list_peers, remove_peer
-from secrets_kit.registry.core import RegistryError
-
+from secrets_kit.cli.constants.exit_codes import EXIT_CODES
 from secrets_kit.cli.support.interaction import _fatal, _print_table
 from secrets_kit.cli.support.peer_sync_errors import _peer_sync_cli_error
+from secrets_kit.identity.core import IdentityError
+from secrets_kit.identity.peers import (
+    add_peer_from_file,
+    get_peer,
+    list_peers,
+    remove_peer,
+)
+from secrets_kit.registry.core import RegistryError
 
 
 def cmd_peer_add(*, args: argparse.Namespace) -> int:
@@ -29,23 +38,23 @@ def cmd_peer_add(*, args: argparse.Namespace) -> int:
             print(f"added peer {rec.alias} host_id={rec.host_id} fingerprint={rec.fingerprint[:16]}…")
         return 0
     except IdentityError as exc:
-        return _fatal(message=f"Peer registry: invalid peer identity export file — {exc}", code=1)
+        return _fatal(message=f"Peer registry: invalid peer identity export file — {exc}", code=EXIT_CODES["EINVAL"])
     except RegistryError as exc:
-        return _fatal(message=_peer_sync_cli_error(exc), code=1)
+        return _fatal(message=_peer_sync_cli_error(exc), code=EXIT_CODES["EAPP_PEER_NOT_FOUND"])
 
 
 def cmd_peer_remove(*, args: argparse.Namespace) -> int:
     try:
         ok = remove_peer(alias=args.alias)
         if not ok:
-            return _fatal(message=f"no peer named {args.alias!r}", code=1)
+            return _fatal(message=f"no peer named {args.alias!r}", code=EXIT_CODES["ENOENT"])
         if getattr(args, "json", False):
             print(json.dumps({"removed": args.alias}, indent=2, sort_keys=True))
         else:
             print(f"removed peer {args.alias}")
         return 0
     except RegistryError as exc:
-        return _fatal(message=_peer_sync_cli_error(exc), code=1)
+        return _fatal(message=_peer_sync_cli_error(exc), code=EXIT_CODES["EAPP_PEER_NOT_FOUND"])
 
 
 def cmd_peer_list(*, args: argparse.Namespace) -> int:
@@ -75,7 +84,7 @@ def cmd_peer_list(*, args: argparse.Namespace) -> int:
         )
         return 0
     except RegistryError as exc:
-        return _fatal(message=str(exc), code=1)
+        return _fatal(message=str(exc), code=EXIT_CODES["EPERM"])
 
 
 def cmd_peer_show(*, args: argparse.Namespace) -> int:
@@ -92,4 +101,8 @@ def cmd_peer_show(*, args: argparse.Namespace) -> int:
         print(json.dumps(payload, indent=2, sort_keys=True))
         return 0
     except RegistryError as exc:
-        return _fatal(message=_peer_sync_cli_error(exc), code=1)
+        return _fatal(message=_peer_sync_cli_error(exc), code=EXIT_CODES["EAPP_PEER_NOT_FOUND"])
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+    except RegistryError as exc:
+        return _fatal(message=_peer_sync_cli_error(exc), code=EXIT_CODES["EAPP_PEER_NOT_FOUND"])

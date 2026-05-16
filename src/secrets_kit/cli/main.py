@@ -5,6 +5,7 @@ from secrets_kit.models.core import ValidationError
 from secrets_kit.cli.parser.base import build_parser
 from secrets_kit.cli.support.defaults import _apply_defaults
 from secrets_kit.cli.support.interaction import _fatal
+from secrets_kit.cli.constants.exit_codes import EXIT_CODES
 
 
 def main() -> int:
@@ -15,7 +16,7 @@ def main() -> int:
         if getattr(args, "command", None) not in ("config", "defaults", "daemon"):
             _apply_defaults(args=args)
     except ValidationError as exc:
-        return _fatal(message=str(exc), code=1)
+        return _fatal(message=str(exc), code=EXIT_CODES["EPERM"])
     return args.func(args=args)
 
 

@@ -1,19 +1,33 @@
-"""Copy secrets between service scopes."""
+"""
+secrets_kit.cli.commands.service_ops
+
+Copy secrets between service scopes.
+"""
 
 from __future__ import annotations
 
 import argparse
 import json
 
-from secrets_kit.backends.security import BackendError, get_secret, secret_exists, set_secret
-from secrets_kit.models.core import EntryMetadata, ValidationError, now_utc_iso
-from secrets_kit.registry.core import RegistryError, upsert_metadata
-from secrets_kit.registry.resolve import _read_metadata
-
-from secrets_kit.cli.support.args import _backend_access_kwargs, _backend_arg, _kek_keychain_arg, _store_path
+from secrets_kit.backends.security import (
+    BackendError,
+    get_secret,
+    secret_exists,
+    set_secret,
+)
+from secrets_kit.cli.constants.exit_codes import EXIT_CODES
+from secrets_kit.cli.support.args import (
+    _backend_access_kwargs,
+    _backend_arg,
+    _kek_keychain_arg,
+    _store_path,
+)
 from secrets_kit.cli.support.defaults import _current_os_account
 from secrets_kit.cli.support.interaction import _fatal
 from secrets_kit.cli.support.metadata_selection import _select_entries
+from secrets_kit.models.core import EntryMetadata, ValidationError, now_utc_iso
+from secrets_kit.registry.core import RegistryError, upsert_metadata
+from secrets_kit.registry.resolve import _read_metadata
 
 
 def cmd_service_copy(*, args: argparse.Namespace) -> int:
@@ -36,7 +50,7 @@ def cmd_service_copy(*, args: argparse.Namespace) -> int:
         if not selected:
             return _fatal(
                 message=f"no matching entries selected for service copy: {args.from_service}/{from_account}",
-                code=1,
+                code=EXIT_CODES["ENOENT"],
             )
 
         stats = {"created": 0, "updated": 0, "skipped": 0}
@@ -92,4 +106,4 @@ def cmd_service_copy(*, args: argparse.Namespace) -> int:
         print(json.dumps(stats, indent=2, sort_keys=True))
         return 0
     except (ValidationError, RegistryError, BackendError) as exc:
-        return _fatal(message=str(exc), code=1)
+        return _fatal(message=str(exc), code=EXIT_CODES["EPERM"])

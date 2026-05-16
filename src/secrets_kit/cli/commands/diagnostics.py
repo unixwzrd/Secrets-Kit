@@ -1,4 +1,8 @@
-"""Diagnostics, keychain UX, and version/helper subcommands."""
+"""
+secrets_kit.cli.commands.diagnostics
+
+Diagnostics, keychain UX, and version/helper subcommands.
+"""
 
 from __future__ import annotations
 
@@ -21,6 +25,23 @@ from secrets_kit.backends.security import (
     normalize_backend,
     unlock_keychain,
 )
+from secrets_kit.cli.constants.exit_codes import EXIT_CODES
+from secrets_kit.cli.support.args import (
+    _backend_access_kwargs,
+    _backend_arg,
+    _doctor_skip_missing_secret_scan,
+    _kek_keychain_arg,
+    _keychain_arg,
+    _store_path,
+)
+from secrets_kit.cli.support.interaction import (
+    _confirm,
+    _fatal,
+    _format_tags,
+    _print_table,
+)
+from secrets_kit.cli.support.metadata_selection import _resolve_status
+from secrets_kit.cli.support.version_info import _cli_version, _version_info_dict
 from secrets_kit.models.core import EntryMetadata, ValidationError
 from secrets_kit.recovery.recover_sources import iter_recover_candidates
 from secrets_kit.registry.core import (
@@ -34,11 +55,6 @@ from secrets_kit.registry.core import (
 )
 from secrets_kit.registry.resolve import _read_metadata
 from secrets_kit.utils.helper_status import helper_status
-
-from secrets_kit.cli.support.args import _backend_access_kwargs, _backend_arg, _doctor_skip_missing_secret_scan, _keychain_arg, _kek_keychain_arg, _store_path
-from secrets_kit.cli.support.interaction import _confirm, _fatal, _format_tags, _print_table
-from secrets_kit.cli.support.metadata_selection import _resolve_status
-from secrets_kit.cli.support.version_info import _cli_version, _version_info_dict
 
 
 def _scan_invalid_backend_references() -> list[dict]:
@@ -80,7 +96,11 @@ def _scan_invalid_backend_references() -> list[dict]:
 
 
 def cmd_doctor(*, args: argparse.Namespace) -> int:
-    from secrets_kit.backends.security import is_secure_backend, is_sqlite_backend, secret_exists
+    from secrets_kit.backends.security import (
+        is_secure_backend,
+        is_sqlite_backend,
+        secret_exists,
+    )
 
     backend = _backend_arg(args)
     status: dict = {
@@ -121,7 +141,7 @@ def cmd_doctor(*, args: argparse.Namespace) -> int:
             status["security_cli"] = True
         else:
             print(json.dumps(status, indent=2, sort_keys=True))
-            return _fatal(message="security CLI not found", code=1)
+            return _fatal(message="security CLI not found", code=EXIT_CODES["EAPP_SECURITY_CLI_MISSING"])
     else:
         status["security_cli"] = check_security_cli()
 
@@ -131,7 +151,7 @@ def cmd_doctor(*, args: argparse.Namespace) -> int:
         status["registry_path"] = str(path)
     except RegistryError as exc:
         print(json.dumps(status, indent=2, sort_keys=True))
-        return _fatal(message=str(exc), code=1)
+        return _fatal(message=str(exc), code=EXIT_CODES["EPERM"])
 
     try:
         dpath = ensure_defaults_storage()
@@ -139,14 +159,14 @@ def cmd_doctor(*, args: argparse.Namespace) -> int:
         status["defaults_path"] = str(dpath)
     except RegistryError as exc:
         print(json.dumps(status, indent=2, sort_keys=True))
-        return _fatal(message=str(exc), code=1)
+        return _fatal(message=str(exc), code=EXIT_CODES["EPERM"])
 
     try:
         doctor_roundtrip(**_backend_access_kwargs(args))
         status["keychain_roundtrip"] = True
     except BackendError as exc:
         print(json.dumps(status, indent=2, sort_keys=True))
-        return _fatal(message=str(exc), code=1)
+        return _fatal(message=str(exc), code=EXIT_CODES["EPERM"])
 
     try:
         entries = load_registry()
@@ -210,20 +230,20 @@ def cmd_doctor(*, args: argparse.Namespace) -> int:
             status["backend_capabilities"] = {**asdict(st.capabilities())}
     except (RegistryError, BackendError) as exc:
         print(json.dumps(status, indent=2, sort_keys=True))
-        return _fatal(message=str(exc), code=1)
+        return _fatal(message=str(exc), code=EXIT_CODES["EPERM"])
 
     print(json.dumps(status, indent=2, sort_keys=True))
     if status["metadata_keychain_drift"] or status["entries_using_registry_fallback"]:
-        return _fatal(message="metadata/keychain drift detected", code=1)
+        return _fatal(message="metadata/keychain drift detected", code=EXIT_CODES["EAPP_METADATA_DRIFT"])
     return 0
 
 
 def cmd_sqlite_inspect(*, args: argparse.Namespace) -> int:
     if _backend_arg(args) != BACKEND_SQLITE:
-        return _fatal(message="sqlite-inspect requires --backend sqlite", code=1)
+        return _fatal(message="sqlite-inspect requires --backend sqlite", code=EXIT_CODES["EINVAL"])
     spath = _store_path(args)
     if not spath:
-        return _fatal(message="sqlite-inspect requires --db PATH", code=1)
+        return _fatal(message="sqlite-inspect requires --db PATH", code=EXIT_CODES["EINVAL"])
     try:
         from secrets_kit.backends.sqlite import SqliteSecretStore
 
@@ -252,7 +272,7 @@ def cmd_sqlite_inspect(*, args: argparse.Namespace) -> int:
         print(json.dumps(payload, indent=2, sort_keys=True))
         return 0
     except (BackendError, ValidationError, RegistryError, OSError) as exc:
-        return _fatal(message=str(exc), code=1)
+        return _fatal(message=str(exc), code=EXIT_CODES["EPERM"])
 
 
 def cmd_backend_index(*, args: argparse.Namespace) -> int:
@@ -268,7 +288,7 @@ def cmd_backend_index(*, args: argparse.Namespace) -> int:
             print(json.dumps(row.to_safe_dict(), sort_keys=True))
         return 0
     except (BackendError, ValidationError, RegistryError, OSError) as exc:
-        return _fatal(message=str(exc), code=1)
+        return _fatal(message=str(exc), code=EXIT_CODES["EPERM"])
 
 
 def cmd_rebuild_index(*, args: argparse.Namespace) -> int:
@@ -284,7 +304,7 @@ def cmd_rebuild_index(*, args: argparse.Namespace) -> int:
         print(json.dumps({"rebuilt": True, "backend": _backend_arg(args)}, indent=2, sort_keys=True))
         return 0
     except (BackendError, ValidationError, RegistryError, OSError) as exc:
-        return _fatal(message=str(exc), code=1)
+        return _fatal(message=str(exc), code=EXIT_CODES["EPERM"])
 
 
 def cmd_journal_append(*, args: argparse.Namespace) -> int:
@@ -294,19 +314,19 @@ def cmd_journal_append(*, args: argparse.Namespace) -> int:
         raw = getattr(args, "event_json", "") or ""
         evt = json.loads(raw)
         if not isinstance(evt, dict):
-            return _fatal(message="journal event must be a JSON object", code=1)
+            return _fatal(message="journal event must be a JSON object", code=EXIT_CODES["EINVAL"])
         path = append_journal_event(home=None, event=evt)
         print(json.dumps({"written": True, "path": str(path)}, sort_keys=True))
         return 0
     except json.JSONDecodeError as exc:
-        return _fatal(message=str(exc), code=1)
+        return _fatal(message=str(exc), code=EXIT_CODES["EPERM"])
     except (RegistryError, OSError) as exc:
-        return _fatal(message=str(exc), code=1)
+        return _fatal(message=str(exc), code=EXIT_CODES["EPERM"])
 
 
 def cmd_unlock(*, args: argparse.Namespace) -> int:
     if not check_security_cli():
-        return _fatal(message="security CLI not found", code=1)
+        return _fatal(message="security CLI not found", code=EXIT_CODES["EAPP_SECURITY_CLI_MISSING"])
 
     target = keychain_path(path=args.keychain)
     command = f"security unlock-keychain {target}"
@@ -346,7 +366,7 @@ def cmd_unlock(*, args: argparse.Namespace) -> int:
 
     if not args.yes and not _confirm(prompt=f"Proceed with unlocking {target}?"):
         print("aborted")
-        return 1
+        return EXIT_CODES["ECANCELED"]
 
     try:
         unlock_keychain(path=target)
@@ -366,12 +386,12 @@ def cmd_unlock(*, args: argparse.Namespace) -> int:
             print(f"hardened: {target} timeout={args.timeout}s")
         return 0
     except BackendError as exc:
-        return _fatal(message=str(exc), code=1)
+        return _fatal(message=str(exc), code=EXIT_CODES["EPERM"])
 
 
 def cmd_lock(*, args: argparse.Namespace) -> int:
     if not check_security_cli():
-        return _fatal(message="security CLI not found", code=1)
+        return _fatal(message="security CLI not found", code=EXIT_CODES["EAPP_SECURITY_CLI_MISSING"])
 
     target = keychain_path(path=args.keychain)
 
@@ -385,18 +405,18 @@ def cmd_lock(*, args: argparse.Namespace) -> int:
         print(f"locked: {target}")
         return 0
     except BackendError as exc:
-        return _fatal(message=str(exc), code=1)
+        return _fatal(message=str(exc), code=EXIT_CODES["EPERM"])
 
 
 def cmd_keychain_status(*, args: argparse.Namespace) -> int:
     if not check_security_cli():
-        return _fatal(message="security CLI not found", code=1)
+        return _fatal(message="security CLI not found", code=EXIT_CODES["EAPP_SECURITY_CLI_MISSING"])
 
     target = keychain_path(path=args.keychain)
     try:
         policy = keychain_policy(path=target)
     except BackendError as exc:
-        return _fatal(message=str(exc), code=1)
+        return _fatal(message=str(exc), code=EXIT_CODES["EPERM"])
 
     output = {
         "path": target,

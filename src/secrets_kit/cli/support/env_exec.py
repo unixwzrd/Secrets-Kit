@@ -1,19 +1,21 @@
-"""Child process env injection for ``seckit run``."""
+"""
+secrets_kit.cli.support.env_exec
+
+Child process env injection for ``seckit run``.
+"""
 
 from __future__ import annotations
 
 import argparse
 import os
-from typing import Dict, List
 
 from secrets_kit.backends.security import BackendError, get_secret
+from secrets_kit.cli.support.args import _backend_access_kwargs
 from secrets_kit.models.core import EntryMetadata
 
-from secrets_kit.cli.support.args import _backend_access_kwargs
 
-
-def _build_env_map(*, entries: List[EntryMetadata], args: argparse.Namespace) -> Dict[str, str]:
-    env_map: Dict[str, str] = {}
+def _build_env_map(*, entries: list[EntryMetadata], args: argparse.Namespace) -> dict[str, str]:
+    env_map: dict[str, str] = {}
     for meta in entries:
         try:
             env_map[meta.name] = get_secret(
@@ -31,13 +33,13 @@ def _build_env_map(*, entries: List[EntryMetadata], args: argparse.Namespace) ->
     return env_map
 
 
-def _child_command_args(raw_args: List[str]) -> List[str]:
+def _child_command_args(raw_args: list[str]) -> list[str]:
     args = list(raw_args)
     if args and args[0] == "--":
         args = args[1:]
     return args
 
 
-def _exec_child(*, argv: List[str], env: Dict[str, str]) -> int:
+def _exec_child(*, argv: list[str], env: dict[str, str]) -> int:
     os.execvpe(argv[0], argv, env)
     return 0

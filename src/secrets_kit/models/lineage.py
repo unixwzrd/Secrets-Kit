@@ -1,4 +1,8 @@
-"""Lineage snapshot for reconciliation (SQLite index + Phase 6A merge)."""
+"""
+secrets_kit.models.lineage
+
+Lineage snapshot for reconciliation (SQLite index + Phase 6A merge).
+"""
 
 from __future__ import annotations
 

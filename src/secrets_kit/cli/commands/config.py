@@ -1,4 +1,8 @@
-"""Config / defaults subcommands."""
+"""
+secrets_kit.cli.commands.config
+
+Config / defaults subcommands.
+"""
 
 from __future__ import annotations
 
@@ -6,6 +10,13 @@ import argparse
 import json
 import sys
 
+from secrets_kit.cli.constants.exit_codes import EXIT_CODES
+from secrets_kit.cli.support.defaults import (
+    CONFIG_STORABLE_KEYS,
+    _load_defaults,
+    _validate_config_entry,
+)
+from secrets_kit.cli.support.interaction import _fatal
 from secrets_kit.models.core import ValidationError
 from secrets_kit.registry.core import (
     RegistryError,
@@ -14,9 +25,6 @@ from secrets_kit.registry.core import (
     load_defaults,
     save_defaults,
 )
-
-from secrets_kit.cli.support.defaults import CONFIG_STORABLE_KEYS, _load_defaults, _validate_config_entry
-from secrets_kit.cli.support.interaction import _fatal
 
 
 def cmd_config_show(*, args: argparse.Namespace) -> int:
@@ -50,8 +58,10 @@ def cmd_config_show(*, args: argparse.Namespace) -> int:
             )
         )
         return 0
-    except (ValidationError, RegistryError) as exc:
-        return _fatal(message=str(exc), code=1)
+    except ValidationError as exc:
+        return _fatal(message=str(exc), code=EXIT_CODES["EINVAL"])
+    except RegistryError as exc:
+        return _fatal(message=str(exc), code=EXIT_CODES["EPERM"])
 
 
 def cmd_config_set(*, args: argparse.Namespace) -> int:
@@ -74,8 +84,10 @@ def cmd_config_set(*, args: argparse.Namespace) -> int:
             )
         )
         return 0
-    except (ValidationError, RegistryError) as exc:
-        return _fatal(message=str(exc), code=1)
+    except ValidationError as exc:
+        return _fatal(message=str(exc), code=EXIT_CODES["EINVAL"])
+    except RegistryError as exc:
+        return _fatal(message=str(exc), code=EXIT_CODES["EPERM"])
 
 
 def cmd_config_unset(*, args: argparse.Namespace) -> int:
@@ -94,8 +106,10 @@ def cmd_config_unset(*, args: argparse.Namespace) -> int:
         save_defaults(payload=data)
         print(json.dumps({"saved": True, "removed": key, "defaults_path": str(defaults_path())}, indent=2, sort_keys=True))
         return 0
-    except (ValidationError, RegistryError) as exc:
-        return _fatal(message=str(exc), code=1)
+    except ValidationError as exc:
+        return _fatal(message=str(exc), code=EXIT_CODES["EINVAL"])
+    except RegistryError as exc:
+        return _fatal(message=str(exc), code=EXIT_CODES["EPERM"])
 
 
 def cmd_config_path(*, args: argparse.Namespace) -> int:
@@ -105,4 +119,4 @@ def cmd_config_path(*, args: argparse.Namespace) -> int:
         print(defaults_path())
         return 0
     except RegistryError as exc:
-        return _fatal(message=str(exc), code=1)
+        return _fatal(message=str(exc), code=EXIT_CODES["EPERM"])

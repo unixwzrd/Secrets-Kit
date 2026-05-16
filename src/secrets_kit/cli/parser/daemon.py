@@ -1,9 +1,13 @@
-"""Argparse wiring for ``seckit daemon`` and its subcommands.
+"""
+secrets_kit.cli.parser.daemon
+
+Argparse wiring for ``seckit daemon`` and its subcommands.
 
 Registers ``daemon`` with nested ``ping``, ``status``, ``sync-status``,
 ``submit-outbound``, and ``serve``. All user-visible strings are
 ``STRINGS[...]`` keys from :mod:`secrets_kit.cli.strings.en`. Sub-handlers are
 ``cmd_daemon_*`` from :mod:`secrets_kit.cli.commands.daemon`.
+
 """
 
 from __future__ import annotations

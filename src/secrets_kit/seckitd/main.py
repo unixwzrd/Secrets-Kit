@@ -1,4 +1,8 @@
-"""Console entrypoint for ``seckitd`` (``python -m secrets_kit.seckitd``)."""
+"""
+secrets_kit.seckitd.main
+
+Console entrypoint for ``seckitd`` (``python -m secrets_kit.seckitd``).
+"""
 
 from __future__ import annotations
 

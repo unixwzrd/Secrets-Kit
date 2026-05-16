@@ -1,9 +1,13 @@
-"""English human-facing CLI strings.
+"""
+secrets_kit.cli.strings.en
+
+English human-facing CLI strings.
 
 Operator-visible ``help=``, ``description=``, and ``epilog=`` text for argparse only.
 Does **not** hold JSON output key names or wire identifiers—those stay in parser/commands code.
 
 Lookup: ``STRINGS["KEY"]``. Stub locales (``es``, ``it``) re-export this dict until translated.
+
 """
 
 from __future__ import annotations

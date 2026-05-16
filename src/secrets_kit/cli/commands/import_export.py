@@ -1,27 +1,58 @@
-"""Import, export, and candidate merge helpers."""
+"""
+secrets_kit.cli.commands.import_export
+
+Import, export, and candidate merge helpers.
+"""
 
 from __future__ import annotations
 
 import argparse
 import json
 from pathlib import Path
-from typing import Dict, Iterable, List
+from typing import Iterable
 
-from secrets_kit.backends.security import BackendError, get_secret, secret_exists, set_secret
-from secrets_kit.importers import ImportCandidate, candidates_from_dotenv, candidates_from_env, candidates_from_file
+from secrets_kit.backends.security import (
+    BackendError,
+    get_secret,
+    secret_exists,
+    set_secret,
+)
+from secrets_kit.cli.constants.exit_codes import EXIT_CODES
+from secrets_kit.cli.support.args import (
+    _backend_access_kwargs,
+    _backend_arg,
+    _kek_keychain_arg,
+    _store_path,
+)
+from secrets_kit.cli.support.env_exec import _build_env_map
+from secrets_kit.cli.support.interaction import (
+    _confirm,
+    _fatal,
+    _format_tags,
+    _print_table,
+    _read_password,
+)
+from secrets_kit.cli.support.metadata_selection import _select_entries
+from secrets_kit.importers import (
+    ImportCandidate,
+    candidates_from_dotenv,
+    candidates_from_env,
+    candidates_from_file,
+)
 from secrets_kit.models.core import EntryMetadata, ValidationError, now_utc_iso
 from secrets_kit.registry.core import RegistryError, upsert_metadata
 from secrets_kit.registry.resolve import _read_metadata
-from secrets_kit.utils.crypto import CryptoUnavailable, build_plain_export, decrypt_payload, encrypt_payload, ensure_crypto_available
+from secrets_kit.utils.crypto import (
+    CryptoUnavailable,
+    build_plain_export,
+    decrypt_payload,
+    encrypt_payload,
+    ensure_crypto_available,
+)
 
-from secrets_kit.cli.support.args import _backend_access_kwargs, _backend_arg, _kek_keychain_arg, _store_path
-from secrets_kit.cli.support.env_exec import _build_env_map
-from secrets_kit.cli.support.interaction import _confirm, _fatal, _format_tags, _print_table, _read_password
-from secrets_kit.cli.support.metadata_selection import _select_entries
 
-
-def _merge_candidates(*, groups: Iterable[List[ImportCandidate]]) -> Dict[str, ImportCandidate]:
-    merged: Dict[str, ImportCandidate] = {}
+def _merge_candidates(*, groups: Iterable[list[ImportCandidate]]) -> dict[str, ImportCandidate]:
+    merged: dict[str, ImportCandidate] = {}
     for group in groups:
         for candidate in group:
             merged[candidate.metadata.key()] = candidate
@@ -30,14 +61,14 @@ def _merge_candidates(*, groups: Iterable[List[ImportCandidate]]) -> Dict[str, I
 
 def _apply_candidates(
     *,
-    candidates: Dict[str, ImportCandidate],
+    candidates: dict[str, ImportCandidate],
     allow_overwrite: bool,
     dry_run: bool,
     allow_empty: bool,
     path: str | None = None,
     backend: str = "secure",
     kek_keychain_path: str | None = None,
-) -> Dict[str, int]:
+) -> dict[str, int]:
     from secrets_kit.registry.core import load_registry
 
     registry = load_registry()
@@ -123,7 +154,7 @@ def _merge_import_metadata(*, existing: EntryMetadata, incoming: EntryMetadata) 
 def _preview_candidates(*, merged: Dict[str, ImportCandidate]) -> None:
     print("plan:")
     headers = ["NAME", "TYPE", "KIND", "SERVICE", "ACCOUNT", "TAGS", "SOURCE", "VALUE"]
-    table_rows: List[List[str]] = []
+    table_rows: list[list[str]] = []
     for key in sorted(merged):
         candidate = merged[key]
         meta = candidate.metadata
@@ -146,7 +177,7 @@ def cmd_import_env(*, args: argparse.Namespace) -> int:
     if not args.dotenv and not args.from_env:
         return _fatal(message="import env requires --dotenv and/or --from-env")
     try:
-        groups: List[List[ImportCandidate]] = []
+        groups: list[list[ImportCandidate]] = []
         if args.dotenv:
             groups.append(
                 candidates_from_dotenv(
@@ -176,7 +207,7 @@ def cmd_import_env(*, args: argparse.Namespace) -> int:
             return 0
         if not args.dry_run and not args.yes and not _confirm(prompt=f"Import {len(merged)} entries?"):
             print("aborted")
-            return 1
+            return EXIT_CODES["ECANCELED"]
         stats = _apply_candidates(
             candidates=merged,
             allow_overwrite=args.allow_overwrite or getattr(args, "upsert", False),
@@ -189,7 +220,7 @@ def cmd_import_env(*, args: argparse.Namespace) -> int:
         print(json.dumps(stats, indent=2, sort_keys=True))
         return 0
     except (ValidationError, ValueError, RegistryError, BackendError, FileNotFoundError) as exc:
-        return _fatal(message=str(exc), code=1)
+        return _fatal(message=str(exc), code=EXIT_CODES["EPERM"])
 
 
 def cmd_import_file(*, args: argparse.Namespace) -> int:
@@ -207,7 +238,7 @@ def cmd_import_file(*, args: argparse.Namespace) -> int:
             return 0
         if not args.dry_run and not args.yes and not _confirm(prompt=f"Import {len(merged)} entries?"):
             print("aborted")
-            return 1
+            return EXIT_CODES["ECANCELED"]
         stats = _apply_candidates(
             candidates=merged,
             allow_overwrite=args.allow_overwrite,
@@ -220,7 +251,7 @@ def cmd_import_file(*, args: argparse.Namespace) -> int:
         print(json.dumps(stats, indent=2, sort_keys=True))
         return 0
     except (ValidationError, ValueError, RegistryError, BackendError, FileNotFoundError) as exc:
-        return _fatal(message=str(exc), code=1)
+        return _fatal(message=str(exc), code=EXIT_CODES["EPERM"])
 
 
 def cmd_import_encrypted(*, args: argparse.Namespace) -> int:
@@ -234,9 +265,9 @@ def cmd_import_encrypted(*, args: argparse.Namespace) -> int:
         payload = json.loads(Path(args.file).read_text(encoding="utf-8"))
         decrypted = decrypt_payload(payload=payload, password=password)
         if decrypted.get("format") != "seckit.export":
-            return _fatal(message="unsupported decrypted payload format", code=1)
+            return _fatal(message="unsupported decrypted payload format", code=EXIT_CODES["ENOTSUP"])
         entries = decrypted.get("entries", [])
-        rows: List[ImportCandidate] = []
+        rows: list[ImportCandidate] = []
         for row in entries:
             if not isinstance(row, dict):
                 continue
@@ -249,7 +280,7 @@ def cmd_import_encrypted(*, args: argparse.Namespace) -> int:
             return 0
         if not args.dry_run and not args.yes and not _confirm(prompt=f"Import {len(merged)} entries?"):
             print("aborted")
-            return 1
+            return EXIT_CODES["ECANCELED"]
         stats = _apply_candidates(
             candidates=merged,
             allow_overwrite=args.allow_overwrite,
@@ -262,16 +293,19 @@ def cmd_import_encrypted(*, args: argparse.Namespace) -> int:
         print(json.dumps(stats, indent=2, sort_keys=True))
         return 0
     except (ValidationError, ValueError, RegistryError, BackendError, FileNotFoundError, CryptoUnavailable) as exc:
-        return _fatal(message=str(exc), code=1)
+        return _fatal(message=str(exc), code=EXIT_CODES["EPERM"])
 
 
 def cmd_export(*, args: argparse.Namespace) -> int:
-    from secrets_kit.utils.exporters import export_dotenv_placeholders, export_shell_lines
+    from secrets_kit.utils.exporters import (
+        export_dotenv_placeholders,
+        export_shell_lines,
+    )
 
     try:
         selected = _select_entries(args=args, require_explicit_selection=True)
         if not selected:
-            return _fatal(message="no matching entries selected for export", code=1)
+            return _fatal(message="no matching entries selected for export", code=EXIT_CODES["ENOENT"])
 
         if args.format == "shell":
             print(export_shell_lines(env_map=_build_env_map(entries=selected, args=args)))
@@ -289,7 +323,7 @@ def cmd_export(*, args: argparse.Namespace) -> int:
                 use_stdin=args.password_stdin,
                 prompt="new password to encrypt the backup file: ",
             )
-            items: List[Dict[str, str]] = []
+            items: list[dict[str, str]] = []
             for meta in sorted(selected, key=lambda item: item.name):
                 items.append(
                     {
@@ -311,7 +345,7 @@ def cmd_export(*, args: argparse.Namespace) -> int:
                 print(output)
             return 0
 
-        return _fatal(message=f"unsupported format: {args.format}", code=1)
+        return _fatal(message=f"unsupported format: {args.format}", code=EXIT_CODES["ENOTSUP"])
     except (ValidationError, RegistryError, BackendError, CryptoUnavailable) as exc:
-        return _fatal(message=str(exc), code=1)
+        return _fatal(message=str(exc), code=EXIT_CODES["EPERM"])
 

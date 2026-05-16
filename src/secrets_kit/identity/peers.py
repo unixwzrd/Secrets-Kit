@@ -1,4 +1,8 @@
-"""Trusted peer registry (public keys per alias)."""
+"""
+secrets_kit.identity.peers
+
+Trusted peer registry (public keys per alias).
+"""
 
 from __future__ import annotations
 
@@ -13,8 +17,10 @@ from typing import Any, Dict, List, Optional
 
 import nacl.public
 import nacl.signing
-
-from secrets_kit.identity.core import fingerprint_from_verify_key, load_identity_public_file
+from secrets_kit.identity.core import (
+    fingerprint_from_verify_key,
+    load_identity_public_file,
+)
 from secrets_kit.models.core import now_utc_iso
 from secrets_kit.registry.core import RegistryError, registry_dir
 
@@ -180,5 +186,7 @@ def remove_peer(*, alias: str, home: Optional[Path] = None) -> bool:
     new_list = [r for r in peers_raw if str(r["alias"]) != alias]
     if len(new_list) == len(peers_raw):
         return False
+    _persist_peers(ppath, new_list)
+    return True
     _persist_peers(ppath, new_list)
     return True

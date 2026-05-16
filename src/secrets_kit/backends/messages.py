@@ -1,4 +1,8 @@
-"""Operator-facing backend messages (no imports from ``cli``)."""
+"""
+secrets_kit.backends.messages
+
+Operator-facing backend messages (no imports from ``cli``).
+"""
 
 from __future__ import annotations
 

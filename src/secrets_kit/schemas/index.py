@@ -1,8 +1,12 @@
-"""Mirrors for :meth:`~secrets_kit.backends.base.IndexRow.to_safe_dict` / ``to_diag_dict``."""
+"""
+secrets_kit.schemas.index
+
+Mirrors for :meth:`~secrets_kit.backends.base.IndexRow.to_safe_dict` / ``to_diag_dict``.
+"""
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 from secrets_kit.schemas.base import BaseSchema
 
@@ -37,17 +41,17 @@ class IndexRowDiagDict(BaseSchema):
     index_schema_version: int
     payload_schema_version: int
     backend_impl_version: int
-    payload_ref: Optional[str] = None
+    payload_ref: str | None = None
     corrupt: bool = False
     corrupt_reason: str = ""
     last_validation_at: str = ""
 
 
-def validate_safe_index_dict(row: Dict[str, Any]) -> IndexRowSafeDict:
+def validate_safe_index_dict(row: dict[str, Any]) -> IndexRowSafeDict:
     """Validate a listing dict (tests and CLI-adjacent checks)."""
     return IndexRowSafeDict.model_validate(row)
 
 
-def validate_diag_index_dict(row: Dict[str, Any]) -> IndexRowDiagDict:
+def validate_diag_index_dict(row: dict[str, Any]) -> IndexRowDiagDict:
     """Validate a diagnostics dict (tests and optional doctor checks)."""
     return IndexRowDiagDict.model_validate(row)

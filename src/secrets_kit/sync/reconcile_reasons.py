@@ -1,13 +1,17 @@
-"""Semi-stable reconciliation reason identifiers (operational compatibility surface).
+"""
+secrets_kit.sync.reconcile_reasons
+
+Semi-stable reconciliation reason identifiers (operational compatibility surface).
 
 Human-readable descriptions may change; these string values should remain stable
 across releases unless explicitly deprecated. Document additions in PHASE6A_RECONCILIATION.md.
+
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Literal
 
 
 class ReconcileReason:
@@ -53,13 +57,13 @@ class MergeExplain:
     reason: str
     sqlite_lineage_merge: bool
     incoming_disposition: Literal["active", "tombstone"]
-    local_deleted: Optional[bool] = None
-    local_generation: Optional[int] = None
-    local_tombstone_generation: Optional[int] = None
-    incoming_generation: Optional[int] = None
-    incoming_tombstone_generation: Optional[int] = None
-    local_content_hash_preview: Optional[str] = None
-    incoming_content_hash_preview: Optional[str] = None
+    local_deleted: bool | None = None
+    local_generation: int | None = None
+    local_tombstone_generation: int | None = None
+    incoming_generation: int | None = None
+    incoming_tombstone_generation: int | None = None
+    local_content_hash_preview: str | None = None
+    incoming_content_hash_preview: str | None = None
     use_lineage_ladder: bool = False
 
     def to_trace_dict(
@@ -69,9 +73,9 @@ class MergeExplain:
         service: str,
         account: str,
         name: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Secret-safe trace row for CLI / tests."""
-        d: Dict[str, Any] = {
+        d: dict[str, Any] = {
             "entry_id": entry_id,
             "service": service,
             "account": account,
@@ -99,7 +103,7 @@ class MergeExplain:
         return d
 
 
-def hash_preview(h: str) -> Optional[str]:
+def hash_preview(h: str) -> str | None:
     """Short non-secret prefix for trace (full hash may be long)."""
     s = (h or "").strip().lower()
     if not s:

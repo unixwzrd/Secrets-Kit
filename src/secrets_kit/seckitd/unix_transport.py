@@ -1,7 +1,11 @@
-"""AF_UNIX transport setup for local CLI ↔ ``seckitd`` (Linux and macOS).
+"""
+secrets_kit.seckitd.unix_transport
+
+AF_UNIX transport setup for local CLI ↔ ``seckitd`` (Linux and macOS).
 
 No Keychain, no peer credentials — only socket creation options for a same-user
 local daemon control channel.
+
 """
 
 from __future__ import annotations

@@ -1,4 +1,8 @@
-"""Registry handling for non-secret metadata."""
+"""
+secrets_kit.registry.core
+
+Registry handling for non-secret metadata.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +12,12 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from secrets_kit.models.core import EntryMetadata, ensure_entry_id, normalize_custom, now_utc_iso
+from secrets_kit.models.core import (
+    EntryMetadata,
+    ensure_entry_id,
+    normalize_custom,
+    now_utc_iso,
+)
 
 _VALIDATE_REGISTRY_METADATA = os.environ.get("SECKIT_VALIDATE_REGISTRY_METADATA") == "1"
 
@@ -212,7 +221,9 @@ def load_registry(*, home: Optional[Path] = None) -> Dict[str, EntryMetadata]:
             continue
         if file_ver <= LEGACY_REGISTRY_FILE_VERSION:
             if _VALIDATE_REGISTRY_METADATA:
-                from secrets_kit.schemas.metadata import parse_full_registry_metadata_with_schema_check
+                from secrets_kit.schemas.metadata import (
+                    parse_full_registry_metadata_with_schema_check,
+                )
 
                 full = parse_full_registry_metadata_with_schema_check(item)
             else:
@@ -293,6 +304,13 @@ def upsert_metadata(*, metadata: EntryMetadata, home: Optional[Path] = None) -> 
 
 def delete_metadata(*, service: str, account: str, name: str, home: Optional[Path] = None) -> bool:
     """Delete one metadata record. Return True when removed."""
+    entries = load_registry(home=home)
+    key = f"{service}::{account}::{name}"
+    existed = key in entries
+    if existed:
+        del entries[key]
+        save_registry(entries=entries, home=home)
+    return existed
     entries = load_registry(home=home)
     key = f"{service}::{account}::{name}"
     existed = key in entries

@@ -1,11 +1,15 @@
-"""Canonical record hashing (Phase 6A integrity metadata, SHA-256)."""
+"""
+secrets_kit.sync.canonical_record
+
+Canonical record hashing (Phase 6A integrity metadata, SHA-256).
+"""
 
 from __future__ import annotations
 
 import hashlib
 import json
 from dataclasses import asdict, replace
-from typing import Any, Dict, Optional
+from typing import Any
 
 from secrets_kit.models.core import EntryMetadata, normalize_custom
 
@@ -28,7 +32,7 @@ def computed_peer_row_content_hash(*, secret: str, metadata: EntryMetadata) -> s
     )
 
 
-def _metadata_body_for_hash(metadata: EntryMetadata) -> Dict[str, Any]:
+def _metadata_body_for_hash(metadata: EntryMetadata) -> dict[str, Any]:
     """Metadata dict for hashing; omits ``content_hash`` so the digest is self-describing."""
     d = asdict(metadata)
     d.pop("content_hash", None)
@@ -59,7 +63,7 @@ def attach_content_hash(*, secret: str, metadata: EntryMetadata) -> EntryMetadat
 
 
 def verify_incoming_row_content_hash(
-    *, secret: str, metadata: EntryMetadata, row_content_hash: Optional[str]
+    *, secret: str, metadata: EntryMetadata, row_content_hash: str | None
 ) -> bool:
     """True if no row hash, or digest matches payload (lowercase hex)."""
     expected = (row_content_hash or "").strip().lower()

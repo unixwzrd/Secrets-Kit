@@ -1,4 +1,8 @@
-"""Mirrors for :class:`~secrets_kit.backends.base.BackendSecurityPosture` / ``BackendCapabilities`` ``asdict`` shapes."""
+"""
+secrets_kit.schemas.backend
+
+Mirrors for :class:`~secrets_kit.backends.base.BackendSecurityPosture` / ``BackendCapabilities`` ``asdict`` shapes.
+"""
 
 from __future__ import annotations
 

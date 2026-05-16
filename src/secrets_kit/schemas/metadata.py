@@ -1,11 +1,14 @@
-"""Mirrors for :class:`~secrets_kit.models.core.EntryMetadata` dict shapes and slim registry rows."""
+"""
+secrets_kit.schemas.metadata
+
+Mirrors for :class:`~secrets_kit.models.core.EntryMetadata` dict shapes and slim registry rows.
+"""
 
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
 from pydantic import field_validator
-
 from secrets_kit.models.core import (
     EntryMetadata,
     normalize_custom,

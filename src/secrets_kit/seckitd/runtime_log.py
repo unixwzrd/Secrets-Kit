@@ -1,4 +1,8 @@
-"""Structured stderr logs for seckitd (redaction-safe: never pass payload or secrets)."""
+"""
+secrets_kit.seckitd.runtime_log
+
+Structured stderr logs for seckitd (redaction-safe: never pass payload or secrets).
+"""
 
 from __future__ import annotations
 

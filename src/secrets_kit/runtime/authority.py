@@ -1,17 +1,20 @@
-"""Documentary types for runtime authority vocabulary (non-contract).
+"""
+secrets_kit.runtime.authority
+
+Documentary types for runtime authority vocabulary (non-contract).
 
 This module exists to reduce drift between docs and code. It does **not** define a stable
 public API for daemons, IPC, caching, or lease enforcement.
 
 **Do not** use :class:`RuntimeAccessResult` as a return type for :class:`~secrets_kit.backends.base.BackendStore`
 methods; :class:`~secrets_kit.backends.base.ResolvedEntry` remains the resolve primitive.
+
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, Optional
 
 
 class RuntimeExposureLevel(str, Enum):
@@ -48,10 +51,10 @@ class RuntimeLease:
     caching guarantees, MFA, remote issuance, and stable lease APIs.
     """
 
-    lease_id: Optional[str] = None
-    issued_at: Optional[str] = None
-    expires_at: Optional[str] = None
-    notes: Optional[str] = None
+    lease_id: str | None = None
+    issued_at: str | None = None
+    expires_at: str | None = None
+    notes: str | None = None
 
 
 @dataclass(frozen=True)
@@ -63,14 +66,14 @@ class RuntimeAccessResult:
     Does not imply caching, lease validity, or cross-process semantics.
     """
 
-    entry_id: Optional[str] = None
-    intent: Optional[ResolveIntent] = None
-    lease: Optional[RuntimeLease] = None
+    entry_id: str | None = None
+    intent: ResolveIntent | None = None
+    lease: RuntimeLease | None = None
 
 
 #: Maps :class:`BackendStore` abstract surface names to :class:`RuntimeExposureLevel` for doc/tests drift
 #: guards only — not used for authorization or runtime behavior.
-BACKEND_INTERFACE_EXPOSURE: Dict[str, RuntimeExposureLevel] = {
+BACKEND_INTERFACE_EXPOSURE: dict[str, RuntimeExposureLevel] = {
     "security_posture": RuntimeExposureLevel.index_only,
     "capabilities": RuntimeExposureLevel.index_only,
     "set_entry": RuntimeExposureLevel.resolved_within_handling,

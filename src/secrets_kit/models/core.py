@@ -1,11 +1,15 @@
-"""Data models and validation for seckit."""
+"""
+secrets_kit.models.core
+
+Data models and validation for seckit.
+"""
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
 import json
 import re
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional
 
 EntryType = Literal["secret", "pii"]

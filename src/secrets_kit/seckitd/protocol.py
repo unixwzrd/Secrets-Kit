@@ -1,4 +1,8 @@
-"""Request handlers for ``seckitd`` (daemon-side command validation)."""
+"""
+secrets_kit.seckitd.protocol
+
+Request handlers for ``seckitd`` (daemon-side command validation).
+"""
 
 from __future__ import annotations
 
@@ -10,14 +14,15 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Mapping, Optional
 
 from pydantic import ValidationError
-
 from secrets_kit.schemas.envelope import validate_transport_message_wrapper
 from secrets_kit.seckitd.bridge import default_seckit_argv, run_sync_import_stdin
-from secrets_kit.seckitd.ipc_redact import relay_subprocess_tails_for_ipc, verbose_ipc_enabled
+from secrets_kit.seckitd.ipc_redact import (
+    relay_subprocess_tails_for_ipc,
+    verbose_ipc_enabled,
+)
 from secrets_kit.seckitd.loopback_transport import LoopbackTransport
 from secrets_kit.seckitd.runtime_log import runtime_log
 from secrets_kit.seckitd.runtime_session import OutboundRuntimeCoordinator
-
 
 SECKITD_PROTOCOL_VERSION = 1
 
@@ -225,4 +230,5 @@ def _ok(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _err(message: str) -> Dict[str, Any]:
+    return {"ok": False, "error": message}
     return {"ok": False, "error": message}

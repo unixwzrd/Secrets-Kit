@@ -1,4 +1,8 @@
-"""Registry and backend metadata resolution (shared by CLI and sync)."""
+"""
+secrets_kit.registry.resolve
+
+Registry and backend metadata resolution (shared by CLI and sync).
+"""
 
 from __future__ import annotations
 

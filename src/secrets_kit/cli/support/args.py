@@ -1,16 +1,23 @@
-"""Argparse-derived backend path and access helpers."""
+"""
+secrets_kit.cli.support.args
+
+Argparse-derived backend path and access helpers.
+"""
 
 from __future__ import annotations
 
 import argparse
 import os
-from typing import Any, Dict, Optional
 
-from secrets_kit.backends.security import BACKEND_SECURE, is_secure_backend, is_sqlite_backend
+from secrets_kit.backends.security import (
+    BACKEND_SECURE,
+    is_secure_backend,
+    is_sqlite_backend,
+)
 from secrets_kit.backends.sqlite import default_sqlite_db_path
 
 
-def _keychain_arg(args: argparse.Namespace) -> Optional[str]:
+def _keychain_arg(args: argparse.Namespace) -> str | None:
     return getattr(args, "keychain", None)
 
 
@@ -18,7 +25,7 @@ def _backend_arg(args: argparse.Namespace) -> str:
     return getattr(args, "backend", BACKEND_SECURE)
 
 
-def _store_path(args: argparse.Namespace) -> Optional[str]:
+def _store_path(args: argparse.Namespace) -> str | None:
     """Backend store path: keychain file (secure) or SQLite database path (sqlite)."""
     backend = _backend_arg(args)
     if is_sqlite_backend(backend):
@@ -32,7 +39,7 @@ def _store_path(args: argparse.Namespace) -> Optional[str]:
     return _keychain_arg(args)
 
 
-def _kek_keychain_arg(args: argparse.Namespace) -> Optional[str]:
+def _kek_keychain_arg(args: argparse.Namespace) -> str | None:
     """When ``backend`` is sqlite, optional keychain file holding the SQLite KEK (not the DB path)."""
     if not is_sqlite_backend(_backend_arg(args)):
         return None
@@ -40,7 +47,7 @@ def _kek_keychain_arg(args: argparse.Namespace) -> Optional[str]:
     return os.path.expanduser(str(k)) if k else None
 
 
-def _backend_access_kwargs(args: argparse.Namespace) -> Dict[str, Any]:
+def _backend_access_kwargs(args: argparse.Namespace) -> dict[str, object]:
     return {
         "path": _store_path(args),
         "backend": _backend_arg(args),
@@ -51,6 +58,11 @@ def _backend_access_kwargs(args: argparse.Namespace) -> Dict[str, Any]:
 def _doctor_skip_missing_secret_scan(args: argparse.Namespace) -> bool:
     """Match doctor drift rules: skip when custom keychain or explicit --db is set."""
     backend = _backend_arg(args)
+    if is_secure_backend(backend) and _keychain_arg(args) is not None:
+        return True
+    if is_sqlite_backend(backend) and getattr(args, "db", None):
+        return True
+    return False
     if is_secure_backend(backend) and _keychain_arg(args) is not None:
         return True
     if is_sqlite_backend(backend) and getattr(args, "db", None):

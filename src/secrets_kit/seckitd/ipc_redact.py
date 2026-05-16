@@ -1,4 +1,8 @@
-"""Redaction and size limits for ``seckitd`` IPC responses (subprocess tails)."""
+"""
+secrets_kit.seckitd.ipc_redact
+
+Redaction and size limits for ``seckitd`` IPC responses (subprocess tails).
+"""
 
 from __future__ import annotations
 

@@ -1,10 +1,14 @@
-"""Argparse construction for the ``seckit`` CLI.
+"""
+secrets_kit.cli.parser.base
+
+Argparse construction for the ``seckit`` CLI.
 
 ``build_parser`` wires the root parser, shared parent flags, and all command
 families. Human-facing ``help`` / ``description`` / ``epilog`` text is loaded
 from ``STRINGS`` in :mod:`secrets_kit.cli.strings.en`. Help **layout**
 (multi-line preservation, default suffixes) uses
 :class:`~secrets_kit.cli.parser.formatter.SeckitHelpFormatter`.
+
 """
 
 from __future__ import annotations

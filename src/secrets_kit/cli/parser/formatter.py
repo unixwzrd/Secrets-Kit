@@ -1,4 +1,7 @@
-"""Argparse help rendering for ``seckit`` CLI.
+"""
+secrets_kit.cli.parser.formatter
+
+Argparse help rendering for ``seckit`` CLI.
 
 This module is **not** for user-facing copy. All strings live in
 :mod:`secrets_kit.cli.strings.en` (``STRINGS``). Here we only choose how
@@ -16,6 +19,7 @@ Why a custom formatter:
 Together, ``--help`` stays readable for long epilogs and shows defaults
 consistently. Collapsing this into ``strings`` would be the wrong layer
 (strings are data; this is argparse presentation).
+
 """
 
 from __future__ import annotations

@@ -1,18 +1,22 @@
-"""Read-only SQLite reconcile invariant checks (report-only; no repair)."""
+"""
+secrets_kit.sync.sqlite_verify
+
+Read-only SQLite reconcile invariant checks (report-only; no repair).
+"""
 
 from __future__ import annotations
 
 import os
 import sqlite3
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 
 def sqlite_reconcile_verify(
     *,
     db_path: str,
     strict_content_hash: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Run PRAGMA checks and lineage-shaped row invariants. Does not mutate the database.
 
     Args:
@@ -23,8 +27,8 @@ def sqlite_reconcile_verify(
         Dictionary with ``ok`` (bool), ``issues`` (list of dicts with stable ``code`` keys),
         and ``pragma`` summaries.
     """
-    issues: List[Dict[str, Any]] = []
-    pragma: Dict[str, Any] = {}
+    issues: list[dict[str, Any]] = []
+    pragma: dict[str, Any] = {}
     expanded = os.path.expanduser(db_path)
     ro_path = Path(expanded).resolve()
     if not ro_path.is_file():

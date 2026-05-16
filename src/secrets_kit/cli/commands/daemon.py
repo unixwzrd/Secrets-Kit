@@ -1,4 +1,8 @@
-"""``seckit daemon …`` — control local ``seckitd`` over Unix sockets."""
+"""
+secrets_kit.cli.commands.daemon
+
+``seckit daemon …`` — control local ``seckitd`` over Unix sockets.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +11,7 @@ import base64
 import json
 from pathlib import Path
 
+from secrets_kit.cli.constants.exit_codes import EXIT_CODES
 from secrets_kit.cli.support.interaction import _fatal
 from secrets_kit.seckitd.client import ipc_call
 from secrets_kit.seckitd.paths import default_socket_path
@@ -25,9 +30,9 @@ def cmd_daemon_ping(*, args: argparse.Namespace) -> int:
             timeout_s=args.timeout,
         )
     except OSError as exc:
-        return _fatal(message=f"daemon ping: cannot connect ({exc})", code=1)
+        return _fatal(message=f"daemon ping: cannot connect ({exc})", code=EXIT_CODES["ECONNREFUSED"])
     print(json.dumps(resp, indent=2, sort_keys=True))
-    return 0 if resp.get("ok") else 1
+    return 0 if resp.get("ok") else EXIT_CODES["EPERM"]
 
 
 def cmd_daemon_status(*, args: argparse.Namespace) -> int:
@@ -39,9 +44,9 @@ def cmd_daemon_status(*, args: argparse.Namespace) -> int:
             timeout_s=args.timeout,
         )
     except OSError as exc:
-        return _fatal(message=f"daemon status: cannot connect ({exc})", code=1)
+        return _fatal(message=f"daemon status: cannot connect ({exc})", code=EXIT_CODES["ECONNREFUSED"])
     print(json.dumps(resp, indent=2, sort_keys=True))
-    return 0 if resp.get("ok") else 1
+    return 0 if resp.get("ok") else EXIT_CODES["EPERM"]
 
 
 def cmd_daemon_submit_outbound(*, args: argparse.Namespace) -> int:
@@ -62,9 +67,9 @@ def cmd_daemon_submit_outbound(*, args: argparse.Namespace) -> int:
     try:
         resp = ipc_call(socket_path=path, request=payload, timeout_s=args.timeout)
     except OSError as exc:
-        return _fatal(message=f"daemon submit-outbound: cannot connect ({exc})", code=1)
+        return _fatal(message=f"daemon submit-outbound: cannot connect ({exc})", code=EXIT_CODES["ECONNREFUSED"])
     print(json.dumps(resp, indent=2, sort_keys=True))
-    return 0 if resp.get("ok") else 1
+    return 0 if resp.get("ok") else EXIT_CODES["EPERM"]
 
 
 def cmd_daemon_sync_status(*, args: argparse.Namespace) -> int:
@@ -76,9 +81,9 @@ def cmd_daemon_sync_status(*, args: argparse.Namespace) -> int:
             timeout_s=args.timeout,
         )
     except OSError as exc:
-        return _fatal(message=f"daemon sync-status: cannot connect ({exc})", code=1)
+        return _fatal(message=f"daemon sync-status: cannot connect ({exc})", code=EXIT_CODES["ECONNREFUSED"])
     print(json.dumps(resp, indent=2, sort_keys=True))
-    return 0 if resp.get("ok") else 1
+    return 0 if resp.get("ok") else EXIT_CODES["EPERM"]
 
 
 def cmd_daemon_serve(*, args: argparse.Namespace) -> int:

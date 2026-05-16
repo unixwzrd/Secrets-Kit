@@ -1,8 +1,12 @@
-"""Single source for the user-visible package version string.
+"""
+secrets_kit.version_meta
+
+Single source for the user-visible package version string.
 
 When the distribution is not installed (no package metadata), returns
 :const:`UNKNOWN_VERSION`. This is intentional for ``PYTHONPATH=src`` and raw
 checkouts; see ``docs/PACKAGE_VERSION.md``.
+
 """
 
 from __future__ import annotations

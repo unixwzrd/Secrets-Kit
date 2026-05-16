@@ -1,7 +1,11 @@
-"""Introspect macOS Keychain generic-password items via ``security dump-keychain``.
+"""
+secrets_kit.backends.keychain.inventory
+
+Introspect macOS Keychain generic-password items via ``security dump-keychain``.
 
 Used to rebuild ``registry.json`` when the file is missing but Keychain items (and optional
 comment JSON metadata) remain. Does not read secret values from the dump.
+
 """
 
 from __future__ import annotations
@@ -9,7 +13,7 @@ from __future__ import annotations
 import re
 import subprocess
 from dataclasses import dataclass
-from typing import Iterator, List, Optional
+from typing import Iterator
 
 from secrets_kit.backends.security import BackendError
 
@@ -37,7 +41,7 @@ def dump_keychain_text(*, path: str) -> str:
     return proc.stdout
 
 
-def _genp_attr(block: str, attr: str) -> Optional[str]:
+def _genp_attr(block: str, attr: str) -> str | None:
     """Extract a ``\"attr\"<blob>=`` string or hex payload from one genp block."""
     m = re.search(rf'"{re.escape(attr)}"<blob>="([^"]*)"', block)
     if m:
@@ -50,7 +54,7 @@ def _genp_attr(block: str, attr: str) -> Optional[str]:
 
 def iter_genp_blocks(dump_text: str) -> Iterator[str]:
     """Yield each ``class: \"genp\"`` section from *dump_text*."""
-    cur: Optional[List[str]] = None
+    cur: list[str | None] = None
     for line in dump_text.splitlines():
         if re.match(r'^class:\s+"genp"\s*$', line):
             if cur:
@@ -68,7 +72,7 @@ def iter_genp_blocks(dump_text: str) -> Iterator[str]:
 
 
 def iter_seckit_genp_candidates(
-    dump_text: str, *, service_filter: Optional[str] = None
+    dump_text: str, *, service_filter: str | None = None
 ) -> Iterator[GenpCandidate]:
     """Parse genp blocks; yield rows whose ``svce`` matches ``logical_service:name``."""
     want = service_filter.strip() if service_filter else None

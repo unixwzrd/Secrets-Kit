@@ -1,4 +1,8 @@
-"""Read-only reconciliation diagnostics (inspect / explain / verify)."""
+"""
+secrets_kit.cli.commands.reconcile_tools
+
+Read-only reconciliation diagnostics (inspect / explain / verify).
+"""
 
 from __future__ import annotations
 
@@ -6,29 +10,29 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Union
+from typing import TYPE_CHECKING
 
 from secrets_kit.backends.security import BACKEND_SQLITE, is_sqlite_backend
+from secrets_kit.cli.constants.exit_codes import EXIT_CODES
+from secrets_kit.cli.support.args import _backend_access_kwargs
+from secrets_kit.cli.support.interaction import _fatal
 from secrets_kit.models.core import EntryMetadata
 from secrets_kit.sync.merge import explain_incoming_sync_row
 from secrets_kit.sync.sqlite_verify import sqlite_reconcile_verify
-
-from secrets_kit.cli.support.args import _backend_access_kwargs
-from secrets_kit.cli.support.interaction import _fatal
 
 if TYPE_CHECKING:
     from secrets_kit.backends.sqlite import SqliteSecretStore
 
 
-def _open_sqlite_store_for_reconcile(args: argparse.Namespace) -> Union["SqliteSecretStore", int]:
+def _open_sqlite_store_for_reconcile(args: argparse.Namespace) -> "SqliteSecretStore" | int:
     from secrets_kit.backends.sqlite import SqliteSecretStore
 
     kwargs = _backend_access_kwargs(args)
     if not is_sqlite_backend(kwargs["backend"]):
-        return _fatal(message="reconcile commands require --backend sqlite", code=1)
+        return _fatal(message="reconcile commands require --backend sqlite", code=EXIT_CODES["EINVAL"])
     p = kwargs["path"]
     if not p:
-        return _fatal(message="reconcile requires SQLite db path (--db or SECKIT_SQLITE_DB)", code=1)
+        return _fatal(message="reconcile requires SQLite db path (--db or SECKIT_SQLITE_DB)", code=EXIT_CODES["EINVAL"])
     return SqliteSecretStore(db_path=str(p), kek_keychain_path=kwargs["kek_keychain_path"])
 
 
@@ -38,7 +42,7 @@ def cmd_reconcile_inspect(*, args: argparse.Namespace) -> int:
         return st
     row = st.fetch_entry_reconcile_index(entry_id=args.entry_id)
     caps = st.capabilities()
-    out: Dict[str, Any] = {
+    out: dict[str, object] = {
         "backend": BACKEND_SQLITE,
         "capabilities": {
             "supports_peer_lineage_merge": caps.supports_peer_lineage_merge,
@@ -61,7 +65,7 @@ def cmd_reconcile_lineage(*, args: argparse.Namespace) -> int:
     row = st.fetch_entry_reconcile_index(entry_id=args.entry_id)
     if row is None:
         print(json.dumps({"entry_id": args.entry_id, "lineage": None}, indent=2, sort_keys=True))
-        return 1
+        return EXIT_CODES["ENOENT"]
     lineage = {
         "entry_id": row["entry_id"],
         "service": row["service"],
@@ -89,12 +93,12 @@ def cmd_reconcile_explain(*, args: argparse.Namespace) -> int:
         text = Path(str(src)).expanduser().read_text(encoding="utf-8")
     raw = json.loads(text)
     if not isinstance(raw, dict):
-        return _fatal(message="bundle row must be a JSON object", code=1)
+        return _fatal(message="bundle row must be a JSON object", code=EXIT_CODES["EINVAL"])
     kwargs = _backend_access_kwargs(args)
     if not is_sqlite_backend(kwargs["backend"]):
         return _fatal(
             message="reconcile explain requires --backend sqlite for lineage-aware classification",
-            code=1,
+            code=EXIT_CODES["EINVAL"],
         )
     explain, ctx = explain_incoming_sync_row(
         raw_row=raw,
@@ -120,13 +124,13 @@ def cmd_reconcile_explain(*, args: argparse.Namespace) -> int:
 def cmd_reconcile_verify(*, args: argparse.Namespace) -> int:
     kwargs = _backend_access_kwargs(args)
     if not is_sqlite_backend(kwargs["backend"]):
-        return _fatal(message="reconcile verify requires --backend sqlite", code=1)
+        return _fatal(message="reconcile verify requires --backend sqlite", code=EXIT_CODES["EINVAL"])
     p = kwargs["path"]
     if not p:
-        return _fatal(message="reconcile verify requires SQLite db path", code=1)
+        return _fatal(message="reconcile verify requires SQLite db path", code=EXIT_CODES["EINVAL"])
     report = sqlite_reconcile_verify(
         db_path=str(p),
         strict_content_hash=bool(getattr(args, "strict_content_hash", False)),
     )
     print(json.dumps(report, indent=2, sort_keys=True))
-    return 0 if report.get("ok") else 1
+    return 0 if report.get("ok") else EXIT_CODES["EIO"]

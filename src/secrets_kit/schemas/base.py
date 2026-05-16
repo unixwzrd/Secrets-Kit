@@ -1,4 +1,8 @@
-"""Shared Pydantic base for wire-shape mirrors."""
+"""
+secrets_kit.schemas.base
+
+Shared Pydantic base for wire-shape mirrors.
+"""
 
 from __future__ import annotations
 

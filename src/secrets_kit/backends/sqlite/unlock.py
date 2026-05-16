@@ -1,4 +1,8 @@
-"""SQLite vault unlock: passphrase KDF (legacy) or macOS Keychain-wrapped DEK."""
+"""
+secrets_kit.backends.sqlite.unlock
+
+SQLite vault unlock: passphrase KDF (legacy) or macOS Keychain-wrapped DEK.
+"""
 
 from __future__ import annotations
 
@@ -8,11 +12,10 @@ import hashlib
 import os
 import sqlite3
 import sys
-from typing import Callable, Optional, Protocol
+from typing import Callable, Protocol
 
 import nacl.pwhash
 import nacl.secret
-
 from secrets_kit.backends.security import BackendError, _run_security
 from secrets_kit.models.core import now_utc_iso
 
@@ -21,7 +24,7 @@ UNLOCK_KEYCHAIN = "keychain"
 
 WRAPPED_DEK_VERSION = 1
 
-_sqlite_passphrase_provider: Optional[Callable[[], str]] = None
+_sqlite_passphrase_provider: Callable[[], str] | None = None
 
 # Process-local cache: resolved passphrase bytes per absolute db path (UTF-8 phrase).
 _passphrase_by_db: dict[str, str] = {}
@@ -36,7 +39,7 @@ def clear_sqlite_unlock_cache() -> None:
     _kek_b64_by_db.clear()
 
 
-def set_sqlite_passphrase_provider(fn: Optional[Callable[[], str]]) -> None:
+def set_sqlite_passphrase_provider(fn: Callable[[], str] | None) -> None:
     """Override passphrase resolution (used by tests). Pass None to restore default behavior."""
     global _sqlite_passphrase_provider
     _sqlite_passphrase_provider = fn
@@ -116,7 +119,7 @@ def _unwrap_dek(*, wrapped: bytes, kek: bytes) -> bytes:
     return box.decrypt(wrapped[1:])
 
 
-def _security_append_keychain(args: list[str], keychain_path: Optional[str]) -> list[str]:
+def _security_append_keychain(args: list[str], keychain_path: str | None) -> list[str]:
     out = list(args)
     if keychain_path:
         out.extend(["-T", "/usr/bin/security"])
@@ -124,7 +127,7 @@ def _security_append_keychain(args: list[str], keychain_path: Optional[str]) -> 
     return out
 
 
-def _read_kek_b64(*, db_path: str, keychain_path: Optional[str]) -> str:
+def _read_kek_b64(*, db_path: str, keychain_path: str | None) -> str:
     service, account = _kek_service_account(db_path=db_path)
     args = _security_append_keychain(
         ["find-generic-password", "-a", account, "-s", service, "-w"],
@@ -133,7 +136,7 @@ def _read_kek_b64(*, db_path: str, keychain_path: Optional[str]) -> str:
     return _run_security(args=args)
 
 
-def _write_kek_b64(*, db_path: str, keychain_path: Optional[str], kek_b64: str) -> None:
+def _write_kek_b64(*, db_path: str, keychain_path: str | None, kek_b64: str) -> None:
     service, account = _kek_service_account(db_path=db_path)
     args = _security_append_keychain(
         [
@@ -155,7 +158,7 @@ def _write_kek_b64(*, db_path: str, keychain_path: Optional[str], kek_b64: str) 
     _run_security(args=args)
 
 
-def _read_kek_bytes_required(*, db_path: str, keychain_path: Optional[str]) -> bytes:
+def _read_kek_bytes_required(*, db_path: str, keychain_path: str | None) -> bytes:
     """Load KEK from Keychain; used when opening an existing wrapped vault."""
     cache_key = (abs_db_path(db_path), keychain_path or "")
     if cache_key in _kek_b64_by_db:
@@ -166,7 +169,7 @@ def _read_kek_bytes_required(*, db_path: str, keychain_path: Optional[str]) -> b
     return kek
 
 
-def _get_or_create_kek_bytes(*, db_path: str, keychain_path: Optional[str]) -> bytes:
+def _get_or_create_kek_bytes(*, db_path: str, keychain_path: str | None) -> bytes:
     """Create KEK item if missing — only when provisioning a new keychain-wrapped vault."""
     cache_key = (abs_db_path(db_path), keychain_path or "")
     if cache_key in _kek_b64_by_db:
@@ -236,7 +239,7 @@ class PassphraseUnlockProvider:
 class KeychainUnlockProvider:
     """DEK wrapped with a KEK stored as a generic password in the macOS keychain (security CLI)."""
 
-    def __init__(self, *, keychain_path: Optional[str] = None) -> None:
+    def __init__(self, *, keychain_path: str | None = None) -> None:
         self.keychain_path = os.path.expanduser(keychain_path) if keychain_path else None
 
     @property
@@ -293,8 +296,8 @@ class KeychainUnlockProvider:
 
 def build_sqlite_unlock_provider(
     *,
-    mode: Optional[str] = None,
-    kek_keychain_path: Optional[str] = None,
+    mode: str | None = None,
+    kek_keychain_path: str | None = None,
 ) -> UnlockProvider:
     """Build provider from ``mode`` or :envvar:`SECKIT_SQLITE_UNLOCK`.
 

@@ -1,4 +1,8 @@
-"""Run ``seckit`` entrypoint as a controlled subprocess (no imports from ``cli`` package)."""
+"""
+secrets_kit.seckitd.bridge
+
+Run ``seckit`` entrypoint as a controlled subprocess (no imports from ``cli`` package).
+"""
 
 from __future__ import annotations
 
@@ -6,12 +10,12 @@ import os
 import subprocess
 import sys
 from dataclasses import dataclass
-from typing import Dict, List, MutableMapping, Optional, Sequence
+from typing import MutableMapping, Sequence
 
 _SECKIT_MAIN = "secrets_kit" + ".cli"  # avoid static import of the CLI package
 
 
-def default_seckit_argv() -> List[str]:
+def default_seckit_argv() -> list[str]:
     """Argv prefix to invoke the operator CLI in the current interpreter."""
     return [sys.executable, "-m", _SECKIT_MAIN]
 
@@ -29,8 +33,8 @@ def run_sync_import_stdin(
     *,
     bundle_text: str,
     signer_alias: str,
-    seckit_argv: Optional[Sequence[str]] = None,
-    env: Optional[MutableMapping[str, str]] = None,
+    seckit_argv: Sequence[str | None] = None,
+    env: MutableMapping[str, str | None] = None,
     timeout_s: float = 300.0,
 ) -> SubprocessResult:
     """Invoke ``seckit sync import - --signer … --yes`` with bundle JSON on stdin."""
@@ -44,7 +48,7 @@ def run_sync_import_stdin(
         signer_alias,
         "--yes",
     ]
-    run_env: Dict[str, str] = dict(os.environ) if env is None else {**env}
+    run_env: dict[str, str] = dict(os.environ) if env is None else {**env}
     proc = subprocess.run(
         cmd,
         input=bundle_text.encode("utf-8"),

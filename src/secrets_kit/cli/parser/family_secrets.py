@@ -1,7 +1,11 @@
-"""argparse wiring for core secret operations: set/list/run, config, import/export, service.
+"""
+secrets_kit.cli.parser.family_secrets
+
+argparse wiring for core secret operations: set/list/run, config, import/export, service.
 
 Registration order must match historical ``build_parser`` so ``seckit --help`` stays stable.
 Human-facing prose is ``STRINGS[...]`` from :mod:`secrets_kit.cli.strings.en`.
+
 """
 
 from __future__ import annotations

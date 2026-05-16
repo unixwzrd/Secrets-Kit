@@ -1,15 +1,18 @@
-"""Unix stream socket peer UID checks (same-user ``seckitd`` boundary)."""
+"""
+secrets_kit.seckitd.peer_cred
+
+Unix stream socket peer UID checks (same-user ``seckitd`` boundary).
+"""
 
 from __future__ import annotations
 
 import ctypes
 import ctypes.util
 import os
+import socket
 import struct
 import sys
-from typing import Callable, Optional
-
-import socket
+from typing import Callable
 
 
 class PeerCredentialError(Exception):
@@ -61,8 +64,8 @@ def insecure_skip_peer_cred_checks() -> bool:
 def verify_unix_peer_euid(
     conn: socket.socket,
     *,
-    expected_euid: Optional[int] = None,
-    _peer_uid_fn: Optional[Callable[[socket.socket], int]] = None,
+    expected_euid: int | None = None,
+    _peer_uid_fn: Callable[[socket.socket], int] | None = None,
 ) -> None:
     """Ensure peer uid matches daemon effective uid.
 

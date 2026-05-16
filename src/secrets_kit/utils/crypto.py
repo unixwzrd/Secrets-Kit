@@ -1,4 +1,8 @@
-"""Encrypted export/import helpers."""
+"""
+secrets_kit.utils.crypto
+
+Encrypted export/import helpers.
+"""
 
 from __future__ import annotations
 
@@ -87,7 +91,7 @@ def decrypt_payload(*, payload: Dict[str, Any], password: str) -> Dict[str, Any]
     return json.loads(plaintext.decode("utf-8"))
 
 
-def build_plain_export(*, entries: list[Dict[str, Any]]) -> Dict[str, Any]:
+def build_plain_export(*, entries: list[dict[str, str]], version: str = "1") -> dict[str, Any]:
     """Build plain JSON payload for encryption."""
     return {
         "format": "seckit.export",

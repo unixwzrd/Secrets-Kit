@@ -1,15 +1,18 @@
-"""Import helpers for env, dotenv, and file batch ingestion."""
+"""
+secrets_kit.importers
+
+Import helpers for env, dotenv, and file batch ingestion.
+"""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
 import os
+from dataclasses import dataclass
 from pathlib import Path
-
-import yaml
 from typing import Dict, List, Literal, Optional
 
+import yaml
 from secrets_kit.models.core import (
     EntryMetadata,
     infer_entry_kind_from_name,
@@ -20,7 +23,6 @@ from secrets_kit.models.core import (
     validate_entry_type,
     validate_key_name,
 )
-
 
 SyncDisposition = Literal["active", "tombstone"]
 

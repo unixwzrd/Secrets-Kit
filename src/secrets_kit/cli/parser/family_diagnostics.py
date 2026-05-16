@@ -1,6 +1,10 @@
-"""argparse wiring for diagnostics and operator tooling (doctor, version, keychain, …).
+"""
+secrets_kit.cli.parser.family_diagnostics
+
+argparse wiring for diagnostics and operator tooling (doctor, version, keychain, …).
 
 Registration order is stable for ``seckit --help``. Human-facing prose is ``STRINGS[...]``.
+
 """
 
 from __future__ import annotations

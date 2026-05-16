@@ -1,4 +1,8 @@
-"""Deterministic merge rules for peer sync import."""
+"""
+secrets_kit.sync.merge
+
+Deterministic merge rules for peer sync import.
+"""
 
 from __future__ import annotations
 
@@ -6,7 +10,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Set, Tuple
 
-from secrets_kit.importers import ImportCandidate
+from secrets_kit.backends.base import normalize_store_locator
 from secrets_kit.backends.security import (
     BACKEND_SQLITE,
     BackendError,
@@ -17,13 +21,27 @@ from secrets_kit.backends.security import (
     secret_exists,
     set_secret,
 )
-from secrets_kit.models.core import EntryMetadata, ensure_entry_id, make_registry_key, normalize_custom, normalize_domains
+from secrets_kit.importers import ImportCandidate
+from secrets_kit.models.core import (
+    EntryMetadata,
+    ensure_entry_id,
+    make_registry_key,
+    normalize_custom,
+    normalize_domains,
+)
 from secrets_kit.models.lineage import LineageSnapshot
-from secrets_kit.sync.canonical_record import computed_peer_row_content_hash, verify_incoming_row_content_hash
-from secrets_kit.backends.base import normalize_store_locator
 from secrets_kit.registry.core import delete_metadata, load_registry, upsert_metadata
 from secrets_kit.registry.resolve import _read_metadata
-from secrets_kit.sync.reconcile_reasons import MergeAction, MergeExplain, ReconcileReason, hash_preview
+from secrets_kit.sync.canonical_record import (
+    computed_peer_row_content_hash,
+    verify_incoming_row_content_hash,
+)
+from secrets_kit.sync.reconcile_reasons import (
+    MergeAction,
+    MergeExplain,
+    ReconcileReason,
+    hash_preview,
+)
 
 SYNC_ORIGIN_CUSTOM_KEY = "seckit_sync_origin_host"
 

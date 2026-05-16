@@ -1,11 +1,15 @@
-"""Enumerate secret-store rows for ``seckit recover`` (registry rebuild).
+"""
+secrets_kit.recovery.recover_sources
+
+Enumerate secret-store rows for ``seckit recover`` (registry rebuild).
 
 Supports **secure** (Keychain dump) and **sqlite** (plaintext index columns only).
+
 """
 
 from __future__ import annotations
 
-from typing import Iterator, Optional
+from typing import Iterator
 
 from secrets_kit.backends.security import BackendError, is_secure_backend, is_sqlite_backend, keychain_path
 from secrets_kit.backends.keychain.inventory import GenpCandidate, dump_keychain_text, iter_seckit_genp_candidates
@@ -15,9 +19,9 @@ from secrets_kit.backends.sqlite import iter_secrets_plaintext_index
 def iter_recover_candidates(
     *,
     backend: str,
-    service_filter: Optional[str],
-    keychain_file: Optional[str],
-    sqlite_db: Optional[str],
+    service_filter: str | None,
+    keychain_file: str | None,
+    sqlite_db: str | None,
 ) -> Iterator[GenpCandidate]:
     """Yield candidates in store order; same shape for Keychain and SQLite."""
     want = service_filter.strip() if service_filter else None

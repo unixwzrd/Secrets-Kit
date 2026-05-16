@@ -3,29 +3,35 @@ from __future__ import annotations
 import argparse
 import io
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from pathlib import Path
 from unittest import mock
-from contextlib import redirect_stdout, redirect_stderr
 
-from secrets_kit.models.core import ValidationError
 from secrets_kit.backends.keychain.inventory import GenpCandidate
-from secrets_kit.cli.parser.base import build_parser
-from secrets_kit.cli.support.defaults import _apply_defaults
-from secrets_kit.cli.support.interaction import _read_password
-from secrets_kit.cli.support.version_info import _cli_version
 from secrets_kit.cli.commands.config import (
     cmd_config_path,
     cmd_config_set,
     cmd_config_show,
     cmd_config_unset,
 )
-from secrets_kit.cli.commands.diagnostics import cmd_doctor, cmd_helper_status, cmd_lock, cmd_version
+from secrets_kit.cli.commands.diagnostics import (
+    cmd_doctor,
+    cmd_helper_status,
+    cmd_lock,
+    cmd_version,
+)
 from secrets_kit.cli.commands.import_export import cmd_import_env
 from secrets_kit.cli.commands.migrate import cmd_migrate_metadata, cmd_recover_registry
 from secrets_kit.cli.commands.secrets import cmd_delete, cmd_get, cmd_run, cmd_set
 from secrets_kit.cli.commands.service_ops import cmd_service_copy
+from secrets_kit.cli.constants.exit_codes import EXIT_CODES
+from secrets_kit.cli.parser.base import build_parser
+from secrets_kit.cli.support.defaults import _apply_defaults
+from secrets_kit.cli.support.interaction import _read_password
+from secrets_kit.cli.support.version_info import _cli_version
+from secrets_kit.models.core import ValidationError
 
 
 class CliCommandsTest(unittest.TestCase):
@@ -119,13 +125,13 @@ class CliCommandsTest(unittest.TestCase):
             home = Path(tmp)
             with mock.patch.object(Path, "home", return_value=home), redirect_stderr(io.StringIO()):
                 code = cmd_config_set(args=argparse.Namespace(key="backend", value="phantom-backend"))
-        self.assertEqual(code, 1)
+        self.assertEqual(code, EXIT_CODES["EINVAL"])
 
     def test_config_set_rejects_invalid_backend(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             with mock.patch.object(Path, "home", return_value=Path(tmp)), redirect_stderr(io.StringIO()):
                 code = cmd_config_set(args=argparse.Namespace(key="backend", value="nosuch"))
-        self.assertEqual(code, 1)
+        self.assertEqual(code, EXIT_CODES["EINVAL"])
 
     def test_config_unset_removes_key(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -192,7 +198,7 @@ class CliCommandsTest(unittest.TestCase):
                 }
                 code = cmd_doctor(args=argparse.Namespace())
 
-            self.assertEqual(code, 1)
+            self.assertEqual(code, EXIT_CODES["EAPP_METADATA_DRIFT"])
             payload = json.loads(out.getvalue())
             self.assertTrue(payload["security_cli"])
             self.assertTrue(payload["registry"])
@@ -710,7 +716,7 @@ class CliCommandsTest(unittest.TestCase):
         )
         with redirect_stderr(err):
             code = cmd_run(args=args)
-        self.assertEqual(code, 2)
+        self.assertEqual(code, EXIT_CODES["EINVAL"])
         self.assertIn("run requires a target command", err.getvalue())
 
     def test_run_reports_which_secret_failed_to_read(self) -> None:
@@ -750,9 +756,9 @@ class CliCommandsTest(unittest.TestCase):
         self.assertIn("--names/--tag", err.getvalue())
 
     def test_read_metadata_falls_back_to_registry_when_keychain_metadata_read_fails(self) -> None:
-        from secrets_kit.registry.resolve import _read_metadata
         from secrets_kit.backends.security import BackendError
         from secrets_kit.models.core import EntryMetadata
+        from secrets_kit.registry.resolve import _read_metadata
 
         registry_entry = EntryMetadata(
             name="APPLE_APP_PASSWORD",

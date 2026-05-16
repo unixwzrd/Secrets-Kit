@@ -1,4 +1,8 @@
-"""Length-prefixed JSON framing for local Unix socket messages."""
+"""
+secrets_kit.seckitd.framing
+
+Length-prefixed JSON framing for local Unix socket messages.
+"""
 
 from __future__ import annotations
 

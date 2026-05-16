@@ -13,7 +13,6 @@ it must not introduce new SQL schema.
 from __future__ import annotations
 
 import sqlite3
-from typing import List, Optional
 
 # Table and triggers installed by :func:`secrets_kit.backends.sqlite.schema.install_audit_schema`.
 SECRETS_AUDIT_TABLE: str = "secrets_audit"
@@ -22,7 +21,7 @@ SECRETS_AUDIT_TRIGGER_AFTER_UPDATE: str = "secrets_audit_au"
 SECRETS_AUDIT_TRIGGER_AFTER_DELETE: str = "secrets_audit_ad"
 
 
-def fetch_audit_tail(*, conn: sqlite3.Connection, limit: int = 50) -> List[sqlite3.Row]:
+def fetch_audit_tail(*, conn: sqlite3.Connection, limit: int = 50) -> list[sqlite3.Row]:
     """
     Return the most recent ``secrets_audit`` rows (newest ``audit_id`` first).
 
@@ -45,7 +44,7 @@ def fetch_audit_tail(*, conn: sqlite3.Connection, limit: int = 50) -> List[sqlit
         conn.row_factory = prev_factory
 
 
-def count_audit_rows(*, conn: sqlite3.Connection) -> Optional[int]:
+def count_audit_rows(*, conn: sqlite3.Connection) -> int | None:
     """Return row count in ``secrets_audit``, or ``None`` if the table is missing."""
     try:
         row = conn.execute(
