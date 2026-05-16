@@ -82,6 +82,7 @@ def _comma_join(columns: tuple[str, ...]) -> str:
 
 
 def sql_select_iter_index() -> str:
+    """Return SQL for iterating safe-index columns."""
     return f"""
                 SELECT {_comma_join(SECRETS_COLUMNS_INDEX_SAFE)}
                 FROM {_SECRETS_TABLE} ORDER BY entry_id
@@ -89,6 +90,7 @@ def sql_select_iter_index() -> str:
 
 
 def sql_select_rebuild_index() -> str:
+    """Return SQL for rebuilding index columns from full rows."""
     return f"""
                 SELECT {_comma_join(SECRETS_COLUMNS_FULL_ROW)}
                 FROM {_SECRETS_TABLE}
@@ -96,6 +98,7 @@ def sql_select_rebuild_index() -> str:
 
 
 def sql_select_lineage_by_entry_id() -> str:
+    """Return SQL for reading lineage columns by entry_id."""
     return f"""
                     SELECT {_comma_join(SECRETS_COLUMNS_LINEAGE)}
                     FROM {_SECRETS_TABLE} WHERE entry_id = ?
@@ -103,6 +106,7 @@ def sql_select_lineage_by_entry_id() -> str:
 
 
 def sql_select_lineage_by_locator() -> str:
+    """Return SQL for reading lineage columns by service/account/name."""
     return f"""
                     SELECT {_comma_join(SECRETS_COLUMNS_LINEAGE)}
                     FROM {_SECRETS_TABLE} WHERE service = ? AND account = ? AND name = ?
@@ -110,6 +114,7 @@ def sql_select_lineage_by_locator() -> str:
 
 
 def sql_select_reconcile_index_by_entry_id() -> str:
+    """Return SQL for reading reconcile-index columns by entry_id."""
     return f"""
                 SELECT {_comma_join(SECRETS_COLUMNS_RECONCILE_INDEX)}
                 FROM {_SECRETS_TABLE} WHERE entry_id = ?
@@ -117,10 +122,12 @@ def sql_select_reconcile_index_by_entry_id() -> str:
 
 
 def sql_select_tombstone_deleted_by_entry_id() -> str:
+    """Return SQL for reading tombstone generation and deleted flag by entry_id."""
     return "SELECT tombstone_generation, deleted FROM secrets WHERE entry_id = ?"
 
 
 def sql_select_full_row_by_locator() -> str:
+    """Return SQL for reading a full row by service/account/name."""
     return f"""
             SELECT {_comma_join(SECRETS_COLUMNS_FULL_ROW)}
             FROM {_SECRETS_TABLE} WHERE service = ? AND account = ? AND name = ?
@@ -128,6 +135,7 @@ def sql_select_full_row_by_locator() -> str:
 
 
 def sql_select_full_row_by_entry_id() -> str:
+    """Return SQL for reading a full row by entry_id."""
     return f"""
                 SELECT {_comma_join(SECRETS_COLUMNS_FULL_ROW)}
                 FROM {_SECRETS_TABLE} WHERE entry_id = ?
@@ -135,10 +143,12 @@ def sql_select_full_row_by_entry_id() -> str:
 
 
 def sql_select_deleted_by_locator() -> str:
+    """Return SQL for checking the deleted flag by locator."""
     return "SELECT deleted FROM secrets WHERE service = ? AND account = ? AND name = ?"
 
 
 def sql_select_iter_unlocked_active() -> str:
+    """Return SQL for iterating all active (non-deleted) full rows."""
     return f"""
                 SELECT {_comma_join(SECRETS_COLUMNS_FULL_ROW)}
                 FROM {_SECRETS_TABLE} WHERE deleted = 0

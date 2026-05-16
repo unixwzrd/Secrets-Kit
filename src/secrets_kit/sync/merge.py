@@ -62,6 +62,7 @@ def sync_lineage_eligible(cand: ImportCandidate) -> bool:
 
 
 def _entry_id_conflict(*, local_meta: Optional[EntryMetadata], incoming: ImportCandidate) -> bool:
+    """Return True when local and incoming entry IDs differ and both are non-empty."""
     if local_meta is None:
         return False
     a = (local_meta.entry_id or "").strip()
@@ -386,6 +387,7 @@ def import_candidate_from_sync_row(row: Dict[str, object], *, default_origin: st
         disp = "active"
 
     def _opt_int(key: str) -> Optional[int]:
+        """Safely coerce a dict value to int or None."""
         if key not in row:
             return None
         v = row[key]
@@ -397,6 +399,7 @@ def import_candidate_from_sync_row(row: Dict[str, object], *, default_origin: st
             return None
 
     def _opt_str_hash(key: str) -> Optional[str]:
+        """Safely extract a string hash value or None."""
         if key not in row:
             return None
         v = row[key]
@@ -630,6 +633,7 @@ def apply_peer_sync_import(
                 bump = cand.tombstone_generation
 
                 def _bump_only(conn: object) -> None:
+                    """Update tombstone generation for an already-deleted entry."""
                     assert sqlite_store is not None
                     if bump is not None:
                         sqlite_store._bump_tombstone_lineage_conn(  # type: ignore[attr-defined]
@@ -653,6 +657,7 @@ def apply_peer_sync_import(
             if sqlite_store is not None:
 
                 def _del_row(conn: object) -> None:
+                    """Delete an entry by locator inside a reconcile transaction."""
                     assert sqlite_store is not None
                     sqlite_store._delete_entry_locator_conn(  # type: ignore[attr-defined]
                         conn,
@@ -699,6 +704,7 @@ def apply_peer_sync_import(
                 )
 
             def _apply_active(conn: object) -> None:
+                """Rename if needed and upsert an active entry inside a reconcile transaction."""
                 assert sqlite_store is not None
                 if need_rename:
                     sqlite_store._rename_entry_conn(  # type: ignore[attr-defined]

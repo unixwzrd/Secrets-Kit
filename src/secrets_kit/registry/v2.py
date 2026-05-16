@@ -43,6 +43,7 @@ class RegistryIndexEntryV2:
 
     @classmethod
     def from_dict(cls, payload: Dict[str, Any]) -> "RegistryIndexEntryV2":
+        """Construct a v2 registry index entry from a plain dict."""
         return cls(
             id=str(payload["id"]),
             backend=str(payload["backend"]),  # type: ignore[arg-type]

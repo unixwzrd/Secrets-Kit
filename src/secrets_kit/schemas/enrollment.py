@@ -49,6 +49,7 @@ class PublicEnrollmentDict(BaseSchema):
     @model_validator(mode="before")
     @classmethod
     def _reject_secretish_keys(cls, data: Any) -> Any:
+        """Reject dicts that contain keys reserved for secret material."""
         if isinstance(data, dict):
             bad = sorted(k for k in data if k in _SECRETISH_ENROLLMENT_KEYS)
             if bad:
@@ -57,6 +58,7 @@ class PublicEnrollmentDict(BaseSchema):
 
     @model_validator(mode="after")
     def _format_version(self) -> PublicEnrollmentDict:
+        """Validate format and enrollment_version after construction."""
         if self.format != _ENROLLMENT_FORMAT:
             raise ValueError(f"unsupported enrollment format: {self.format!r}")
         if int(self.enrollment_version) != _ENROLLMENT_VERSION:

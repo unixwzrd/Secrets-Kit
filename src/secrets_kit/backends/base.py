@@ -128,13 +128,16 @@ class ResolvedEntry:
     metadata: EntryMetadata
 
     def __repr__(self) -> str:
+        """Return a redacted representation that never exposes ``secret``."""
         return f"ResolvedEntry(secret=<redacted>, metadata={self.metadata!r})"
 
 
 class UnlockedFilter(Protocol):
     """Optional predicate for bounded unlocked iteration."""
 
-    def __call__(self, row: IndexRow, meta: EntryMetadata) -> bool: ...
+    def __call__(self, row: IndexRow, meta: EntryMetadata) -> bool:
+        """Return ``True`` when the unlocked row matches the filter predicate."""
+        ...
 
 
 class BackendStore(ABC):
@@ -269,12 +272,16 @@ def resolve_backend_store(
     kek_keychain_path: Optional[str] = None,
 ) -> BackendStore:
     """Concrete :class:`BackendStore` for ``secure`` or ``sqlite`` (canonical ids)."""
-    from secrets_kit.backends.security import BACKEND_SQLITE, normalize_backend
     import os
+
+    from secrets_kit.backends.security import BACKEND_SQLITE, normalize_backend
 
     normalized = normalize_backend(backend)
     if normalized == BACKEND_SQLITE:
-        from secrets_kit.backends.sqlite import SqliteSecretStore, default_sqlite_db_path
+        from secrets_kit.backends.sqlite import (
+            SqliteSecretStore,
+            default_sqlite_db_path,
+        )
 
         db_path = path or default_sqlite_db_path()
         kc = kek_keychain_path

@@ -93,6 +93,7 @@ def handle_request(
 
 
 def _handle_sync_status(*, state: DaemonState) -> Dict[str, Any]:
+    """Return daemon status snapshot (uptime, loopback, coordinator)."""
     uptime = time.monotonic() - state.started_monotonic
     body: Dict[str, Any] = {
         "protocol_version": SECKITD_PROTOCOL_VERSION,
@@ -117,6 +118,7 @@ def _handle_sync_status(*, state: DaemonState) -> Dict[str, Any]:
 
 
 def _handle_submit_outbound(*, state: DaemonState, request: Mapping[str, Any]) -> Dict[str, Any]:
+    """Validate and enqueue an outbound payload into the runtime loopback."""
     allowed = {"op", "payload_b64", "payload_type", "client_ref", "route_key"}
     extra = set(request.keys()) - allowed
     if extra:
@@ -184,6 +186,7 @@ def _handle_relay_inbound(
     seckit_argv: Optional[List[str]],
     child_env: Optional[Dict[str, str]],
 ) -> Dict[str, Any]:
+    """Validate relay inbound wrapper and invoke ``seckit import`` for delivery."""
     allowed = {"op", "wrapper", "payload_text", "signer"}
     extra = set(request.keys()) - allowed
     if extra:

@@ -70,6 +70,7 @@ class EntryMetadataCanonicalDict(BaseSchema):
     @field_validator("tags", mode="before")
     @classmethod
     def _tags(cls, v: object) -> List[str]:
+        """Normalize tags to a list of strings; ``None`` becomes ``[]``."""
         if v is None:
             return []
         if not isinstance(v, list):
@@ -91,6 +92,7 @@ class RegistrySlimEntryDict(BaseSchema):
     @field_validator("entry_id", "created_at", "updated_at", "sync_origin_host", mode="before")
     @classmethod
     def _null_to_empty(cls, v: object) -> str:
+        """Coerce ``None`` to empty string for optional string fields."""
         if v is None:
             return ""
         return str(v)

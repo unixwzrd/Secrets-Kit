@@ -96,6 +96,16 @@ def _scan_invalid_backend_references() -> list[dict]:
 
 
 def cmd_doctor(*, args: argparse.Namespace) -> int:
+    """Run JSON diagnostics: security CLI, roundtrip, registry drift, backend posture.
+
+    Checks:
+    - ``security`` CLI availability and keychain roundtrip
+    - Registry file health and metadata consistency
+    - Default configuration validity (with ``--fix-defaults``)
+    - Rotation warnings for entries with ``rotation_days``
+    - Invalid backend references in the registry
+    Emits a single JSON object to stdout.
+    """
     from secrets_kit.backends.security import (
         is_secure_backend,
         is_sqlite_backend,
@@ -239,6 +249,12 @@ def cmd_doctor(*, args: argparse.Namespace) -> int:
 
 
 def cmd_sqlite_inspect(*, args: argparse.Namespace) -> int:
+    """Dump SQLite index rows and optional unlock summaries (no secret values).
+
+    With ``--summaries``, also decrypts each row to report the secret byte
+    length and lineage fields. Requires a valid KEK when the database is
+    passphrase- or keychain-protected.
+    """
     if _backend_arg(args) != BACKEND_SQLITE:
         return _fatal(message="sqlite-inspect requires --backend sqlite", code=EXIT_CODES["EINVAL"])
     spath = _store_path(args)
@@ -276,6 +292,10 @@ def cmd_sqlite_inspect(*, args: argparse.Namespace) -> int:
 
 
 def cmd_backend_index(*, args: argparse.Namespace) -> int:
+    """Emit decrypt-safe backend index rows as JSON lines (one per line).
+
+    Uses ``BackendStore.iter_index``; no secret values are materialised.
+    """
     try:
         from secrets_kit.backends.base import resolve_backend_store
 
@@ -292,6 +312,11 @@ def cmd_backend_index(*, args: argparse.Namespace) -> int:
 
 
 def cmd_rebuild_index(*, args: argparse.Namespace) -> int:
+    """Rebuild the backend decrypt-free index from authority payloads.
+
+    For SQLite this repairs ``locator_hash`` and ``content_hash`` columns
+    by re-scanning the encrypted payloads without materialising plaintext.
+    """
     try:
         from secrets_kit.backends.base import resolve_backend_store
 
@@ -308,6 +333,11 @@ def cmd_rebuild_index(*, args: argparse.Namespace) -> int:
 
 
 def cmd_journal_append(*, args: argparse.Namespace) -> int:
+    """Append one JSON object line to ``registry_events.jsonl``.
+
+    The event must be a JSON object (not an array or scalar). This is an
+    operational / sync aid; advanced usage only.
+    """
     try:
         from secrets_kit.registry.journal import append_journal_event
 
@@ -325,6 +355,13 @@ def cmd_journal_append(*, args: argparse.Namespace) -> int:
 
 
 def cmd_unlock(*, args: argparse.Namespace) -> int:
+    """Unlock the configured macOS Keychain backend.
+
+    Detects relaxed keychain policies (no timeout) and suggests a hardening
+    command. With ``--harden``, applies ``lock-on-sleep`` and ``lock-after-timeout``
+    settings immediately after unlock. Secrets-Kit never reads or stores the
+    keychain password.
+    """
     if not check_security_cli():
         return _fatal(message="security CLI not found", code=EXIT_CODES["EAPP_SECURITY_CLI_MISSING"])
 
@@ -390,6 +427,7 @@ def cmd_unlock(*, args: argparse.Namespace) -> int:
 
 
 def cmd_lock(*, args: argparse.Namespace) -> int:
+    """Lock the configured macOS Keychain backend."""
     if not check_security_cli():
         return _fatal(message="security CLI not found", code=EXIT_CODES["EAPP_SECURITY_CLI_MISSING"])
 
@@ -409,6 +447,10 @@ def cmd_lock(*, args: argparse.Namespace) -> int:
 
 
 def cmd_keychain_status(*, args: argparse.Namespace) -> int:
+    """Report macOS Keychain accessibility and lock policy as JSON.
+
+    Emits a warning to stderr when a relaxed (no-timeout) policy is detected.
+    """
     if not check_security_cli():
         return _fatal(message="security CLI not found", code=EXIT_CODES["EAPP_SECURITY_CLI_MISSING"])
 
@@ -437,6 +479,11 @@ def cmd_keychain_status(*, args: argparse.Namespace) -> int:
 
 
 def cmd_version(*, args: argparse.Namespace) -> int:
+    """Print the installed seckit version.
+
+    ``--json`` emits a structured JSON object. ``--info`` adds platform,
+    Python version, defaults summary, and helper status.
+    """
     if getattr(args, "version_json", False):
         print(json.dumps(_version_info_dict(), indent=2, sort_keys=True))
         return 0
@@ -477,6 +524,7 @@ def cmd_version(*, args: argparse.Namespace) -> int:
 
 
 def cmd_helper_status(*, args: argparse.Namespace) -> int:
+    """Print backend availability and helper metadata as JSON (no secrets)."""
     del args
     print(json.dumps(helper_status(), indent=2, sort_keys=True))
     return 0

@@ -30,6 +30,7 @@ class EncryptedPayload:
 
 
 def _require_crypto():
+    """Import cryptography modules; raise ``CryptoUnavailable`` when missing."""
     try:
         from cryptography.fernet import Fernet  # noqa: F401
         from cryptography.hazmat.primitives.kdf.scrypt import Scrypt  # noqa: F401
@@ -46,6 +47,7 @@ def ensure_crypto_available() -> None:
 
 
 def _derive_key(*, password: str, salt: bytes, n: int, r: int, p: int) -> bytes:
+    """Derive a 32-byte key from password + salt using Scrypt KDF."""
     _require_crypto()
     from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 

@@ -31,6 +31,13 @@ from secrets_kit.registry.resolve import _read_metadata
 
 
 def cmd_service_copy(*, args: argparse.Namespace) -> int:
+    """Copy secrets from one service scope to another.
+
+    Resolves the source entries, materialises their values from the backend,
+    and re-creates them under the destination service/account. Preserves
+    metadata fields (tags, kind, type, rotation hints) and updates the
+    registry index. Skips existing entries unless ``--overwrite`` is set.
+    """
     try:
         from_account = args.from_account or _current_os_account()
         to_account = args.to_account or from_account

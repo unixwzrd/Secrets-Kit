@@ -30,6 +30,7 @@ class LoopbackTransport:
         return self._connected
 
     def connect(self) -> None:
+        """Mark the loopback as connected (or inject a failure)."""
         self.connect_calls += 1
         if self.inject_connect_failures > 0:
             self.inject_connect_failures -= 1
@@ -41,6 +42,7 @@ class LoopbackTransport:
         self._connected = False
 
     def send_opaque(self, data: bytes) -> None:
+        """Append data to the internal chunk buffer (or inject a failure)."""
         if not self._connected:
             raise ConnectionError("loopback not connected")
         if self.inject_send_failures > 0:

@@ -23,6 +23,11 @@ from secrets_kit.identity.core import (
 
 
 def cmd_identity_init(*, args: argparse.Namespace) -> int:
+    """Generate host Ed25519/X25519 key material if it does not already exist.
+
+    With ``--force``, existing keys are overwritten. Prints the host id and
+    the path to the secret key file (never the secret itself).
+    """
     try:
         ident = init_identity(force=args.force)
         if getattr(args, "json", False):
@@ -43,6 +48,7 @@ def cmd_identity_init(*, args: argparse.Namespace) -> int:
 
 
 def cmd_identity_show(*, args: argparse.Namespace) -> int:
+    """Display the local host identity (public keys and fingerprints only)."""
     try:
         ident = load_identity()
         payload = {
@@ -64,16 +70,14 @@ def cmd_identity_show(*, args: argparse.Namespace) -> int:
 
 
 def cmd_identity_export(*, args: argparse.Namespace) -> int:
+    """Write the host public identity JSON for sharing with peers.
+
+    The output is safe to distribute; it contains only public keys and
+    the host id. When ``--out`` is omitted the JSON is printed to stdout.
+    """
     try:
         out = Path(args.out).expanduser() if getattr(args, "out", None) else None
         pub = export_public_identity(out=out)
-        if getattr(args, "json", False) or out is None:
-            print(json.dumps(pub, indent=2, sort_keys=True))
-        else:
-            print(f"wrote {out}")
-        return 0
-    except IdentityError as exc:
-        return _fatal(message=str(exc), code=EXIT_CODES["EPERM"])
         if getattr(args, "json", False) or out is None:
             print(json.dumps(pub, indent=2, sort_keys=True))
         else:

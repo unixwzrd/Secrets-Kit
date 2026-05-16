@@ -237,6 +237,7 @@ def normalize_custom(raw: Any) -> Dict[str, Any]:
 
 
 def _optional_int(value: Any) -> Optional[int]:
+    """Return ``int(value)`` or ``None`` when value is ``None`` or empty string."""
     if value in {None, ""}:
         return None
     return int(value)

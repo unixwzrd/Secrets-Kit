@@ -62,6 +62,7 @@ def _mode(path: Path) -> int:
 
 
 def _check_secure_perms(*, path: Path, max_mode: int) -> None:
+    """Raise ``RegistryError`` when file permissions exceed ``max_mode``."""
     if not path.exists():
         return
     mode = _mode(path)
@@ -116,6 +117,7 @@ def _atomic_write_json(*, path: Path, payload: Dict) -> None:
 
 
 def _empty_registry_payload() -> Dict[str, object]:
+    """Return a new empty registry payload with version and schema headers."""
     return {
         "version": REGISTRY_FILE_VERSION,
         "$schema": REGISTRY_JSON_SCHEMA_ID,
@@ -163,6 +165,7 @@ def slim_registry_entry_to_metadata(payload: Dict[str, Any]) -> EntryMetadata:
 
 
 def _merged_peer_sync_custom(*, incoming: EntryMetadata, existing: Optional[EntryMetadata]) -> Dict[str, Any]:
+    """Resolve the peer sync origin custom field from incoming or existing metadata."""
     sync = _peer_origin_from_metadata(incoming) or (
         _peer_origin_from_metadata(existing) if existing is not None else ""
     )

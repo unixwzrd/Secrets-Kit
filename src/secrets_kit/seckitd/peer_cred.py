@@ -25,6 +25,7 @@ _LINUX_SO_PEERCRED = getattr(socket, "SO_PEERCRED", 17)
 
 
 def _linux_peer_uid(conn: socket.socket) -> int:
+    """Read the peer UID from a Linux socket using SO_PEERCRED."""
     cred = conn.getsockopt(socket.SOL_SOCKET, _LINUX_SO_PEERCRED, _LINUX_UCRED_SIZE)
     _pid, uid, _gid = struct.unpack("=III", cred)
     return int(uid)

@@ -13,14 +13,14 @@ Canonical backend ids: ``secure`` (alias: ``local``) and ``sqlite``.
 from __future__ import annotations
 
 import ast
-import warnings
 import os
-from dataclasses import replace
-from pathlib import Path
 import re
 import subprocess
 import tempfile
-from typing import Any, Dict, FrozenSet, Optional, Protocol, TYPE_CHECKING, cast
+import warnings
+from dataclasses import replace
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Dict, FrozenSet, Optional, Protocol, cast
 
 if TYPE_CHECKING:
     from secrets_kit.backends.base import BackendStore
@@ -69,10 +69,12 @@ def normalize_backend(backend: str) -> str:
 
 
 def is_secure_backend(backend: str) -> bool:
+    """Return ``True`` when ``backend`` resolves to ``secure`` (macOS Keychain)."""
     return normalize_backend(backend) == BACKEND_SECURE
 
 
 def is_sqlite_backend(backend: str) -> bool:
+    """Return ``True`` when ``backend`` resolves to ``sqlite``."""
     return normalize_backend(backend) == BACKEND_SQLITE
 
 
@@ -86,6 +88,11 @@ def backend_service_name(*, service: str, name: str) -> str:
 
 
 def _validate_backend(*, backend: str, path: Optional[str]) -> str:
+    """Normalise the backend identifier and optionally validate the path.
+
+    Currently a no-op for ``path``; reserved for future backend-specific
+    path validation.
+    """
     normalized = normalize_backend(backend)
     if path is not None:
         # Custom keychain files are only used with the security CLI (secure backend).
@@ -116,18 +123,22 @@ class SecurityCliStore:
     """Local macOS Keychain backend implemented through the `security` CLI."""
 
     def __init__(self, *, path: Optional[str] = None) -> None:
+        """Initialise a Keychain store bound to an optional custom keychain file."""
         self.path = path
 
     def _target(self) -> Optional[str]:
+        """Return the expanded keychain path, or ``None`` for the default login keychain."""
         return keychain_path(path=self.path) if self.path else None
 
     def _append_target(self, args: list[str]) -> list[str]:
+        """Append the keychain path to a ``security`` argument list when set."""
         target = self._target()
         if target:
             args.append(target)
         return args
 
     def set(self, *, service: str, account: str, name: str, value: str, comment: str = "", label: Optional[str] = None) -> None:
+        """Write a secret to the macOS Keychain via ``security add-generic-password``."""
         svc = backend_service_name(service=service, name=name)
         args = ["add-generic-password", "-a", account, "-s", svc, "-l", label or name, "-j", comment, "-U", "-w", value]
         if self.path:
@@ -135,11 +146,13 @@ class SecurityCliStore:
         _run_security(args=self._append_target(args))
 
     def get(self, *, service: str, account: str, name: str) -> str:
+        """Read a secret from the macOS Keychain via ``security find-generic-password``."""
         svc = backend_service_name(service=service, name=name)
         args = ["find-generic-password", "-a", account, "-s", svc, "-w"]
         return _run_security(args=self._append_target(args))
 
     def metadata(self, *, service: str, account: str, name: str) -> Dict[str, Any]:
+        """Read keychain metadata attributes (account, label, comment, timestamps) as a dict."""
         svc = backend_service_name(service=service, name=name)
         args = ["find-generic-password", "-a", account, "-s", svc, "-g"]
         proc = _run_security_capture(args=self._append_target(args))
@@ -147,11 +160,13 @@ class SecurityCliStore:
         return _parse_find_generic_password_output(raw=merged)
 
     def exists(self, *, service: str, account: str, name: str) -> bool:
+        """Return ``True`` when a keychain entry exists for the logical secret."""
         svc = backend_service_name(service=service, name=name)
         args = ["find-generic-password", "-a", account, "-s", svc]
         return _security_exists(args=self._append_target(args))
 
     def delete(self, *, service: str, account: str, name: str) -> None:
+        """Delete a keychain entry via ``security delete-generic-password``."""
         svc = backend_service_name(service=service, name=name)
         args = ["delete-generic-password", "-a", account, "-s", svc]
         _run_security(args=self._append_target(args))
@@ -187,6 +202,7 @@ def _access_backend_store(
     path: Optional[str],
     kek_keychain_path: Optional[str],
 ) -> BackendStore:
+    """Resolve the concrete ``BackendStore`` for the given backend identifier."""
     from secrets_kit.backends.base import resolve_backend_store
 
     _validate_backend(backend=backend, path=path)
@@ -194,6 +210,11 @@ def _access_backend_store(
 
 
 def _entry_metadata_for_secret_set(*, service: str, account: str, name: str, comment: str) -> EntryMetadata:
+    """Build or refresh ``EntryMetadata`` when writing a secret.
+
+    If ``comment`` contains a valid serialised metadata blob, it is parsed
+    and updated; otherwise a fresh record is created.
+    """
     from secrets_kit.models.core import ensure_entry_id, now_utc_iso
 
     if comment.strip():
@@ -208,6 +229,7 @@ def _entry_metadata_for_secret_set(*, service: str, account: str, name: str, com
 
 
 def _run_security(*, args: list[str], stdin: Optional[str] = None) -> str:
+    """Run ``security`` and return stdout. Raise ``BackendError`` on non-zero exit."""
     cmd = ["security", *args]
     proc = subprocess.run(
         cmd,
@@ -223,6 +245,7 @@ def _run_security(*, args: list[str], stdin: Optional[str] = None) -> str:
 
 
 def _run_security_capture(*, args: list[str], stdin: Optional[str] = None) -> subprocess.CompletedProcess[str]:
+    """Run ``security`` and return the full ``CompletedProcess``."""
     cmd = ["security", *args]
     proc = subprocess.run(
         cmd,
@@ -238,6 +261,7 @@ def _run_security_capture(*, args: list[str], stdin: Optional[str] = None) -> su
 
 
 def _security_exists(*, args: list[str]) -> bool:
+    """Run ``security`` and return ``True`` only when the exit code is zero."""
     cmd = ["security", *args]
     proc = subprocess.run(
         cmd,
@@ -249,20 +273,27 @@ def _security_exists(*, args: list[str]) -> bool:
 
 
 def keychain_path(*, path: Optional[str] = None) -> str:
+    """Resolve a keychain path, defaulting to the login keychain."""
     return os.path.expanduser(path or DEFAULT_KEYCHAIN_PATH)
 
 
 def keychain_accessible(*, path: Optional[str] = None) -> bool:
+    """Return ``True`` when ``show-keychain-info`` succeeds for the given path."""
     target = keychain_path(path=path)
     return _security_exists(args=["show-keychain-info", target])
 
 
 def keychain_info(*, path: Optional[str] = None) -> str:
+    """Run ``security show-keychain-info`` and return the raw text output."""
     target = keychain_path(path=path)
     return _run_security(args=["show-keychain-info", target])
 
 
 def keychain_policy(*, path: Optional[str] = None) -> dict[str, Any]:
+    """Parse keychain policy flags from ``show-keychain-info`` output.
+
+    Returns ``no_timeout``, ``lock_on_sleep``, and ``timeout_seconds``.
+    """
     target = keychain_path(path=path)
     info = keychain_info(path=target)
     normalized = info.lower()
@@ -282,6 +313,7 @@ def keychain_policy(*, path: Optional[str] = None) -> dict[str, Any]:
 
 
 def unlock_keychain(*, path: Optional[str] = None) -> str:
+    """Unlock the keychain via ``security unlock-keychain`` (interactive prompt)."""
     target = keychain_path(path=path)
     cmd = ["security", "unlock-keychain", target]
     proc = subprocess.run(cmd, check=False)
@@ -291,6 +323,7 @@ def unlock_keychain(*, path: Optional[str] = None) -> str:
 
 
 def lock_keychain(*, path: Optional[str] = None) -> str:
+    """Lock the keychain via ``security lock-keychain``."""
     target = keychain_path(path=path)
     cmd = ["security", "lock-keychain", target]
     proc = subprocess.run(cmd, check=False)
@@ -300,6 +333,7 @@ def lock_keychain(*, path: Optional[str] = None) -> str:
 
 
 def harden_keychain(*, path: Optional[str] = None, timeout_seconds: int = 3600) -> str:
+    """Apply ``lock-on-sleep`` and ``lock-after-timeout`` to the keychain."""
     target = keychain_path(path=path)
     _run_security(args=["set-keychain-settings", "-l", "-u", "-t", str(timeout_seconds), target])
     return target
@@ -468,6 +502,7 @@ def make_temp_keychain(*, password: str = "seckit-test-password") -> Dict[str, s
 
 
 def _parse_find_generic_password_output(*, raw: str) -> Dict[str, Any]:
+    """Parse ``security find-generic-password -g`` output into a flat metadata dict."""
     metadata: Dict[str, Any] = {
         "account": "",
         "service_name": "",
@@ -499,6 +534,7 @@ def _parse_find_generic_password_output(*, raw: str) -> Dict[str, Any]:
 
 
 def _decode_attribute_value(raw: str) -> str:
+    """Strip outer quotes and decode escaped strings from ``security`` output."""
     if raw.startswith('"') and raw.endswith('"'):
         try:
             return str(ast.literal_eval(raw))

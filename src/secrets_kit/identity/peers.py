@@ -48,6 +48,7 @@ class PeerRecord:
 
 
 def _decode_b64(value: str, field: str) -> bytes:
+    """Decode a base64 string; raise ``RegistryError`` on failure."""
     try:
         return base64.standard_b64decode(value.encode("ascii"))
     except Exception as exc:  # pragma: no cover - defensive
@@ -55,10 +56,12 @@ def _decode_b64(value: str, field: str) -> bytes:
 
 
 def peers_path(*, home: Optional[Path] = None) -> Path:
+    """Return the path to ``peers.json``."""
     return registry_dir(home=home) / "peers.json"
 
 
 def _atomic_write_peers(*, path: Path, payload: Dict[str, Any]) -> None:
+    """Atomically write a JSON payload to the peers file with ``0o600`` permissions."""
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_path = tempfile.mkstemp(prefix="peers-", suffix=".json", dir=str(path.parent))
     try:
@@ -73,6 +76,7 @@ def _atomic_write_peers(*, path: Path, payload: Dict[str, Any]) -> None:
 
 
 def _load_peers_db(path: Path) -> Dict[str, Any]:
+    """Load and validate the peers database JSON, returning a default when absent."""
     if not path.exists():
         return {"version": PEERS_FILE_VERSION, "peers": []}
     payload = json.loads(path.read_text(encoding="utf-8"))
@@ -85,12 +89,14 @@ def _load_peers_db(path: Path) -> Dict[str, Any]:
 
 
 def _persist_peers(path: Path, peers: List[Dict[str, Any]]) -> None:
+    """Write the peers list to disk atomically with strict file permissions."""
     body = {"version": PEERS_FILE_VERSION, "peers": peers}
     _atomic_write_peers(path=path, payload=body)
     os.chmod(path, 0o600)
 
 
 def list_peers(*, home: Optional[Path] = None) -> List[PeerRecord]:
+    """Return all trusted peers sorted by alias (case-insensitive)."""
     path = peers_path(home=home)
     payload = _load_peers_db(path)
     out: List[PeerRecord] = []
@@ -109,6 +115,7 @@ def list_peers(*, home: Optional[Path] = None) -> List[PeerRecord]:
 
 
 def get_peer(*, alias: str, home: Optional[Path] = None) -> PeerRecord:
+    """Return a single peer by alias. Raise ``RegistryError`` when not found."""
     for peer in list_peers(home=home):
         if peer.alias == alias:
             return peer
@@ -167,10 +174,12 @@ def add_peer_from_file(*, alias: str, path: Path, home: Optional[Path] = None) -
 
 
 def _encode_b64(data: bytes) -> str:
+    """Encode raw bytes to a standard base64 ASCII string."""
     return base64.standard_b64encode(data).decode("ascii")
 
 
 def _validate_alias(alias: str) -> None:
+    """Raise ``RegistryError`` when the alias contains invalid characters or is too long."""
     if not alias or "/" in alias or "\\" in alias or alias.strip() != alias:
         raise RegistryError("invalid peer alias (non-empty, no slashes, no surrounding whitespace)")
     if len(alias) > 128:
@@ -178,6 +187,7 @@ def _validate_alias(alias: str) -> None:
 
 
 def remove_peer(*, alias: str, home: Optional[Path] = None) -> bool:
+    """Remove a peer by alias. Return ``True`` when a row was actually removed."""
     ppath = peers_path(home=home)
     if not ppath.exists():
         return False
@@ -186,7 +196,5 @@ def remove_peer(*, alias: str, home: Optional[Path] = None) -> bool:
     new_list = [r for r in peers_raw if str(r["alias"]) != alias]
     if len(new_list) == len(peers_raw):
         return False
-    _persist_peers(ppath, new_list)
-    return True
     _persist_peers(ppath, new_list)
     return True

@@ -43,6 +43,11 @@ def _fatal(
 
 
 def _confirm(*, prompt: str) -> bool:
+    """Prompt the operator for a yes/no confirmation on stdin.
+
+    Returns ``True`` only when the operator responds with ``y`` or ``yes``.
+    EOF (non-interactive / piped input) is treated as a refusal.
+    """
     try:
         answer = input(f"{prompt} [y/N]: ").strip().lower()
     except EOFError:
@@ -51,6 +56,13 @@ def _confirm(*, prompt: str) -> bool:
 
 
 def _read_value(*, value: str | None, use_stdin: bool, allow_empty: bool) -> str:
+    """Read a secret value from stdin or a CLI flag.
+
+    When ``use_stdin`` is ``True``, the value is read from ``sys.stdin``.
+    Otherwise the explicit ``value`` string is used. Raises
+    ``ValidationError`` when the result is empty and ``allow_empty`` is
+    ``False``.
+    """
     if use_stdin:
         data = sys.stdin.read()
     else:
@@ -61,6 +73,11 @@ def _read_value(*, value: str | None, use_stdin: bool, allow_empty: bool) -> str
 
 
 def _read_password(*, value: str | None, use_stdin: bool, prompt: str = "password: ") -> str:
+    """Read a password from stdin, an explicit value, or an interactive prompt.
+
+    ``getpass`` suppresses echo when reading interactively. Prefer ``use_stdin``
+    for piped secrets to avoid exposing them in shell history.
+    """
     if use_stdin:
         data = sys.stdin.read()
         return data.strip()
@@ -70,16 +87,24 @@ def _read_password(*, value: str | None, use_stdin: bool, prompt: str = "passwor
 
 
 def _format_tags(*, tags: list[str]) -> str:
+    """Return a comma-separated tag string, or ``-`` when empty."""
     return ",".join(tags) if tags else "-"
 
 
 def _print_table(*, headers: list[str], rows: list[list[str]]) -> None:
+    """Print a left-aligned, space-separated table to stdout.
+
+    Computes per-column widths from ``headers`` and ``rows``, then emits
+    one line per row. No truncation is performed; long cells will widen
+    the column.
+    """
     widths = [len(header) for header in headers]
     for row in rows:
         for idx, cell in enumerate(row):
             widths[idx] = max(widths[idx], len(cell))
 
     def fmt(values: list[str]) -> str:
+        """Format a row using computed column widths."""
         return "  ".join(value.ljust(widths[idx]) for idx, value in enumerate(values))
 
     print(fmt(headers))
@@ -88,6 +113,10 @@ def _print_table(*, headers: list[str], rows: list[list[str]]) -> None:
 
 
 def _parse_timestamp(value: str | None) -> datetime | None:
+    """Parse an ISO-8601 timestamp string, normalising ``Z`` to ``+00:00``.
+
+    Returns ``None`` for empty input or unparseable values.
+    """
     if not value:
         return None
     try:

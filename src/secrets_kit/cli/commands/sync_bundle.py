@@ -39,6 +39,12 @@ from secrets_kit.sync.merge import apply_peer_sync_import, effective_origin_host
 
 
 def cmd_sync_export(*, args: argparse.Namespace) -> int:
+    """Export registry secrets to a signed encrypted peer bundle.
+
+    Materialises matching secret values from the local backend, computes
+    content hashes, attaches lineage snapshots when available, and builds
+    a NaCl-signed, NaCl-encrypted bundle for the specified recipient peers.
+    """
     try:
         ident = load_identity()
         selected = _select_entries(args=args, require_explicit_selection=True)
@@ -106,6 +112,12 @@ def cmd_sync_export(*, args: argparse.Namespace) -> int:
 
 
 def cmd_sync_import(*, args: argparse.Namespace) -> int:
+    """Import and merge a peer bundle after verifying the signature and decrypting.
+
+    Applies deterministic merge rules (timestamp, origin host, content hash)
+    so that re-importing the same bundle is idempotent. Emits a JSON summary
+    of created, updated, skipped, and conflicted entries.
+    """
     try:
         ident = load_identity()
         file_arg = str(args.file)
@@ -162,6 +174,12 @@ def cmd_sync_import(*, args: argparse.Namespace) -> int:
 
 
 def cmd_sync_verify(*, args: argparse.Namespace) -> int:
+    """Verify bundle signature, structure, and optionally decrypt a sample entry.
+
+    Returns ``0`` when the bundle is structurally valid and signed by a trusted
+    peer. With ``--try-decrypt``, also attempts recipient decryption to confirm
+    the local identity can read the payload.
+    """
     try:
         text = Path(args.file).expanduser().read_text(encoding="utf-8")
         payload = parse_bundle_file(text)
@@ -202,18 +220,12 @@ def cmd_sync_verify(*, args: argparse.Namespace) -> int:
 
 
 def cmd_sync_inspect(*, args: argparse.Namespace) -> int:
+    """Inspect bundle manifest and metadata without decrypting.
+
+    Emits the bundle header, signer fingerprint, recipient list, and entry
+    count as JSON. Safe to run on any bundle file.
+    """
     try:
-        text = Path(args.file).expanduser().read_text(encoding="utf-8")
-        payload = parse_bundle_file(text)
-        info = inspect_bundle(payload=payload)
-        print(json.dumps(info, indent=2, sort_keys=True))
-        return 0
-    except FileNotFoundError as exc:
-        return _fatal(message=f"Peer sync: bundle file not found ({exc})", code=EXIT_CODES["ENOENT"])
-    except OSError as exc:
-        return _fatal(message=f"Peer sync: cannot read bundle file ({exc})", code=EXIT_CODES["EIO"])
-    except SyncBundleError as exc:
-        return _fatal(message=_peer_sync_cli_error(exc), code=EXIT_CODES["EAPP_SYNC_CONFLICT"])
         text = Path(args.file).expanduser().read_text(encoding="utf-8")
         payload = parse_bundle_file(text)
         info = inspect_bundle(payload=payload)

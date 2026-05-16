@@ -15,6 +15,7 @@ from secrets_kit.seckitd.server import serve_forever
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Entry point for the ``seckitd`` daemon."""
     ap = argparse.ArgumentParser(
         prog="seckitd",
         description="Local Secrets Kit daemon (Unix socket; Phase 5A).",

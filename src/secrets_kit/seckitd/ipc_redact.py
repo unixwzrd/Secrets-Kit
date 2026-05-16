@@ -17,6 +17,7 @@ _MAX_FAIL_STDERR_BYTES = 4096
 
 
 def _home_prefixes() -> list[str]:
+    """Return $HOME and its expanded form as redaction prefixes."""
     home = os.environ.get("HOME", "").strip()
     out: list[str] = []
     if home:

@@ -46,6 +46,7 @@ def parse_json_object(body: bytes) -> dict[str, Any]:
 
 
 def _recv_exact(conn: Any, n: int) -> bytes:
+    """Read exactly ``n`` bytes from a socket-like object; raise on short read."""
     parts: list[bytes] = []
     remaining = n
     while remaining:

@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Iterable
+from typing import Dict, Iterable
 
 from secrets_kit.backends.security import (
     BackendError,
@@ -52,6 +52,10 @@ from secrets_kit.utils.crypto import (
 
 
 def _merge_candidates(*, groups: Iterable[list[ImportCandidate]]) -> dict[str, ImportCandidate]:
+    """Flatten multiple import candidate groups into a single key-indexed dict.
+
+    Later candidates overwrite earlier ones with the same ``metadata.key()``.
+    """
     merged: dict[str, ImportCandidate] = {}
     for group in groups:
         for candidate in group:
@@ -69,6 +73,13 @@ def _apply_candidates(
     backend: str = "secure",
     kek_keychain_path: str | None = None,
 ) -> dict[str, int]:
+    """Write import candidates to the backend and update the registry.
+
+    For each candidate, resolves the current backend state and decides
+    ``created``, ``updated``, ``unchanged``, or ``skipped``. When
+    ``dry_run`` is ``True``, only the stats dict is updated; no backend
+    writes occur.
+    """
     from secrets_kit.registry.core import load_registry
 
     registry = load_registry()
@@ -136,6 +147,11 @@ def _apply_candidates(
 
 
 def _merge_import_metadata(*, existing: EntryMetadata, incoming: EntryMetadata) -> EntryMetadata:
+    """Merge incoming metadata into an existing record without overwriting existing classification.
+
+    Preserves existing ``entry_type``, ``entry_kind``, ``tags``, and ``comment``
+    when they are already set. Updates ``source`` and ``updated_at``.
+    """
     merged = EntryMetadata.from_dict(existing.to_dict())
     merged.source = incoming.source
     merged.updated_at = now_utc_iso()
@@ -152,6 +168,7 @@ def _merge_import_metadata(*, existing: EntryMetadata, incoming: EntryMetadata) 
 
 
 def _preview_candidates(*, merged: Dict[str, ImportCandidate]) -> None:
+    """Print a redacted preview table of the candidates to be imported."""
     print("plan:")
     headers = ["NAME", "TYPE", "KIND", "SERVICE", "ACCOUNT", "TAGS", "SOURCE", "VALUE"]
     table_rows: list[list[str]] = []
@@ -174,6 +191,11 @@ def _preview_candidates(*, merged: Dict[str, ImportCandidate]) -> None:
 
 
 def cmd_import_env(*, args: argparse.Namespace) -> int:
+    """Import secrets from a dotenv file and/or the live process environment.
+
+    Creates ``ImportCandidate`` rows, deduplicates by key, previews the plan,
+    and applies to the backend after operator confirmation.
+    """
     if not args.dotenv and not args.from_env:
         return _fatal(message="import env requires --dotenv and/or --from-env")
     try:
@@ -224,6 +246,12 @@ def cmd_import_env(*, args: argparse.Namespace) -> int:
 
 
 def cmd_import_file(*, args: argparse.Namespace) -> int:
+    """Import secrets from a JSON or YAML file.
+
+    The file must contain an array of objects with ``name`` and ``value``
+    keys. Metadata fields (``service``, ``account``, ``type``, ``kind``, ``tags``)
+    can be supplied per-row or via CLI defaults.
+    """
     try:
         rows = candidates_from_file(
             file_path=Path(args.file),
@@ -255,6 +283,11 @@ def cmd_import_file(*, args: argparse.Namespace) -> int:
 
 
 def cmd_import_encrypted(*, args: argparse.Namespace) -> int:
+    """Import secrets from an encrypted JSON backup file.
+
+    Prompts for the backup password (or reads it from stdin with
+    ``--password-stdin``), decrypts the payload, and applies the entries.
+    """
     try:
         ensure_crypto_available()
         password = _read_password(
@@ -297,6 +330,12 @@ def cmd_import_encrypted(*, args: argparse.Namespace) -> int:
 
 
 def cmd_export(*, args: argparse.Namespace) -> int:
+    """Export secrets in shell, dotenv, or encrypted-json format.
+
+    Materialises the selected entries from the backend. ``shell`` format
+    prints ``export KEY=value`` lines. ``encrypted-json`` produces a
+    password-protected backup suitable for archival or transport.
+    """
     from secrets_kit.utils.exporters import (
         export_dotenv_placeholders,
         export_shell_lines,

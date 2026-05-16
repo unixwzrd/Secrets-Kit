@@ -18,10 +18,15 @@ from secrets_kit.seckitd.paths import default_socket_path
 
 
 def _socket_path(args: argparse.Namespace) -> Path:
+    """Resolve the Unix socket path for daemon IPC.
+
+    Defaults to ``default_socket_path()``; overridden by ``--socket``.
+    """
     return Path(args.socket) if getattr(args, "socket", None) else default_socket_path()
 
 
 def cmd_daemon_ping(*, args: argparse.Namespace) -> int:
+    """Send a ``ping`` op to ``seckitd`` and print the JSON response."""
     path = _socket_path(args)
     try:
         resp = ipc_call(
@@ -36,6 +41,7 @@ def cmd_daemon_ping(*, args: argparse.Namespace) -> int:
 
 
 def cmd_daemon_status(*, args: argparse.Namespace) -> int:
+    """Send a ``status`` op to ``seckitd`` and print the JSON response."""
     path = _socket_path(args)
     try:
         resp = ipc_call(
@@ -50,6 +56,12 @@ def cmd_daemon_status(*, args: argparse.Namespace) -> int:
 
 
 def cmd_daemon_submit_outbound(*, args: argparse.Namespace) -> int:
+    """Submit a base64-encoded payload to ``seckitd`` for outbound routing.
+
+    The file at ``--payload-file`` is read as raw bytes, base64-encoded,
+    and sent as a ``submit_outbound`` IPC request. Optional ``--payload-type``,
+    ``--client-ref``, and ``--route-key`` are forwarded verbatim.
+    """
     path = _socket_path(args)
     raw = Path(args.payload_file).expanduser().read_bytes()
     b64 = base64.standard_b64encode(raw).decode("ascii")
@@ -73,6 +85,7 @@ def cmd_daemon_submit_outbound(*, args: argparse.Namespace) -> int:
 
 
 def cmd_daemon_sync_status(*, args: argparse.Namespace) -> int:
+    """Send a ``sync_status`` op to ``seckitd`` and print the JSON response."""
     path = _socket_path(args)
     try:
         resp = ipc_call(
@@ -87,6 +100,7 @@ def cmd_daemon_sync_status(*, args: argparse.Namespace) -> int:
 
 
 def cmd_daemon_serve(*, args: argparse.Namespace) -> int:
+    """Start the local ``seckitd`` server (blocks until interrupted)."""
     from secrets_kit.seckitd.server import serve_forever
 
     serve_forever(socket_path=_socket_path(args))

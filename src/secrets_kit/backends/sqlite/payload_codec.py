@@ -49,6 +49,7 @@ def parse_joint_payload_or_legacy(
 
 
 def _minimal_metadata_locator(*, service: str, account: str, name: str) -> EntryMetadata:
+    """Create a minimal ``EntryMetadata`` for legacy SQLite rows without embedded metadata."""
     from secrets_kit.models.core import now_utc_iso
 
     ts = now_utc_iso()

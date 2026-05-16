@@ -46,6 +46,7 @@ def set_sqlite_passphrase_provider(fn: Callable[[], str] | None) -> None:
 
 
 def _resolve_passphrase() -> str:
+    """Resolve the SQLite passphrase from provider, env, or interactive prompt."""
     if _sqlite_passphrase_provider is not None:
         return _sqlite_passphrase_provider()
     env = os.environ.get("SECKIT_SQLITE_PASSPHRASE", "")
@@ -103,16 +104,19 @@ def _migrate_vault_meta_columns(conn: sqlite3.Connection) -> None:
 
 
 def _kek_service_account(*, db_path: str) -> tuple[str, str]:
+    """Return deterministic (service, account) tuple for the KEK keychain entry."""
     h = hashlib.sha256(abs_db_path(db_path).encode("utf-8")).hexdigest()
     return "ai.unixwzrd.seckit.sqlite-vault-kek", h[:32]
 
 
 def _wrap_dek(*, dek: bytes, kek: bytes) -> bytes:
+    """Wrap a DEK with a KEK using SecretBox; prefix with version byte."""
     box = nacl.secret.SecretBox(kek)
     return bytes([WRAPPED_DEK_VERSION]) + box.encrypt(dek)
 
 
 def _unwrap_dek(*, wrapped: bytes, kek: bytes) -> bytes:
+    """Unwrap a DEK using a KEK; validate version byte."""
     if not wrapped or wrapped[0] != WRAPPED_DEK_VERSION:
         raise BackendError("invalid wrapped DEK payload in vault_meta")
     box = nacl.secret.SecretBox(kek)
@@ -120,6 +124,7 @@ def _unwrap_dek(*, wrapped: bytes, kek: bytes) -> bytes:
 
 
 def _security_append_keychain(args: list[str], keychain_path: str | None) -> list[str]:
+    """Append keychain target arguments to a ``security`` CLI argument list."""
     out = list(args)
     if keychain_path:
         out.extend(["-T", "/usr/bin/security"])
@@ -128,6 +133,7 @@ def _security_append_keychain(args: list[str], keychain_path: str | None) -> lis
 
 
 def _read_kek_b64(*, db_path: str, keychain_path: str | None) -> str:
+    """Read the base64-encoded KEK from the macOS Keychain."""
     service, account = _kek_service_account(db_path=db_path)
     args = _security_append_keychain(
         ["find-generic-password", "-a", account, "-s", service, "-w"],
@@ -137,6 +143,7 @@ def _read_kek_b64(*, db_path: str, keychain_path: str | None) -> str:
 
 
 def _write_kek_b64(*, db_path: str, keychain_path: str | None, kek_b64: str) -> None:
+    """Write the base64-encoded KEK to the macOS Keychain."""
     service, account = _kek_service_account(db_path=db_path)
     args = _security_append_keychain(
         [
@@ -204,6 +211,11 @@ class PassphraseUnlockProvider:
         return UNLOCK_PASSPHRASE
 
     def materialize_master_key(self, conn: sqlite3.Connection, db_path: str) -> bytes:
+        """Derive or return the master key for a passphrase-backed vault.
+
+        Creates a new vault_meta row when the vault is first opened.
+        Raises ``BackendError`` when the vault is keychain-wrapped.
+        """
         _migrate_vault_meta_columns(conn)
         row = conn.execute(
             """
@@ -240,6 +252,7 @@ class KeychainUnlockProvider:
     """DEK wrapped with a KEK stored as a generic password in the macOS keychain (security CLI)."""
 
     def __init__(self, *, keychain_path: str | None = None) -> None:
+        """Initialise a Keychain unlock provider bound to an optional custom keychain file."""
         self.keychain_path = os.path.expanduser(keychain_path) if keychain_path else None
 
     @property
@@ -247,6 +260,11 @@ class KeychainUnlockProvider:
         return UNLOCK_KEYCHAIN
 
     def materialize_master_key(self, conn: sqlite3.Connection, db_path: str) -> bytes:
+        """Unwrap or create the DEK for a keychain-backed vault.
+
+        Creates a new vault_meta row and KEK item when the vault is first opened.
+        Raises ``BackendError`` on non-macOS or when the vault uses passphrase KDF.
+        """
         if sys.platform != "darwin":
             raise BackendError("SQLite keychain unlock requires macOS")
         _migrate_vault_meta_columns(conn)

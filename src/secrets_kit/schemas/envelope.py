@@ -37,6 +37,7 @@ class TransportMessageWrapperDict(BaseSchema):
     @field_validator("ttl")
     @classmethod
     def _ttl_positive(cls, v: Optional[int]) -> Optional[int]:
+        """Ensure ttl is strictly positive when present."""
         if v is None:
             return None
         if int(v) <= 0:

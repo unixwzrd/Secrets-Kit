@@ -24,6 +24,12 @@ from secrets_kit.registry.core import RegistryError
 
 
 def cmd_peer_add(*, args: argparse.Namespace) -> int:
+    """Add a trusted peer from an identity export file.
+
+    Reads the public identity JSON produced by ``seckit identity export``,
+    validates the signing and box public keys, and persists the peer record
+    to the local peer registry.
+    """
     try:
         rec = add_peer_from_file(alias=args.alias, path=Path(args.export_path).expanduser())
         payload = {
@@ -44,6 +50,7 @@ def cmd_peer_add(*, args: argparse.Namespace) -> int:
 
 
 def cmd_peer_remove(*, args: argparse.Namespace) -> int:
+    """Remove a peer from the local peer registry by alias."""
     try:
         ok = remove_peer(alias=args.alias)
         if not ok:
@@ -58,6 +65,10 @@ def cmd_peer_remove(*, args: argparse.Namespace) -> int:
 
 
 def cmd_peer_list(*, args: argparse.Namespace) -> int:
+    """List all trusted peers in the local registry.
+
+    Emits a table by default, or JSON when ``--json`` is passed.
+    """
     try:
         rows = list_peers()
         if getattr(args, "json", False):
@@ -88,6 +99,7 @@ def cmd_peer_list(*, args: argparse.Namespace) -> int:
 
 
 def cmd_peer_show(*, args: argparse.Namespace) -> int:
+    """Show a single peer as JSON (full public key material)."""
     try:
         p = get_peer(alias=args.alias)
         payload = {
@@ -98,10 +110,6 @@ def cmd_peer_show(*, args: argparse.Namespace) -> int:
             "signing_public": p.signing_public_b64,
             "trusted_at": p.trusted_at,
         }
-        print(json.dumps(payload, indent=2, sort_keys=True))
-        return 0
-    except RegistryError as exc:
-        return _fatal(message=_peer_sync_cli_error(exc), code=EXIT_CODES["EAPP_PEER_NOT_FOUND"])
         print(json.dumps(payload, indent=2, sort_keys=True))
         return 0
     except RegistryError as exc:

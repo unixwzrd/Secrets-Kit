@@ -37,6 +37,7 @@ def build_public_enrollment_payload(
 
 
 def _normalize_peer_endpoints(endpoints: Sequence[str]) -> List[str]:
+    """Deduplicate and strip whitespace from a list of endpoint strings."""
     seen: set[str] = set()
     out: list[str] = []
     for raw in endpoints:

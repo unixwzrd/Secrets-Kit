@@ -25,6 +25,12 @@ if TYPE_CHECKING:
 
 
 def _open_sqlite_store_for_reconcile(args: argparse.Namespace) -> "SqliteSecretStore" | int:
+    """Open a ``SqliteSecretStore`` for a reconcile subcommand, or return an exit code.
+
+    Validates that ``--backend sqlite`` is selected and that a database path
+    is available. Returns an ``int`` exit code on validation failure so the
+    caller can return it directly.
+    """
     from secrets_kit.backends.sqlite import SqliteSecretStore
 
     kwargs = _backend_access_kwargs(args)
@@ -37,6 +43,11 @@ def _open_sqlite_store_for_reconcile(args: argparse.Namespace) -> "SqliteSecretS
 
 
 def cmd_reconcile_inspect(*, args: argparse.Namespace) -> int:
+    """Dump the SQLite reconcile-index row and backend capability flags for an entry.
+
+    Returns JSON with ``sqlite_index_row``, ``capabilities``, and a note that
+    non-SQLite backends do not carry Phase 6A lineage columns.
+    """
     st = _open_sqlite_store_for_reconcile(args)
     if isinstance(st, int):
         return st
@@ -59,6 +70,10 @@ def cmd_reconcile_inspect(*, args: argparse.Namespace) -> int:
 
 
 def cmd_reconcile_lineage(*, args: argparse.Namespace) -> int:
+    """Emit a lineage-oriented view of SQLite index fields for an ``entry_id``.
+
+    Returns ``ENOENT`` when the entry is not found in the local index.
+    """
     st = _open_sqlite_store_for_reconcile(args)
     if isinstance(st, int):
         return st
@@ -86,6 +101,12 @@ def cmd_reconcile_lineage(*, args: argparse.Namespace) -> int:
 
 
 def cmd_reconcile_explain(*, args: argparse.Namespace) -> int:
+    """Classify one incoming bundle row against the local SQLite state.
+
+    Reads the bundle row from stdin or ``--bundle-row``, then runs the
+    deterministic merge classifier to report ``accept``, ``skip``, or
+    ``conflict`` with lineage context.
+    """
     src = getattr(args, "bundle_row", None)
     if src in (None, "-"):
         text = sys.stdin.read()
@@ -122,6 +143,10 @@ def cmd_reconcile_explain(*, args: argparse.Namespace) -> int:
 
 
 def cmd_reconcile_verify(*, args: argparse.Namespace) -> int:
+    """Run read-only PRAGMA and lineage invariant checks on the SQLite database.
+
+    Emits a JSON report. Returns ``EIO`` when any invariant fails.
+    """
     kwargs = _backend_access_kwargs(args)
     if not is_sqlite_backend(kwargs["backend"]):
         return _fatal(message="reconcile verify requires --backend sqlite", code=EXIT_CODES["EINVAL"])

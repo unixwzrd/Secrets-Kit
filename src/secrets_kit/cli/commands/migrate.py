@@ -42,6 +42,12 @@ from secrets_kit.registry.resolve import _read_metadata
 
 
 def cmd_migrate_dotenv(*, args: argparse.Namespace) -> int:
+    """Import a dotenv file into seckit and optionally rewrite it to placeholders.
+
+    Archives the original file when ``--archive`` is set, imports the entries
+    via ``cmd_import_env``, and then replaces values with ``${NAME}``
+    placeholders in the original file.
+    """
     dotenv = Path(args.dotenv)
     if not dotenv.exists():
         return _fatal(message=f"dotenv file not found: {dotenv}", code=EXIT_CODES["ENOENT"])
@@ -82,7 +88,7 @@ def cmd_migrate_dotenv(*, args: argparse.Namespace) -> int:
             continue
         left = stripped.split("=", 1)[0].strip()
         if left.startswith("export "):
-            left = left[len("export ") :].strip()
+            left = left[len("export "):].strip()
         if left in parsed:
             prefix = "export " if stripped.startswith("export ") else ""
             rewritten.append(f"{prefix}{left}=${{{left}}}")
@@ -95,6 +101,13 @@ def cmd_migrate_dotenv(*, args: argparse.Namespace) -> int:
 
 
 def cmd_migrate_metadata(*, args: argparse.Namespace) -> int:
+    """Write registry metadata into the backend comment / payload field.
+
+    For each registry entry that exists in the backend, re-encodes the
+    current ``EntryMetadata`` as a keychain comment (secure) or SQLite
+    payload (sqlite). Skips entries whose metadata source is already
+    ``keychain`` or ``sqlite`` unless ``--force`` is passed.
+    """
     try:
         registry = load_registry()
     except RegistryError as exc:
@@ -154,6 +167,14 @@ def cmd_migrate_metadata(*, args: argparse.Namespace) -> int:
 
 
 def cmd_recover_registry(*, args: argparse.Namespace) -> int:
+    """Rebuild registry/index metadata from the live store.
+
+    Scans the backend (Keychain or SQLite) for entries that are not yet
+    indexed in ``registry.json``, validates their names, deduplicates by
+    registry key, and writes new metadata records. Entries whose
+    keychain comments contain valid metadata are preserved; others get
+    auto-inferred ``entry_kind`` and fresh timestamps.
+    """
     from secrets_kit.backends.security import is_secure_backend, is_sqlite_backend
 
     backend = _backend_arg(args)

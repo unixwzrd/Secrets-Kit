@@ -5,14 +5,13 @@ Non-authoritative: pending delivery hints only; peers and datastore remain autho
 
 from __future__ import annotations
 
+import base64
 import enum
 import time
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-import base64
-
 from typing import Any, Callable, Deque, Dict, List, Optional, Protocol
 
 
@@ -130,6 +129,7 @@ class OutboundRuntimeCoordinator:
     counters: RuntimeCounters = field(default_factory=RuntimeCounters)
 
     def _ensure_route(self, route_key: str) -> RouteRuntimeState:
+        """Create route and queue entries lazily when absent."""
         if route_key not in self.routes:
             self.routes[route_key] = RouteRuntimeState(route_key=route_key)
             self._queues[route_key] = deque()
@@ -143,6 +143,7 @@ class OutboundRuntimeCoordinator:
         payload_type: Optional[str],
         client_ref: Optional[str],
     ) -> OutboundWorkItem:
+        """Add an outbound work item to the pending queue for a route."""
         self.counters.ipc_submits_total += 1
         rt = self._ensure_route(route_key)
         q = self._queues[route_key]
@@ -163,6 +164,7 @@ class OutboundRuntimeCoordinator:
         return item
 
     def _next_backoff(self, route: RouteRuntimeState) -> float:
+        """Compute the next exponential backoff for a route."""
         if route.current_backoff_s <= 0:
             route.current_backoff_s = self.retry.initial_backoff_s
         else:

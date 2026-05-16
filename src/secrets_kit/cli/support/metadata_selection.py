@@ -1,4 +1,8 @@
-"""Metadata parsing, domain filters, and selection for CLI commands."""
+"""
+secrets_kit.cli.support.metadata_selection
+
+Metadata parsing, domain filters, and entry selection for CLI commands.
+"""
 
 from __future__ import annotations
 
@@ -6,6 +10,8 @@ import argparse
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
+from secrets_kit.cli.support.args import _backend_arg, _kek_keychain_arg, _store_path
+from secrets_kit.cli.support.interaction import _parse_timestamp
 from secrets_kit.models.core import (
     METADATA_SCHEMA_VERSION,
     EntryMetadata,
@@ -21,11 +27,12 @@ from secrets_kit.models.core import (
 from secrets_kit.registry.core import load_registry
 from secrets_kit.registry.resolve import _read_metadata
 
-from secrets_kit.cli.support.args import _backend_arg, _kek_keychain_arg, _store_path
-from secrets_kit.cli.support.interaction import _parse_timestamp
-
 
 def _parse_meta_pairs(items: Optional[List[str]]) -> Dict[str, str]:
+    """Parse ``--meta key=value`` strings into a flat dictionary.
+
+    Raises ``ValidationError`` on malformed input (missing ``=`` or empty key).
+    """
     out: Dict[str, str] = {}
     for item in items or []:
         if "=" not in item:
@@ -39,6 +46,7 @@ def _parse_meta_pairs(items: Optional[List[str]]) -> Dict[str, str]:
 
 
 def _resolve_domains(*, domain: Optional[List[str]], domains_csv: Optional[str]) -> List[str]:
+    """Merge explicit ``--domain`` flags and ``--domains`` CSV into a normalised list."""
     items: List[str] = []
     if domains_csv:
         items.extend(domains_csv.split(","))
@@ -64,6 +72,15 @@ def _select_entries(
     args: argparse.Namespace,
     require_explicit_selection: bool,
 ) -> List[EntryMetadata]:
+    """Load and filter registry entries according to CLI arguments.
+
+    When ``--names`` is given, only those names are resolved. Otherwise
+    entries are filtered by ``--service``, ``--account``, ``--tag``,
+    ``--type``, ``--kind``, and ``--all``. If ``require_explicit_selection``
+    is ``True`` and no filter flags are present, the result is empty.
+
+    Returns a sorted list of ``EntryMetadata`` objects.
+    """
     entries = load_registry()
     selected: Dict[str, EntryMetadata] = {}
     names = {validate_key_name(name=item) for item in args.names.split(",")} if getattr(args, "names", None) else set()
@@ -125,6 +142,12 @@ def _select_entries(
 
 
 def _build_metadata(*, args: argparse.Namespace, name: str, source: str) -> EntryMetadata:
+    """Construct an ``EntryMetadata`` from CLI arguments, preserving existing timestamps.
+
+    When the entry already exists in the registry, ``created_at`` and
+    ``last_rotated_at`` are carried forward. Otherwise fresh timestamps
+    are generated. All fields are normalised and validated.
+    """
     registry = load_registry()
     existing = _read_metadata(
         service=args.service,
@@ -165,6 +188,12 @@ def _build_metadata(*, args: argparse.Namespace, name: str, source: str) -> Entr
 
 
 def _resolve_status(*, metadata: EntryMetadata) -> List[str]:
+    """Evaluate operational status flags for a single entry.
+
+    Checks rotation deadlines (``rotation-overdue``, ``rotation-soon``)
+    and expiration (``expired``, ``expires-soon``). Returns an empty list
+    when the entry is healthy.
+    """
     now = datetime.now(timezone.utc)
     statuses: List[str] = []
 

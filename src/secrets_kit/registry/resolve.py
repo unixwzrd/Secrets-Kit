@@ -29,6 +29,11 @@ def _read_metadata(
     backend: str = "secure",
     kek_keychain_path: Optional[str] = None,
 ) -> Optional[Dict[str, object]]:
+    """Resolve metadata for a secret from backend or registry fallback.
+
+    Tries the backend first (decrypting when possible), then falls back
+    to the registry JSON index, and finally returns a minimal record.
+    """
     key = f"{service}::{account}::{name}"
     registry = registry if registry is not None else load_registry()
     registry_meta = registry.get(key)

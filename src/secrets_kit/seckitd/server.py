@@ -75,6 +75,7 @@ def serve_forever(
         ticker_stop = threading.Event()
 
         def _tick_loop() -> None:
+            """Daemon thread that periodically ticks the runtime session."""
             while not ticker_stop.is_set():
                 if stop_flag is not None and stop_flag.is_set():
                     break
@@ -143,6 +144,7 @@ def _handle_connection(
     seckit_argv: Optional[List[str]],
     child_env: Optional[Dict[str, str]],
 ) -> None:
+    """Read one framed JSON-RPC request, dispatch it, and send the response."""
     try:
         verify_unix_peer_euid(conn)
     except PeerCredentialError as exc:

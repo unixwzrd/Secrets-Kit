@@ -43,6 +43,11 @@ CONFIG_STORABLE_KEYS: frozenset[str] = frozenset(
 
 
 def _load_default_config() -> dict[str, object]:
+    """Load defaults from ``defaults.json`` and legacy ``config.json``.
+
+    Legacy ``config.json`` values are merged with lower precedence than
+    ``defaults.json``. Raises ``ValidationError`` on malformed JSON.
+    """
     defaults: dict[str, object] = {}
     dpath = defaults_path()
     if dpath.exists():
@@ -64,6 +69,14 @@ def _load_default_config() -> dict[str, object]:
 
 
 def _load_defaults() -> dict[str, object]:
+    """Load defaults from files and overlay environment variables.
+
+    Precedence (highest first):
+    1. Explicit CLI flags
+    2. Environment variables (``SECKIT_*``)
+    3. ``defaults.json``
+    4. Legacy ``config.json``
+    """
     defaults: dict[str, object] = {}
     defaults.update(_load_default_config())
     env_map = {
@@ -91,10 +104,20 @@ def _load_defaults() -> dict[str, object]:
 
 
 def _current_os_account() -> str:
+    """Return the current OS user name as a fallback account value."""
     return getpass.getuser() or "default"
 
 
 def _apply_defaults(*, args: argparse.Namespace) -> None:
+    """Mutate ``args`` in-place with merged defaults and validated values.
+
+    Side effects:
+    - Normalises ``backend`` and validates ``--keychain`` / ``--db`` compatibility.
+    - Sets ``service``, ``account``, ``type``, ``kind``, ``tags``, ``db``,
+      ``rotation_days``, ``rotation_warn_days`` from defaults when absent.
+    - Derives ``from_account`` / ``to_account`` for service-copy commands.
+    - Raises ``ValidationError`` when required fields (e.g. ``service``) are missing.
+    """
     defaults = _load_defaults()
     if hasattr(args, "backend") and not getattr(args, "backend", None):
         raw_backend = defaults.get("backend")

@@ -63,6 +63,7 @@ def _b64e(raw: bytes) -> str:
 
 
 def _b64d(label: str, value: str) -> bytes:
+    """Decode standard base64; raise ``SyncBundleError`` on failure."""
     try:
         return base64.standard_b64decode(value.encode("ascii"))
     except binascii.Error as exc:
@@ -70,6 +71,7 @@ def _b64d(label: str, value: str) -> bytes:
 
 
 def _validate_manifest_keys(manifest: Mapping[str, Any]) -> None:
+    """Assert required manifest keys are present and no unknown non-x_ keys exist."""
     missing = REQUIRED_MANIFEST_KEYS - manifest.keys()
     if missing:
         raise SyncBundleError(f"bundle manifest missing keys: {sorted(missing)}")
@@ -192,6 +194,7 @@ def build_bundle(
 
 
 def parse_bundle_file(text: str) -> Dict[str, Any]:
+    """Parse and validate a bundle JSON payload."""
     try:
         payload = json.loads(text)
     except json.JSONDecodeError as exc:

@@ -44,6 +44,7 @@ class ImportCandidate:
 
 
 def _parse_dotenv_value(*, raw: str) -> str:
+    """Strip surrounding quotes from a dotenv value string."""
     value = raw.strip()
     if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
         return value[1:-1]
@@ -58,7 +59,7 @@ def read_dotenv(*, dotenv_path: Path) -> Dict[str, str]:
         if not stripped or stripped.startswith("#"):
             continue
         if stripped.startswith("export "):
-            stripped = stripped[len("export ") :]
+            stripped = stripped[len("export "):]
         if "=" not in stripped:
             continue
         key, raw = stripped.split("=", 1)

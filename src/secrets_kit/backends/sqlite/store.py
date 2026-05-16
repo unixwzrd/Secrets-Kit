@@ -21,7 +21,6 @@ from typing import Any, Callable, Dict, Iterator, Optional, Tuple
 
 import nacl.exceptions
 import nacl.secret
-
 from secrets_kit.backends.base import (
     BACKEND_IMPL_VERSION,
     INDEX_SCHEMA_VERSION,
@@ -33,10 +32,13 @@ from secrets_kit.backends.base import (
     ResolvedEntry,
     normalize_store_locator,
 )
-from secrets_kit.backends.sqlite.payload_codec import build_joint_payload_bytes, parse_joint_payload_or_legacy
 from secrets_kit.backends.keychain.inventory import GenpCandidate
 from secrets_kit.backends.security import BackendError, backend_service_name
 from secrets_kit.backends.sqlite.migrations import migrate_if_needed
+from secrets_kit.backends.sqlite.payload_codec import (
+    build_joint_payload_bytes,
+    parse_joint_payload_or_legacy,
+)
 from secrets_kit.backends.sqlite.queries import (
     sql_select_deleted_by_locator,
     sql_select_full_row_by_entry_id,
@@ -83,6 +85,7 @@ def _sqlite_plaintext_debug_enabled() -> bool:
 
 
 def _warn_sqlite_plaintext_debug_once() -> None:
+    """Emit a one-time stderr warning when plaintext debug mode is active."""
     global _SQLITE_PLAINTEXT_DEBUG_WARNED
     if not _sqlite_plaintext_debug_enabled() or _SQLITE_PLAINTEXT_DEBUG_WARNED:
         return
@@ -115,6 +118,7 @@ def default_sqlite_db_path(*, home: Optional[Path] = None) -> str:
 
 
 def _origin_host() -> str:
+    """Return the local hostname, overridden by ``SECKIT_ORIGIN_HOST``."""
     override = os.environ.get("SECKIT_ORIGIN_HOST", "").strip()
     if override:
         return override
@@ -125,6 +129,7 @@ def _origin_host() -> str:
 
 
 def _abs_db_path(db_path: str) -> str:
+    """Return the absolute, expanded path for a database file."""
     return str(Path(db_path).expanduser().resolve())
 
 
@@ -187,6 +192,7 @@ class SqliteSecretStore(BackendStore):
         unlock_provider: Optional[UnlockProvider] = None,
         kek_keychain_path: Optional[str] = None,
     ) -> None:
+        """Initialise the SQLite store with a path and optional unlock provider."""
         self.db_path = os.path.expanduser(db_path)
         self._unlock_provider = unlock_provider or build_sqlite_unlock_provider(
             kek_keychain_path=kek_keychain_path,
@@ -194,16 +200,19 @@ class SqliteSecretStore(BackendStore):
         _warn_sqlite_plaintext_debug_once()
 
     def _master_cache_key(self) -> tuple[str, str, str]:
+        """Build a cache key for the process-local master-key dictionary."""
         prov = self._unlock_provider
         kc = getattr(prov, "keychain_path", None) or ""
         return (_abs_db_path(self.db_path), type(prov).__name__, str(kc))
 
     def _conn(self) -> sqlite3.Connection:
+        """Open (or reopen) a connection with schema initialisation."""
         conn = _connect(db_path=self.db_path)
         _init_schema(conn=conn, db_path=self.db_path, unlock_provider=self._unlock_provider)
         return conn
 
     def _unlock_key(self, conn: sqlite3.Connection) -> bytes:
+        """Materialise or cache the DEK for this database."""
         ck = self._master_cache_key()
         if ck in _master_key_by_db:
             return _master_key_by_db[ck]
@@ -213,6 +222,7 @@ class SqliteSecretStore(BackendStore):
 
     # --- BackendStore ---
     def security_posture(self) -> BackendSecurityPosture:
+        """Return honest posture flags for the SQLite backend."""
         if _sqlite_plaintext_debug_enabled():
             return BackendSecurityPosture(
                 metadata_encrypted=False,
@@ -228,6 +238,7 @@ class SqliteSecretStore(BackendStore):
         )
 
     def capabilities(self) -> BackendCapabilities:
+        """Return capability flags for the SQLite backend."""
         return BackendCapabilities(
             supports_safe_index=True,
             supports_unlock_enumeration=True,
@@ -242,6 +253,7 @@ class SqliteSecretStore(BackendStore):
         )
 
     def _row_to_index_safe(self, row: sqlite3.Row) -> IndexRow:
+        """Build an ``IndexRow`` from a safe-index query result."""
         (
             entry_id,
             locator_hash,
@@ -275,6 +287,7 @@ class SqliteSecretStore(BackendStore):
         )
 
     def _row_to_index_from_full_prefix(self, meta_slice: Tuple[Any, ...]) -> IndexRow:
+        """Build an ``IndexRow`` from a full-row query prefix (without payload columns)."""
         (
             entry_id,
             locator_hash,
@@ -311,6 +324,7 @@ class SqliteSecretStore(BackendStore):
         )
 
     def iter_index(self) -> Iterator[IndexRow]:
+        """Yield ``IndexRow`` objects for every non-deleted row."""
         conn = self._conn()
         try:
             cur = conn.execute(sql_select_iter_index())
@@ -320,6 +334,7 @@ class SqliteSecretStore(BackendStore):
             conn.close()
 
     def rebuild_index(self) -> None:
+        """Recompute ``locator_hash`` and ``locator_hint`` for every non-deleted row."""
         conn = self._conn()
         try:
             cur = conn.execute(sql_select_rebuild_index())
@@ -353,6 +368,7 @@ class SqliteSecretStore(BackendStore):
             conn.close()
 
     def _metadata_from_comment(self, *, comment: str, service: str, account: str, name: str) -> EntryMetadata:
+        """Parse metadata from a comment string, or create a fresh record when empty."""
         if comment.strip():
             parsed = EntryMetadata.from_keychain_comment(comment)
             if parsed is not None:
@@ -502,6 +518,7 @@ class SqliteSecretStore(BackendStore):
     def _read_row_full(
         self, conn: sqlite3.Connection, service: str, account: str, name: str
     ) -> Optional[sqlite3.Row]:
+        """Fetch the full row (including ciphertext) for a given locator."""
         loc = normalize_store_locator(service=service, account=account, name=name)
         return conn.execute(
             sql_select_full_row_by_locator(),
@@ -509,6 +526,7 @@ class SqliteSecretStore(BackendStore):
         ).fetchone()
 
     def _decrypt_resolved(self, conn: sqlite3.Connection, row: sqlite3.Row) -> ResolvedEntry:
+        """Decrypt a full row and return a ``ResolvedEntry`` with secret + metadata."""
         crypto_ver = int(row["crypto_version"])
         ciphertext = row["ciphertext"]
         nonce = row["nonce"]
@@ -536,7 +554,7 @@ class SqliteSecretStore(BackendStore):
     def _materialize_payload_storage(
         self, conn: sqlite3.Connection, body: bytes
     ) -> Tuple[bytes, bytes, int]:
-        """Return (ciphertext, nonce, crypto_version) for the joint payload bytes."""
+        """Encrypt (or pass-through in debug mode) joint payload bytes; return ``(ciphertext, nonce, crypto_version)``."""
         if _sqlite_plaintext_debug_enabled():
             return body, b"\x00" * 24, PLAINTEXT_DEBUG_CRYPTO_VERSION
         key = self._unlock_key(conn)
@@ -554,6 +572,7 @@ class SqliteSecretStore(BackendStore):
         secret: str,
         metadata: EntryMetadata,
     ) -> None:
+        """Write or update a secret inside a new connection and commit."""
         meta = ensure_entry_id(metadata)
         loc = normalize_store_locator(service=service, account=account, name=name)
         meta = replace(meta, name=loc.name, service=loc.service, account=loc.account)
@@ -666,13 +685,16 @@ class SqliteSecretStore(BackendStore):
         comment: str = "",
         label: Optional[str] = None,
     ) -> None:
+        """Legacy ``SecretStore``-style write (derives metadata from comment)."""
         meta = self._metadata_from_comment(comment=comment, service=service, account=account, name=name)
         self.set_entry(service=service, account=account, name=name, secret=value, metadata=meta)
 
     def get_secret(self, *, service: str, account: str, name: str) -> str:
+        """Read a secret value by locator (delegates to ``get``)."""
         return self.get(service=service, account=account, name=name)
 
     def get(self, *, service: str, account: str, name: str) -> str:
+        """Read and return the secret value for a given locator."""
         conn = self._conn()
         try:
             row = self._read_row_full(conn, service, account, name)
@@ -684,6 +706,7 @@ class SqliteSecretStore(BackendStore):
             conn.close()
 
     def resolve_by_entry_id(self, *, entry_id: str) -> Optional[ResolvedEntry]:
+        """Look up a row by ``entry_id`` and return the decrypted ``ResolvedEntry``."""
         conn = self._conn()
         try:
             row = conn.execute(
@@ -697,6 +720,7 @@ class SqliteSecretStore(BackendStore):
             conn.close()
 
     def resolve_by_locator(self, *, service: str, account: str, name: str) -> Optional[ResolvedEntry]:
+        """Look up a row by service/account/name and return the decrypted ``ResolvedEntry``."""
         conn = self._conn()
         try:
             row = self._read_row_full(conn, service, account, name)
@@ -707,6 +731,7 @@ class SqliteSecretStore(BackendStore):
             conn.close()
 
     def metadata(self, *, service: str, account: str, name: str) -> Dict[str, Any]:
+        """Read and return a dict of metadata attributes for a given locator."""
         conn = self._conn()
         try:
             row = self._read_row_full(conn, service, account, name)
@@ -731,6 +756,7 @@ class SqliteSecretStore(BackendStore):
             conn.close()
 
     def exists(self, *, service: str, account: str, name: str) -> bool:
+        """Return ``True`` when an active (non-deleted) row exists for the locator."""
         loc = normalize_store_locator(service=service, account=account, name=name)
         conn = self._conn()
         try:
@@ -743,6 +769,7 @@ class SqliteSecretStore(BackendStore):
             conn.close()
 
     def delete_entry(self, *, service: str, account: str, name: str) -> None:
+        """Tombstone a row by locator inside a new connection and commit."""
         loc = normalize_store_locator(service=service, account=account, name=name)
         conn = self._conn()
         try:
@@ -752,11 +779,17 @@ class SqliteSecretStore(BackendStore):
             conn.close()
 
     def delete(self, *, service: str, account: str, name: str) -> None:
+        """Legacy ``SecretStore``-style delete (delegates to ``delete_entry``)."""
         self.delete_entry(service=service, account=account, name=name)
 
     def iter_unlocked(
         self, *, filter_fn: Optional[Callable[[IndexRow, EntryMetadata], bool]] = None
     ) -> Iterator[tuple[IndexRow, ResolvedEntry]]:
+        """Yield decrypted ``(IndexRow, ResolvedEntry)`` pairs for every active row.
+
+        Skips rows that fail decryption. Optional ``filter_fn`` narrows
+        the result without materialising skipped rows.
+        """
         conn = self._conn()
         try:
             cur = conn.execute(sql_select_iter_unlocked_active())
@@ -832,6 +865,7 @@ class SqliteSecretStore(BackendStore):
         )
 
     def rename_entry(self, *, entry_id: str, new_service: str, new_account: str, new_name: str) -> None:
+        """Move a secret to a new locator inside a new connection and commit."""
         conn = self._conn()
         try:
             self._rename_entry_conn(
@@ -846,6 +880,10 @@ class SqliteSecretStore(BackendStore):
             conn.close()
 
     def iter_recover_genp_candidates(self, *, service_filter: Optional[str] = None) -> Iterator[GenpCandidate]:
+        """Yield ``GenpCandidate`` objects for recovery tooling.
+
+        Optional ``service_filter`` limits which services are scanned.
+        """
         for _idx, resolved in self.iter_unlocked():
             if service_filter and resolved.metadata.service != service_filter:
                 continue
@@ -855,7 +893,3 @@ class SqliteSecretStore(BackendStore):
                 name=resolved.metadata.name,
                 comment=resolved.metadata.to_keychain_comment(),
             )
-
-
-
-

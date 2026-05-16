@@ -39,6 +39,7 @@ def identity_secret_path(*, home: Optional[Path] = None) -> Path:
 
 
 def _check_dir_perms(path: Path) -> None:
+    """Raise ``IdentityError`` when directory permissions are looser than ``0o700``."""
     if path.exists():
         mode = path.stat().st_mode & 0o777
         if mode > 0o700:
@@ -46,6 +47,10 @@ def _check_dir_perms(path: Path) -> None:
 
 
 def _atomic_write_json(*, path: Path, payload: Dict[str, Any]) -> None:
+    """Write JSON to a temp file, chmod ``0o600``, then atomically replace ``path``.
+
+    Cleans up the temp file on failure.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_path = tempfile.mkstemp(prefix="identity-", suffix=".json", dir=str(path.parent))
     try:
