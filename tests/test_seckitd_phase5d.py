@@ -40,9 +40,9 @@ class SeckitdPhase5DLoopbackTests(unittest.TestCase):
                     sub = ipc_call(
                         socket_path=sock,
                         request={
-                            "op": "submit_outbound",
+                            "op": "peer_outbound",
                             "payload_b64": base64.standard_b64encode(payload).decode("ascii"),
-                            "route_key": "alpha",
+                            "route_hint": "alpha",
                         },
                         timeout_s=5.0,
                     )

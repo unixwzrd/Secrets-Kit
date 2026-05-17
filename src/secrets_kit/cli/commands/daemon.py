@@ -22,7 +22,10 @@ def _socket_path(args: argparse.Namespace) -> Path:
 
     Defaults to ``default_socket_path()``; overridden by ``--socket``.
     """
-    return Path(args.socket) if getattr(args, "socket", None) else default_socket_path()
+    return Path(args.socket) if getattr(args, "socket", None) else default_socket_path(
+        instance=getattr(args, "instance", None),
+        agent_id=getattr(args, "agent_id", None),
+    )
 
 
 def cmd_daemon_ping(*, args: argparse.Namespace) -> int:
@@ -55,31 +58,31 @@ def cmd_daemon_status(*, args: argparse.Namespace) -> int:
     return 0 if resp.get("ok") else EXIT_CODES["EPERM"]
 
 
-def cmd_daemon_submit_outbound(*, args: argparse.Namespace) -> int:
-    """Submit a base64-encoded payload to ``seckitd`` for outbound routing.
+def cmd_daemon_peer_outbound(*, args: argparse.Namespace) -> int:
+    """Submit a base64-encoded payload to ``seckitd`` for peer outbound handling.
 
     The file at ``--payload-file`` is read as raw bytes, base64-encoded,
-    and sent as a ``submit_outbound`` IPC request. Optional ``--payload-type``,
-    ``--client-ref``, and ``--route-key`` are forwarded verbatim.
+    and sent as a ``peer_outbound`` IPC request. Optional ``--payload-type``,
+    ``--client-ref``, and ``--route-hint`` are forwarded verbatim.
     """
     path = _socket_path(args)
     raw = Path(args.payload_file).expanduser().read_bytes()
     b64 = base64.standard_b64encode(raw).decode("ascii")
     payload: dict = {
-        "op": "submit_outbound",
+        "op": "peer_outbound",
         "payload_b64": b64,
     }
     if args.payload_type:
         payload["payload_type"] = args.payload_type
     if args.client_ref:
         payload["client_ref"] = args.client_ref
-    rk = getattr(args, "route_key", "") or ""
+    rk = getattr(args, "route_hint", "") or ""
     if rk.strip():
-        payload["route_key"] = rk.strip()
+        payload["route_hint"] = rk.strip()
     try:
         resp = ipc_call(socket_path=path, request=payload, timeout_s=args.timeout)
     except OSError as exc:
-        return _fatal(message=f"daemon submit-outbound: cannot connect ({exc})", code=EXIT_CODES["ECONNREFUSED"])
+        return _fatal(message=f"daemon peer-outbound: cannot connect ({exc})", code=EXIT_CODES["ECONNREFUSED"])
     print(json.dumps(resp, indent=2, sort_keys=True))
     return 0 if resp.get("ok") else EXIT_CODES["EPERM"]
 
@@ -103,5 +106,9 @@ def cmd_daemon_serve(*, args: argparse.Namespace) -> int:
     """Start the local ``seckitd`` server (blocks until interrupted)."""
     from secrets_kit.seckitd.server import serve_forever
 
-    serve_forever(socket_path=_socket_path(args))
+    serve_forever(
+        socket_path=Path(args.socket) if getattr(args, "socket", None) else None,
+        instance=getattr(args, "instance", None),
+        agent_id=getattr(args, "agent_id", None),
+    )
     return 0

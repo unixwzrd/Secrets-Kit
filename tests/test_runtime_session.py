@@ -33,7 +33,7 @@ class CoordinatorLoopbackTests(unittest.TestCase):
         tr = LoopbackTransport()
         raw = b"hello-opaque"
         b64 = base64.standard_b64encode(raw).decode("ascii")
-        coord.enqueue(payload_b64=b64, route_key="r1", payload_type="t", client_ref=None)
+        coord.enqueue(payload_b64=b64, route_hint="r1", payload_type="t", client_ref=None)
         coord.tick(tr)
         coord.tick(tr)
         self.assertEqual(tr.bytes_sent, len(raw))
@@ -55,7 +55,7 @@ class CoordinatorLoopbackTests(unittest.TestCase):
         tr = LoopbackTransport()
         tr.inject_send_failures = 1
         b64 = base64.standard_b64encode(b"x").decode("ascii")
-        coord.enqueue(payload_b64=b64, route_key="r1", payload_type=None, client_ref=None)
+        coord.enqueue(payload_b64=b64, route_hint="r1", payload_type=None, client_ref=None)
         coord.tick(tr)
         self.assertFalse(tr.connected)
         route = coord.routes["r1"]
@@ -74,7 +74,7 @@ class CoordinatorLoopbackTests(unittest.TestCase):
         tr.inject_connect_failures = 100
         coord.enqueue(
             payload_b64=base64.standard_b64encode(b"a").decode("ascii"),
-            route_key="z",
+            route_hint="z",
             payload_type=None,
             client_ref=None,
         )

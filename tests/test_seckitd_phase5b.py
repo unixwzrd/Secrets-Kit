@@ -143,7 +143,7 @@ class ProtocolRelayIpcTests(unittest.TestCase):
                 resp = handle_request(
                     state=st,
                     request={
-                        "op": "relay_inbound",
+                        "op": "peer_inbound_import",
                         "signer": "alice",
                         "wrapper": wrap,
                         "payload_text": secret_echo,

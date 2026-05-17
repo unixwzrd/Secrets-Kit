@@ -4,7 +4,7 @@ secrets_kit.cli.parser.daemon
 Argparse wiring for ``seckit daemon`` and its subcommands.
 
 Registers ``daemon`` with nested ``ping``, ``status``, ``sync-status``,
-``submit-outbound``, and ``serve``. All user-visible strings are
+``peer-outbound``, and ``serve``. All user-visible strings are
 ``STRINGS[...]`` keys from :mod:`secrets_kit.cli.strings.en`. Sub-handlers are
 ``cmd_daemon_*`` from :mod:`secrets_kit.cli.commands.daemon`.
 
@@ -20,7 +20,7 @@ from secrets_kit.cli.commands.daemon import (
     cmd_daemon_ping,
     cmd_daemon_serve,
     cmd_daemon_status,
-    cmd_daemon_submit_outbound,
+    cmd_daemon_peer_outbound,
     cmd_daemon_sync_status,
 )
 from secrets_kit.cli.strings.en import STRINGS
@@ -57,10 +57,14 @@ def add_daemon_commands(
     p_daemon_ping.add_argument(
         "--socket", type=Path, default=None, help=STRINGS["DAEMON_SOCKET_HELP"]
     )
+    p_daemon_ping.add_argument("--instance", default=None, help=STRINGS["DAEMON_INSTANCE_HELP"])
+    p_daemon_ping.add_argument("--agent-id", default=None, help=STRINGS["DAEMON_AGENT_ID_HELP"])
     p_daemon_ping.add_argument("--timeout", type=float, default=30.0, help=STRINGS["DAEMON_TIMEOUT_HELP"])
     p_daemon_ping.set_defaults(func=cmd_daemon_ping)
     p_daemon_status = daemon_sub.add_parser("status", help=STRINGS["DAEMON_STATUS_HELP"])
     p_daemon_status.add_argument("--socket", type=Path, default=None)
+    p_daemon_status.add_argument("--instance", default=None)
+    p_daemon_status.add_argument("--agent-id", default=None)
     p_daemon_status.add_argument("--timeout", type=float, default=30.0)
     p_daemon_status.set_defaults(func=cmd_daemon_status)
     p_daemon_sync = daemon_sub.add_parser(
@@ -68,13 +72,17 @@ def add_daemon_commands(
         help=STRINGS["DAEMON_SYNC_STATUS_HELP"],
     )
     p_daemon_sync.add_argument("--socket", type=Path, default=None)
+    p_daemon_sync.add_argument("--instance", default=None)
+    p_daemon_sync.add_argument("--agent-id", default=None)
     p_daemon_sync.add_argument("--timeout", type=float, default=30.0)
     p_daemon_sync.set_defaults(func=cmd_daemon_sync_status)
     p_daemon_submit = daemon_sub.add_parser(
-        "submit-outbound",
+        "peer-outbound",
         help=STRINGS["DAEMON_SUBMIT_OUTBOUND_HELP"],
     )
     p_daemon_submit.add_argument("--socket", type=Path, default=None)
+    p_daemon_submit.add_argument("--instance", default=None)
+    p_daemon_submit.add_argument("--agent-id", default=None)
     p_daemon_submit.add_argument("--timeout", type=float, default=30.0)
     p_daemon_submit.add_argument(
         "--payload-file", required=True, help=STRINGS["DAEMON_PAYLOAD_FILE_HELP"]
@@ -84,11 +92,12 @@ def add_daemon_commands(
     )
     p_daemon_submit.add_argument("--client-ref", default="", help=STRINGS["DAEMON_CLIENT_REF_HELP"])
     p_daemon_submit.add_argument(
-        "--route-key",
+        "--route-hint",
+        dest="route_hint",
         default="",
-        help=STRINGS["DAEMON_ROUTE_KEY_HELP"],
+        help=STRINGS["DAEMON_ROUTE_HINT_HELP"],
     )
-    p_daemon_submit.set_defaults(func=cmd_daemon_submit_outbound)
+    p_daemon_submit.set_defaults(func=cmd_daemon_peer_outbound)
     p_daemon_serve = daemon_sub.add_parser(
         "serve",
         help=STRINGS["DAEMON_SERVE_HELP"],
@@ -96,4 +105,6 @@ def add_daemon_commands(
         formatter_class=formatter_class,
     )
     p_daemon_serve.add_argument("--socket", type=Path, default=None)
+    p_daemon_serve.add_argument("--instance", default=None)
+    p_daemon_serve.add_argument("--agent-id", default=None)
     p_daemon_serve.set_defaults(func=cmd_daemon_serve)

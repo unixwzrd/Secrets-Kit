@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Mapping, Optional
 
 from pydantic import ValidationError
+from secrets_kit.protocol.envelope import ProtocolVersionError, reject_unsupported_major
 from secrets_kit.schemas.envelope import validate_transport_message_wrapper
 from secrets_kit.seckitd.bridge import default_seckit_argv, run_sync_import_stdin
 from secrets_kit.seckitd.ipc_redact import (
@@ -35,6 +36,8 @@ def _now_iso() -> str:
 class DaemonState:
     """In-memory state (Phase 5A receipt log; Phase 5D optional loopback runtime)."""
 
+    agent_id: str = "seckitd"
+    instance_id: str = "default"
     started_monotonic: float = field(default_factory=time.monotonic)
     started_iso: str = field(default_factory=_now_iso)
     outbound_log: List[Dict[str, Any]] = field(default_factory=list)
@@ -55,12 +58,17 @@ def handle_request(
     """Dispatch one validated JSON request; return response object (not yet framed)."""
     if not isinstance(request.get("op"), str):
         return _err("missing or invalid op")
+    version_error = _check_request_protocol(request)
+    if version_error is not None:
+        return version_error
     op = str(request["op"])
     if op == "ping":
         return _ok(
             {
                 "protocol_version": SECKITD_PROTOCOL_VERSION,
                 "pid": os.getpid(),
+                "agent_id": state.agent_id,
+                "instance_id": state.instance_id,
                 "pong": True,
             }
         )
@@ -69,6 +77,8 @@ def handle_request(
         data: Dict[str, Any] = {
             "protocol_version": SECKITD_PROTOCOL_VERSION,
             "pid": os.getpid(),
+            "agent_id": state.agent_id,
+            "instance_id": state.instance_id,
             "started_at": state.started_iso,
             "uptime_seconds": round(uptime, 3),
             "outbound_artifacts_logged": len(state.outbound_log),
@@ -81,10 +91,10 @@ def handle_request(
         return _ok(data)
     if op == "sync_status":
         return _handle_sync_status(state=state)
-    if op == "submit_outbound":
-        return _handle_submit_outbound(state=state, request=request)
-    if op == "relay_inbound":
-        return _handle_relay_inbound(
+    if op == "peer_outbound":
+        return _handle_peer_outbound(state=state, request=request)
+    if op == "peer_inbound_import":
+        return _handle_peer_inbound_import(
             request=request,
             seckit_argv=seckit_argv,
             child_env=child_env,
@@ -98,6 +108,8 @@ def _handle_sync_status(*, state: DaemonState) -> Dict[str, Any]:
     body: Dict[str, Any] = {
         "protocol_version": SECKITD_PROTOCOL_VERSION,
         "pid": os.getpid(),
+        "agent_id": state.agent_id,
+        "instance_id": state.instance_id,
         "started_at": state.started_iso,
         "uptime_seconds": round(uptime, 3),
         "outbound_artifacts_logged": len(state.outbound_log),
@@ -117,32 +129,35 @@ def _handle_sync_status(*, state: DaemonState) -> Dict[str, Any]:
     return _ok(body)
 
 
-def _handle_submit_outbound(*, state: DaemonState, request: Mapping[str, Any]) -> Dict[str, Any]:
-    """Validate and enqueue an outbound payload into the runtime loopback."""
-    allowed = {"op", "payload_b64", "payload_type", "client_ref", "route_key"}
+def _handle_peer_outbound(*, state: DaemonState, request: Mapping[str, Any]) -> Dict[str, Any]:
+    """Validate and enqueue an outbound peer payload into the runtime loopback."""
+    allowed = {"op", "protocol_version", "payload_b64", "payload_type", "client_ref", "route_hint", "destination_peer"}
     extra = set(request.keys()) - allowed
     if extra:
         return _err(f"unexpected keys: {sorted(extra)}")
     payload_b64 = request.get("payload_b64")
     if not isinstance(payload_b64, str) or not payload_b64:
-        return _err("submit_outbound requires non-empty payload_b64 string")
+        return _err("peer_outbound requires non-empty payload_b64 string")
     client_ref = request.get("client_ref")
     if client_ref is not None and not isinstance(client_ref, str):
         return _err("client_ref must be a string when present")
     payload_type_m = request.get("payload_type")
     if payload_type_m is not None and not isinstance(payload_type_m, str):
         return _err("payload_type must be a string when present")
-    route_key = request.get("route_key")
-    if route_key is not None and not isinstance(route_key, str):
-        return _err("route_key must be a string when present")
-    rk = (route_key or "").strip() or "default"
+    route_hint = request.get("route_hint")
+    if route_hint is not None and not isinstance(route_hint, str):
+        return _err("route_hint must be a string when present")
+    destination_peer = request.get("destination_peer")
+    if destination_peer is not None and not isinstance(destination_peer, str):
+        return _err("destination_peer must be a string when present")
+    rk = (route_hint or destination_peer or "").strip() or "default"
     rid: str
     received_at: str
     if state.loopback is not None:
         try:
             item = state.runtime.enqueue(
                 payload_b64=payload_b64,
-                route_key=rk,
+                route_hint=rk,
                 payload_type=payload_type_m,
                 client_ref=client_ref,
             )
@@ -152,8 +167,8 @@ def _handle_submit_outbound(*, state: DaemonState, request: Mapping[str, Any]) -
         received_at = item.received_at_iso
         runtime_log(
             category="ipc",
-            event="submit_outbound_enqueued",
-            route_key=rk,
+            event="peer_outbound_enqueued",
+            route_hint=rk,
             local_id=rid,
             size_b64=len(payload_b64),
         )
@@ -166,7 +181,8 @@ def _handle_submit_outbound(*, state: DaemonState, request: Mapping[str, Any]) -
         "payload_type": payload_type_m,
         "size_b64": len(payload_b64),
         "client_ref": client_ref,
-        "route_key": rk,
+        "route_hint": rk,
+        "destination_peer": destination_peer,
     }
     state.outbound_log.append(rec)
     return _ok(
@@ -174,36 +190,36 @@ def _handle_submit_outbound(*, state: DaemonState, request: Mapping[str, Any]) -
             "local_receipt": True,
             "local_id": rid,
             "received_at": received_at,
-            "route_key": rk,
+            "route_hint": rk,
             "note": "daemon accepted locally; remote delivery not implied",
         }
     )
 
 
-def _handle_relay_inbound(
+def _handle_peer_inbound_import(
     *,
     request: Mapping[str, Any],
     seckit_argv: Optional[List[str]],
     child_env: Optional[Dict[str, str]],
 ) -> Dict[str, Any]:
-    """Validate relay inbound wrapper and invoke ``seckit import`` for delivery."""
-    allowed = {"op", "wrapper", "payload_text", "signer"}
+    """Validate peer inbound wrapper and invoke ``seckit import`` for delivery."""
+    allowed = {"op", "protocol_version", "wrapper", "payload_text", "signer"}
     extra = set(request.keys()) - allowed
     if extra:
         return _err(f"unexpected keys: {sorted(extra)}")
     wrapper = request.get("wrapper")
     if not isinstance(wrapper, dict):
-        return _err("relay_inbound requires wrapper object")
+        return _err("peer_inbound_import requires wrapper object")
     try:
         validate_transport_message_wrapper(wrapper)
     except ValidationError as exc:
         return _err(f"wrapper validation failed: {exc}")
     signer = request.get("signer")
     if not isinstance(signer, str) or not signer.strip():
-        return _err("relay_inbound requires signer (peer alias)")
+        return _err("peer_inbound_import requires signer (peer alias)")
     payload_text = request.get("payload_text")
     if not isinstance(payload_text, str) or not payload_text:
-        return _err("relay_inbound requires non-empty payload_text")
+        return _err("peer_inbound_import requires non-empty payload_text")
     argv = seckit_argv if seckit_argv is not None else default_seckit_argv()
     result = run_sync_import_stdin(
         bundle_text=payload_text,
@@ -234,4 +250,14 @@ def _ok(data: Dict[str, Any]) -> Dict[str, Any]:
 
 def _err(message: str) -> Dict[str, Any]:
     return {"ok": False, "error": message}
-    return {"ok": False, "error": message}
+
+
+def _check_request_protocol(request: Mapping[str, Any]) -> Dict[str, Any] | None:
+    """Reject unsupported major protocol versions when request declares one."""
+    if "protocol_version" not in request:
+        return None
+    try:
+        reject_unsupported_major(request.get("protocol_version"))
+    except ProtocolVersionError as exc:
+        return _err(str(exc))
+    return None

@@ -57,7 +57,7 @@ class OutboundWorkItem:
 
     local_id: str
     received_at_iso: str
-    route_key: str
+    route_hint: str
     payload_b64: str
     payload_type: Optional[str]
     client_ref: Optional[str]
@@ -71,7 +71,7 @@ class OutboundWorkItem:
 class RouteRuntimeState:
     """Per-route session and backoff (ops visibility only)."""
 
-    route_key: str
+    route_hint: str
     session_state: SessionState = SessionState.IDLE
     connect_attempts: int = 0
     backoff_until_monotonic: float = 0.0
@@ -128,31 +128,31 @@ class OutboundRuntimeCoordinator:
     _queues: Dict[str, Deque[OutboundWorkItem]] = field(default_factory=dict)
     counters: RuntimeCounters = field(default_factory=RuntimeCounters)
 
-    def _ensure_route(self, route_key: str) -> RouteRuntimeState:
+    def _ensure_route(self, route_hint: str) -> RouteRuntimeState:
         """Create route and queue entries lazily when absent."""
-        if route_key not in self.routes:
-            self.routes[route_key] = RouteRuntimeState(route_key=route_key)
-            self._queues[route_key] = deque()
-        return self.routes[route_key]
+        if route_hint not in self.routes:
+            self.routes[route_hint] = RouteRuntimeState(route_hint=route_hint)
+            self._queues[route_hint] = deque()
+        return self.routes[route_hint]
 
     def enqueue(
         self,
         *,
         payload_b64: str,
-        route_key: str,
+        route_hint: str,
         payload_type: Optional[str],
         client_ref: Optional[str],
     ) -> OutboundWorkItem:
         """Add an outbound work item to the pending queue for a route."""
         self.counters.ipc_submits_total += 1
-        rt = self._ensure_route(route_key)
-        q = self._queues[route_key]
+        rt = self._ensure_route(route_hint)
+        q = self._queues[route_hint]
         if len(q) >= self.pending_cap:
             raise RuntimeError("pending_cap exceeded for route (non-authoritative queue full)")
         item = OutboundWorkItem(
             local_id=str(uuid.uuid4()),
             received_at_iso=_now_iso(),
-            route_key=route_key,
+            route_hint=route_hint,
             payload_b64=payload_b64,
             payload_type=payload_type,
             client_ref=client_ref,
@@ -178,10 +178,10 @@ class OutboundRuntimeCoordinator:
         """Single scheduler step: try connect / send one unit for each route with pending work."""
         self.counters.tick_count += 1
         now = self.monotonic_fn()
-        for route_key, q in list(self._queues.items()):
+        for route_hint, q in list(self._queues.items()):
             if not q:
                 continue
-            route = self.routes[route_key]
+            route = self.routes[route_hint]
             if route.session_state == SessionState.TERMINAL_FAILURE:
                 continue
             if route.session_state == SessionState.BACKING_OFF and now < route.backoff_until_monotonic:
@@ -285,7 +285,7 @@ class OutboundRuntimeCoordinator:
         for rk, r in sorted(self.routes.items()):
             routes_out.append(
                 {
-                    "route_key": rk,
+                    "route_hint": rk,
                     "session_state": r.session_state.value,
                     "connect_attempts": r.connect_attempts,
                     "pending_count": len(self._queues.get(rk, deque())),

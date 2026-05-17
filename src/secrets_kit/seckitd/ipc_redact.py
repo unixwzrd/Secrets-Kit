@@ -61,7 +61,7 @@ def relay_subprocess_tails_for_ipc(
     stderr: str,
     verbose_ipc: bool,
 ) -> Tuple[str, str]:
-    """Build stdout/stderr tails for ``relay_inbound`` IPC JSON.
+    """Build stdout/stderr tails for ``peer_inbound_import`` IPC JSON.
 
     Default (non-verbose): no tails on success to avoid leaking merge stats paths;
     on failure, redacted stderr tail only.

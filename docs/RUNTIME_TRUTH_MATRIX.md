@@ -32,7 +32,7 @@
 | `doctor` | CLI | in-process + subprocess | Same integration scripts on isolated `HOME` (**2026-05-14**). |
 | `daemon serve` (Unix socket) | LOCALD | in-process | `serve_forever` + thread in `tests/test_seckitd_phase5a.py`. |
 | `daemon serve` via `seckit` subprocess | LOCALD | subprocess | `tests/test_seckit_daemon_subprocess_integration.py` (entrypoint + argv + real UDS). |
-| `daemon ping` / `status` / `sync-status` / `submit-outbound` | LOCALD | in-process + subprocess | Client IPC tests in-process; CLI subprocess exercises `cmd_daemon_*`. |
+| `daemon ping` / `status` / `sync-status` / `peer-outbound` | LOCALD | in-process + subprocess | Client IPC tests in-process; CLI subprocess exercises `cmd_daemon_*`. |
 | IPC malformed / oversized frames | LOCALD | mocked + in-process | Mix of `test_relay_operational_boundaries.py` (mocked handlers) and framing tests; full **subprocess** fuzzing not exhaustive. |
 | Daemon restart / stale socket | LOCALD | unknown → partial | Needs explicit operational scenario (kill -9, leftover `.sock`); document in [OPERATIONS_STATUS.md](OPERATIONS_STATUS.md) when run. |
 | Peer identity / enrollment / sync bundle | CLI + LOCALD | in-process + multi-host (partial) | SQLite e2e: `tests/test_peer_sync_e2e_sqlite.py`. **Multi-host** = see [DISTRIBUTED_VALIDATION_STATUS.md](DISTRIBUTED_VALIDATION_STATUS.md). |

@@ -30,7 +30,7 @@ class RelayOperationalBoundariesTest(unittest.TestCase):
                 resp = handle_request(
                     state=DaemonState(),
                     request={
-                        "op": "relay_inbound",
+                        "op": "peer_inbound_import",
                         "signer": "alice",
                         "wrapper": _valid_wrapper(),
                         "payload_text": payload,
@@ -52,7 +52,7 @@ class RelayOperationalBoundariesTest(unittest.TestCase):
                 resp = handle_request(
                     state=DaemonState(),
                     request={
-                        "op": "relay_inbound",
+                        "op": "peer_inbound_import",
                         "signer": "bob",
                         "wrapper": _valid_wrapper(),
                         "payload_text": payload,
@@ -77,7 +77,7 @@ class RelayOperationalBoundariesTest(unittest.TestCase):
                 resp = handle_request(
                     state=DaemonState(),
                     request={
-                        "op": "relay_inbound",
+                        "op": "peer_inbound_import",
                         "signer": "alice",
                         "wrapper": _valid_wrapper(),
                         "payload_text": "{}",
@@ -94,7 +94,7 @@ class RelayOperationalBoundariesTest(unittest.TestCase):
                 resp = handle_request(
                     state=DaemonState(),
                     request={
-                        "op": "relay_inbound",
+                        "op": "peer_inbound_import",
                         "signer": "alice",
                         "wrapper": _valid_wrapper(),
                         "payload_text": "x",
@@ -111,7 +111,7 @@ class RelayOperationalBoundariesTest(unittest.TestCase):
                 handle_request(
                     state=DaemonState(),
                     request={
-                        "op": "relay_inbound",
+                        "op": "peer_inbound_import",
                         "signer": "alice",
                         "wrapper": _valid_wrapper(),
                         "payload_text": "{}",

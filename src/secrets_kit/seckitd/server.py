@@ -11,10 +11,14 @@ import signal
 import socket
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from secrets_kit.seckitd.framing import (
+from secrets_kit.runtime.identity import default_agent_id
+from secrets_kit.runtime.paths import RuntimeLayout, ensure_runtime_dir as ensure_runtime_namespace_dir, runtime_layout
+from secrets_kit.runtime.registry import EndpointRecord, register_endpoint, unregister_endpoint
+from secrets_kit.transport.framing import (
     FramingError,
     frame_json,
     parse_json_object,
@@ -23,7 +27,7 @@ from secrets_kit.seckitd.framing import (
 from secrets_kit.seckitd.loopback_transport import LoopbackTransport
 from secrets_kit.seckitd.peer_cred import PeerCredentialError, verify_unix_peer_euid
 from secrets_kit.seckitd.protocol import DaemonState, handle_request
-from secrets_kit.seckitd.unix_transport import configure_unix_ipc_socket
+from secrets_kit.transport.unix import configure_unix_ipc_socket, probe_unix_socket
 
 
 def runtime_loopback_enabled() -> bool:
@@ -33,18 +37,15 @@ def runtime_loopback_enabled() -> bool:
 
 def ensure_runtime_dir(path: Path) -> None:
     """Create runtime directory with owner-only permissions."""
-    path.mkdir(parents=True, mode=0o700, exist_ok=True)
-    try:
-        if path.stat().st_mode & 0o077 != 0:
-            path.chmod(0o700)
-    except OSError:
-        pass
+    ensure_runtime_namespace_dir(path)
 
 
 def bind_unix_socket(path: Path) -> socket.socket:
-    """Bind a new Unix stream socket at ``path`` (unlinks stale file first)."""
+    """Bind a new Unix stream socket at ``path`` after stale-socket probing."""
     ensure_runtime_dir(path.parent)
     if path.exists():
+        if probe_unix_socket(path, timeout_s=0.1):
+            raise OSError(f"Unix socket already active: {path}")
         path.unlink()
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     configure_unix_ipc_socket(sock)
@@ -55,7 +56,9 @@ def bind_unix_socket(path: Path) -> socket.socket:
 
 def serve_forever(
     *,
-    socket_path: Path,
+    socket_path: Optional[Path] = None,
+    instance: Optional[str] = None,
+    agent_id: Optional[str] = None,
     seckit_argv: Optional[List[str]] = None,
     child_env: Optional[Dict[str, str]] = None,
     stop_flag: Optional[Any] = None,
@@ -64,9 +67,35 @@ def serve_forever(
 
     ``stop_flag`` may be a threading.Event-like object with ``is_set()`` → bool.
     """
+    agent = default_agent_id(agent_id)
+    layout: Optional[RuntimeLayout] = None
+    endpoint_id = "local"
+    if socket_path is None:
+        layout = runtime_layout(instance=instance)
+        socket_path = layout.agent_socket_path(agent)
     sock = bind_unix_socket(socket_path)
     sock.listen(8)
-    state = DaemonState()
+    state = DaemonState(agent_id=agent, instance_id=layout.instance if layout else (instance or "manual"))
+    if layout is not None:
+        pid_path = layout.agent_pid_path(agent)
+        lock_path = layout.agent_lock_path(agent)
+        pid_path.write_text(f"{os.getpid()}\n", encoding="utf-8")
+        os.chmod(pid_path, 0o600)
+        lock_path.write_text(f"{uuid.uuid4()}\n", encoding="utf-8")
+        os.chmod(lock_path, 0o600)
+        register_endpoint(
+            layout,
+            EndpointRecord(
+                instance_id=layout.instance,
+                agent_id=agent,
+                endpoint_id=endpoint_id,
+                socket_path=str(socket_path),
+                pid=os.getpid(),
+                uid=os.geteuid(),
+                protocol_version=1,
+                capabilities=["ping", "status", "sync_status", "peer_outbound", "peer_inbound_import"],
+            ),
+        )
     _stop = False
     ticker_stop: Optional[threading.Event] = None
     ticker_thread: Optional[threading.Thread] = None
@@ -135,6 +164,15 @@ def serve_forever(
                 socket_path.unlink()
             except OSError:
                 pass
+        if layout is not None:
+            unregister_endpoint(layout, instance_id=layout.instance, agent_id=agent, endpoint_id=endpoint_id)
+            for artifact in (layout.agent_pid_path(agent), layout.agent_lock_path(agent)):
+                try:
+                    artifact.unlink()
+                except FileNotFoundError:
+                    pass
+                except OSError:
+                    pass
 
 
 def _handle_connection(

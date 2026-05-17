@@ -24,11 +24,13 @@ def main(argv: list[str] | None = None) -> int:
         "--socket",
         type=Path,
         default=None,
-        help=f"Unix socket path (default: {default_socket_path()})",
+        help="Unix socket path (default: ephemeral runtime namespace)",
     )
+    ap.add_argument("--instance", default=None, help="Runtime instance name")
+    ap.add_argument("--agent-id", default=None, help="Runtime agent id")
     ns = ap.parse_args(argv)
-    path = ns.socket or default_socket_path()
-    serve_forever(socket_path=path)
+    path = ns.socket or default_socket_path(instance=ns.instance, agent_id=ns.agent_id)
+    serve_forever(socket_path=path if ns.socket else None, instance=ns.instance, agent_id=ns.agent_id)
     return 0
 
 

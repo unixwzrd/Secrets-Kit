@@ -1,31 +1,25 @@
-"""
-secrets_kit.seckitd.paths
-
-User-private runtime paths for ``seckitd`` Unix sockets.
-"""
+"""Instance-aware runtime paths for local ``seckitd`` Unix sockets."""
 
 from __future__ import annotations
 
-import os
-import sys
 from pathlib import Path
 
-
-def default_runtime_dir() -> Path:
-    """Directory for the Unix socket (0700 at bind time).
-
-    - Linux: ``$XDG_RUNTIME_DIR/seckit`` when set (typical: /run/user/<uid>).
-    - macOS: ``~/Library/Caches/seckit/run`` (user-local cache).
-    - Fallback: ``~/.cache/seckit/run``.
-    """
-    if sys.platform == "darwin":
-        return Path.home() / "Library" / "Caches" / "seckit" / "run"
-    xdg = os.environ.get("XDG_RUNTIME_DIR")
-    if xdg:
-        return Path(xdg) / "seckit"
-    return Path.home() / ".cache" / "seckit" / "run"
+from secrets_kit.runtime.identity import default_agent_id
+from secrets_kit.runtime.paths import RuntimeLayout, runtime_layout
 
 
-def default_socket_path() -> Path:
-    """Default socket: ``<runtime_dir>/seckitd.sock``."""
-    return default_runtime_dir() / "seckitd.sock"
+def default_runtime_dir(*, instance: str | None = None) -> Path:
+    """Return the fail-fast ephemeral runtime directory for an instance."""
+    return runtime_layout(instance=instance).root
+
+
+def default_layout(*, instance: str | None = None) -> RuntimeLayout:
+    """Return the validated runtime layout for ``seckitd``."""
+    return runtime_layout(instance=instance)
+
+
+def default_socket_path(*, instance: str | None = None, agent_id: str | None = None) -> Path:
+    """Default socket: ``<runtime_dir>/sockets/<agent_id>.sock``."""
+    layout = runtime_layout(instance=instance)
+    return layout.agent_socket_path(default_agent_id(agent_id))
+

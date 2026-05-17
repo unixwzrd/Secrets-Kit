@@ -10,8 +10,8 @@ import socket
 from pathlib import Path
 from typing import Any, Mapping
 
-from secrets_kit.seckitd.framing import frame_json, parse_json_object, read_frame
-from secrets_kit.seckitd.unix_transport import configure_unix_ipc_socket
+from secrets_kit.transport.framing import frame_json, parse_json_object, read_frame
+from secrets_kit.transport.unix import configure_unix_ipc_socket
 
 
 def ipc_call(*, socket_path: Path, request: Mapping[str, Any], timeout_s: float = 30.0) -> dict[str, Any]:
@@ -26,4 +26,3 @@ def ipc_call(*, socket_path: Path, request: Mapping[str, Any], timeout_s: float 
         return parse_json_object(body)
     finally:
         sock.close()
-

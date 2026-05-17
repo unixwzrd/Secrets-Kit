@@ -100,7 +100,7 @@ class SeckitdPhase5ATests(unittest.TestCase):
                 stop.set()
                 th.join(timeout=10.0)
 
-    def test_submit_outbound_local_receipt(self) -> None:
+    def test_peer_outbound_local_receipt(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             sock = Path(td) / "t.sock"
             stop = threading.Event()
@@ -114,7 +114,7 @@ class SeckitdPhase5ATests(unittest.TestCase):
                 r = ipc_call(
                     socket_path=sock,
                     request={
-                        "op": "submit_outbound",
+                        "op": "peer_outbound",
                         "payload_b64": "BQ==",
                         "payload_type": "test",
                         "client_ref": "unit",
@@ -129,7 +129,7 @@ class SeckitdPhase5ATests(unittest.TestCase):
                 stop.set()
                 th.join(timeout=10.0)
 
-    def test_relay_inbound_rejects_bad_wrapper(self) -> None:
+    def test_peer_inbound_import_rejects_bad_wrapper(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             sock = Path(td) / "t.sock"
             stop = threading.Event()
@@ -143,7 +143,7 @@ class SeckitdPhase5ATests(unittest.TestCase):
                 r = ipc_call(
                     socket_path=sock,
                     request={
-                        "op": "relay_inbound",
+                        "op": "peer_inbound_import",
                         "signer": "a",
                         "payload_text": "{}",
                         "wrapper": {"destination_peer": uuid.uuid4().hex},
@@ -178,7 +178,7 @@ class SeckitdRelayInboundSqliteTests(unittest.TestCase):
             del os.environ["SECKIT_SQLITE_PASSPHRASE"]
         self._td.cleanup()
 
-    def test_relay_inbound_invokes_sync_import(self) -> None:
+    def test_peer_inbound_import_invokes_sync_import(self) -> None:
         init_identity(home=self.home_a)
         init_identity(home=self.home_b)
         pub_a = self.shared / "a.pub.json"
@@ -276,7 +276,7 @@ class SeckitdRelayInboundSqliteTests(unittest.TestCase):
             r = ipc_call(
                 socket_path=sock,
                 request={
-                    "op": "relay_inbound",
+                    "op": "peer_inbound_import",
                     "signer": "a",
                     "wrapper": wrap,
                     "payload_text": bundle_text,
@@ -290,7 +290,7 @@ class SeckitdRelayInboundSqliteTests(unittest.TestCase):
             r2 = ipc_call(
                 socket_path=sock,
                 request={
-                    "op": "relay_inbound",
+                    "op": "peer_inbound_import",
                     "signer": "a",
                     "wrapper": wrap,
                     "payload_text": bundle_text,

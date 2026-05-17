@@ -74,10 +74,12 @@ defaults.json only fills omitted CLI flags like --service and --backend.""",
         "Examples:\n"
         "  seckitd --socket /tmp/seckitd.sock\n"
         "  seckit daemon ping --socket /tmp/seckitd.sock\n"
-        "  seckit daemon submit-outbound --socket /tmp/seckitd.sock --payload-file ./blob.bin\n"
+        "  seckit daemon peer-outbound --socket /tmp/seckitd.sock --payload-file ./blob.bin\n"
     ),
     "DAEMON_PING_HELP": "Ping local seckitd",
     "DAEMON_SOCKET_HELP": "Unix socket path (default: user runtime dir)",
+    "DAEMON_INSTANCE_HELP": "Runtime instance name (default: SECKIT_RUNTIME_INSTANCE or default)",
+    "DAEMON_AGENT_ID_HELP": "Runtime agent id (default: SECKIT_AGENT_ID or seckitd)",
     "DAEMON_TIMEOUT_HELP": "Socket timeout seconds",
     "DAEMON_STATUS_HELP": "Daemon status JSON",
     "DAEMON_SYNC_STATUS_HELP": (
@@ -87,15 +89,15 @@ defaults.json only fills omitted CLI flags like --service and --backend.""",
     "DAEMON_PAYLOAD_FILE_HELP": "File whose raw bytes are sent as base64",
     "DAEMON_PAYLOAD_TYPE_HELP": "Advisory label only",
     "DAEMON_CLIENT_REF_HELP": "Optional client reference string",
-    "DAEMON_ROUTE_KEY_HELP": (
-        "Optional route key for loopback coordinator (default route when empty); "
+    "DAEMON_ROUTE_HINT_HELP": (
+        "Optional peer route hint for loopback coordinator (default route when empty); "
         "only used when daemon runs with SECKITD_RUNTIME_LOOPBACK=1"
     ),
     "DAEMON_SERVE_HELP": "Run seckitd in the foreground (Unix socket listener)",
     "DAEMON_SERVE_EPILOG": (
         "Environment (Phase 5B):\n"
         "  SECKITD_INSECURE_SKIP_PEER_CRED=1 — skip same-user socket peer checks (**unsafe**; containers only).\n"
-        "  SECKITD_VERBOSE_IPC=1 — include subprocess stdout/stderr tails in ``relay_inbound`` responses on success (**sensitive**).\n"
+        "  SECKITD_VERBOSE_IPC=1 — include subprocess stdout/stderr tails in ``peer_inbound_import`` responses on success (**sensitive**).\n"
         "Environment (Phase 5D):\n"
         "  SECKITD_RUNTIME_LOOPBACK=1 — enable in-process loopback transport + coordinator ticker (testing; **non-authoritative**).\n"
         "See docs/IPC_SEMANTICS_ADR.md (local peer IPC) and docs/SECURITY_MODEL.md (sensitive debug env vars)."

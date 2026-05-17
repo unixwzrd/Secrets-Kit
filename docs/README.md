@@ -41,6 +41,8 @@ Use this page as the public documentation map. The root [README](../README.md) s
 | [DOCSTRING_CONTRACT.md](DOCSTRING_CONTRACT.md) | Contributor expectations for public functions and CLI handlers (S3.5) |
 | [RUNTIME_SESSION_ADR.md](RUNTIME_SESSION_ADR.md) | Local peer/runtime session semantics |
 | [IPC_SEMANTICS_ADR.md](IPC_SEMANTICS_ADR.md) | Local IPC and peer-side `seckitd` semantics |
+| [RUNTIME_NAMESPACE_ARCHITECTURE.md](RUNTIME_NAMESPACE_ARCHITECTURE.md) | Ephemeral runtime directories, multi-instance namespace, endpoint registry |
+| [PROTOCOL_TRANSPORT_ARCHITECTURE.md](PROTOCOL_TRANSPORT_ARCHITECTURE.md) | Transport framing, envelopes, signing, identity layers |
 | [CLI_REFERENCE.md](CLI_REFERENCE.md) | Full command reference |
 | [WORKFLOWS.md](WORKFLOWS.md) | Recipes and common operator flows |
 | [CLI_ARCHITECTURE.md](CLI_ARCHITECTURE.md) | Authority vs index; `backend-index`; safe output policy |
