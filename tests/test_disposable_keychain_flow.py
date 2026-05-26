@@ -3,25 +3,29 @@ from __future__ import annotations
 import argparse
 import io
 import os
-import subprocess
-from contextlib import redirect_stdout
-from pathlib import Path
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from pathlib import Path
 from unittest import mock
 
+from secrets_kit.backends.keychain import (
+    delete_keychain,
+    lock_keychain,
+    make_temp_keychain,
+)
 from secrets_kit.cli import cmd_export, cmd_get, cmd_import_env, cmd_set
-from secrets_kit.keychain_backend import delete_keychain, keychain_path, lock_keychain, make_temp_keychain
 
 
 def _pythonpath_for_subprocess_hijacked_home(*, src_relative_to_repo: Path) -> str:
     """Build PYTHONPATH when env HOME is replaced so child Python still finds deps.
 
     Apple ``python3`` often loads PyPI wheels from ``~/Library/Python/...``.
-    A temp ``HOME`` makes that path points at an empty tree, so ``import yaml``
-    fails unless we add the real user-site dir explicitly.
+    A temp ``HOME`` makes that path point at an empty tree, so add the real
+    user-site dir explicitly when it exists.
     """
     import site
 
@@ -127,7 +131,10 @@ class DisposableKeychainFlowTest(unittest.TestCase):
                 finally:
                     shutil.rmtree(fixture["directory"], ignore_errors=True)
 
-    @unittest.skipUnless(_locked_keychain_tests_enabled(), "set SECKIT_RUN_LOCKED_KEYCHAIN_TESTS=1 to run locked-keychain prompt tests")
+    @unittest.skipUnless(
+        _locked_keychain_tests_enabled(),
+        "set SECKIT_RUN_LOCKED_KEYCHAIN_TESTS=1 to run locked-keychain prompt tests",
+    )
     def test_locked_destination_fails_import(self) -> None:
         src = make_temp_keychain(password="src-pass")
         dst = make_temp_keychain(password="dst-pass")
@@ -228,7 +235,7 @@ class DisposableKeychainFlowTest(unittest.TestCase):
                         domains=None,
                         meta=None,
                         keychain=fixture["path"],
-                        backend="local",
+                        backend="keychain",
                     )
                     self.assertEqual(cmd_set(args=set_args), 0)
 

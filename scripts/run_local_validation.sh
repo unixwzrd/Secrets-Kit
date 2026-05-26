@@ -12,13 +12,15 @@ Usage:
   run_local_validation.sh [--with-localhost-transport] [--without-localhost-transport]
 
 Runs the CI-safe local validation sequence:
-  - helper script syntax checks
+  - shell script syntax checks
   - Python bytecode compile check
+  - ruff + basedpyright lint (make lint; requires pip install -e ".[dev]")
   - Python unittest suite
   - optional localhost transport validation when ssh localhost works
 
 Environment:
-  PYTHON   interpreter to use (default: python3). Must have project deps (pip install -e .).
+  PYTHON   interpreter to use (default: python3). Activate the intended environment first.
+  Install dev tools once: pip install -e ".[dev]"
 EOF
 }
 
@@ -34,15 +36,12 @@ done
 cd "$REPO_ROOT"
 
 PYTHON_BIN="${PYTHON:-python3}"
-if ! "$PYTHON_BIN" -c "import yaml" 2>/dev/null; then
-  echo "ERROR: $PYTHON_BIN cannot import PyYAML (required by seckit). From repo root: $PYTHON_BIN -m pip install -e ." >&2
-  echo "Or set PYTHON to a venv interpreter: PYTHON=/path/to/venv/bin/python $0" >&2
-  exit 1
-fi
 
 echo "== syntax checks =="
 bash -n \
-  scripts/build_bundled_helper_for_wheel.sh \
+  install.sh \
+  scripts/lib/install_lib.sh \
+  scripts/lib/seckit_env.sh \
   scripts/package_release_wheels.sh \
   scripts/release_preflight.sh \
   scripts/seckit_cross_host_prepare.sh \
@@ -54,6 +53,10 @@ bash -n \
 echo
 echo "== python compile check =="
 "$PYTHON_BIN" -m py_compile src/secrets_kit/*.py scripts/seckit_launchd_agent_simulator.py
+
+echo
+echo "== lint =="
+make lint PYTHON="$PYTHON_BIN"
 
 echo
 echo "== python tests =="

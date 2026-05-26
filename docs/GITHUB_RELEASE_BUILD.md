@@ -1,9 +1,9 @@
 # GitHub Actions release: macOS wheels (Python only)
 
 **Created**: 2026-05-02  
-**Updated**: 2026-05-05
+**Updated**: 2026-05-23
 
-Secrets-Kit wheels ship **Python + package data** only. The former Swift **`seckit-keychain-helper`** was **removed** (macOS killed it at launch). The CLI uses the macOS **`security`** binary for **`--backend secure`**.
+Secrets-Kit **wheels and sdist** ship **Python + package data** only (no bundled native app or helper). For **`--backend keychain`**, the CLI uses the macOS **`security`** binary.
 
 ## Universal2 vs many macOS runners
 
@@ -15,7 +15,7 @@ Secrets-Kit wheels ship **Python + package data** only. The former Swift **`seck
 The [release workflow](../.github/workflows/release.yml):
 
 1. **validate** — **release preflight** (on tag `v*`, tag vs `pyproject.toml` `version`; optional `CHANGELOG.md` warning), then tests on **Python 3.12**. **Branch/PR CI** (`.github/workflows/ci.yml`) runs **3.9–3.13** × several macOS images.
-2. **wheel** — matrix **3.9–3.13**; `python -m build -w`; per Python, venv smoke: `seckit version`, `seckit version --json`, `seckit helper status`.
+2. **wheel** — matrix **3.9–3.13**; `python -m build -w`; per Python smoke: `seckit version`, `seckit info --json`.
 3. **sdist** — source distribution on Ubuntu.
 4. **collect-dist** — merges wheels + sdist into **`seckit-dist`**.
 
@@ -25,15 +25,13 @@ The [release workflow](../.github/workflows/release.yml):
 
 ## Local release (your Mac)
 
-```bash
+\```bash
 bash scripts/package_release_wheels.sh
 # optional: PY_VERSIONS='3.9,3.10,3.11,3.12,3.13'
-```
+\```
 
 Then tag `vX.Y.Z`, push, or upload `dist/*` to PyPI / GitHub Release.
 
-`scripts/build_bundled_helper_for_wheel.sh` is a **stub** that exits with an error (historical path only).
-
 ## References
 
-- [iCloud / removal background](ICLOUD_SYNC_VALIDATION.md)
+- [Security model](SECURITY_MODEL.md)

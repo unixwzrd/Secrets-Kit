@@ -14,17 +14,17 @@ Secrets Kit is a **macOS** CLI that stores secret values in the **login Keychain
 |----------|----------------|
 | macOS, Python 3.9+, `security` + login Keychain | Hosted vault, HSM, zero-knowledge guarantees |
 | **Primary cross-host:** `seckit export` / **`import`** (e.g. **encrypted JSON**) + you move the file | Phone home; your Keychain password is never read by the tool |
-| `seckit run`, import/export, encrypted cross-host backup | Deprecated **`icloud`** backends (removed); live multi-master “sync” guarantees; **iCloud Drive does not replace Keychain** (see docs); protection on an already-compromised machine/session |
+| `seckit run`, import/export, encrypted cross-host backup | Live multi-master “sync” guarantees; protection on an already-compromised machine/session |
 
 If that trust model is unclear, use something else until it is.
 
 ## Install
 
 ```bash
-pip install "git+https://github.com/unixwzrd/Secrets-Kit.git@v1.2.3#egg=seckit"
+curl -fsSL https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/v1.2.3/install.sh | bash
 ```
 
-Development checkout: `pip install -e .` in a venv. For day-to-day use, **`--backend secure`** is sufficient (no helper). Wheels still bundle **`seckit-keychain-helper`** for the **legacy, unsupported** **`--backend icloud`** path; see [iCloud Sync Validation](docs/ICLOUD_SYNC_VALIDATION.md). **Reliable host-to-host transfer:** [Cross-Host Validation](docs/CROSS_HOST_VALIDATION.md) (encrypted export).
+Full install/upgrade docs: [INSTALL.md](docs/INSTALL.md). Development checkout: `make install-dev`. Lint: `make lint`. For day-to-day use, the supported backend is **Keychain** (`--backend keychain`). SQLite standalone CLI use is available for development with `--backend sqlite --sqlite-dev-mode` while encryption-at-rest is still pending. **Reliable host-to-host transfer:** use the integration scripts or explicit export/import flows.
 
 ```bash
 seckit version
@@ -33,7 +33,7 @@ seckit version
 ## First commands
 
 ```bash
-seckit keychain-status
+seckit info
 seckit unlock
 echo 'example' | seckit set --name DEMO_KEY --stdin --kind generic --service my-stack --account local-dev
 seckit list --service my-stack --account local-dev
@@ -51,20 +51,28 @@ Avoid repeating `--service` / `--account` via `~/.config/seckit/defaults.json` o
 | Audience | Start here |
 |----------|------------|
 | Everyone | [Documentation index](docs/README.md) |
-| Day-to-day use | [Quickstart](docs/QUICKSTART.md) · [Usage](docs/USAGE.md) · [Defaults](docs/DEFAULTS.md) |
+| Day-to-day use | [Install](docs/INSTALL.md) · [Quickstart](docs/QUICKSTART.md) · [Usage](docs/USAGE.md) · [Defaults](docs/DEFAULTS.md) |
 | Security posture | [Security model](docs/SECURITY_MODEL.md) |
 | Agents / apps | [Integrations](docs/INTEGRATIONS.md) · [Examples](docs/EXAMPLES.md) |
-| iCloud / signing | [iCloud Sync Validation](docs/ICLOUD_SYNC_VALIDATION.md) · [Two-host manual checklist](docs/plans/icloud-two-host-checklist.md) |
+| Cross-host transfer | Encrypted export/import and [peer bundles](docs/PEER_SYNC.md) |
 | Wheels / release | [GitHub release build](docs/GITHUB_RELEASE_BUILD.md) |
-| Deep dives | [Metadata registry](docs/METADATA_REGISTRY.md) · [Cross-host validation](docs/CROSS_HOST_VALIDATION.md) |
+| Deep dives | [Metadata registry](docs/METADATA_REGISTRY.md) · [Peer sync](docs/PEER_SYNC.md) |
 
 ## Contributing
 
 Issues and PRs welcome (CLI UX, backends, docs, import/export edge cases). Local checks:
 
 ```bash
+pip install -e ".[dev]"
+make lint
+make test-fast
+make test-sqlite-unit
+make help
+make validate-fast
 bash ./scripts/run_local_validation.sh
 ```
+
+Use `make validate-full` or `make make-all` for the full local validation layer, including integration and launchd test targets.
 
 **Updated:** 2026-05-05
 

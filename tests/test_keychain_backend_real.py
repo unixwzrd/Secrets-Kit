@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import os
 import shutil
 import sys
 import unittest
 
-from secrets_kit.keychain_backend import (
+from secrets_kit.backends.keychain import (
     check_security_cli,
     delete_keychain,
     delete_secret,
@@ -33,17 +32,29 @@ class KeychainBackendRealTest(unittest.TestCase):
                 comment='{"name":"OPENAI_API_KEY","service":"seckit-test","account":"tester"}',
                 path=path,
             )
-            self.assertTrue(secret_exists(service="seckit-test", account="tester", name="OPENAI_API_KEY", path=path))
+            self.assertTrue(
+                secret_exists(
+                    service="seckit-test", account="tester", name="OPENAI_API_KEY", path=path
+                )
+            )
             self.assertEqual(
-                get_secret(service="seckit-test", account="tester", name="OPENAI_API_KEY", path=path),
+                get_secret(
+                    service="seckit-test", account="tester", name="OPENAI_API_KEY", path=path
+                ),
                 "sk-test",
             )
-            metadata = get_secret_metadata(service="seckit-test", account="tester", name="OPENAI_API_KEY", path=path)
+            metadata = get_secret_metadata(
+                service="seckit-test", account="tester", name="OPENAI_API_KEY", path=path
+            )
             self.assertEqual(metadata["account"], "tester")
             self.assertEqual(metadata["label"], "OPENAI_API_KEY")
             self.assertIn('"service":"seckit-test"', metadata["comment"])
             delete_secret(service="seckit-test", account="tester", name="OPENAI_API_KEY", path=path)
-            self.assertFalse(secret_exists(service="seckit-test", account="tester", name="OPENAI_API_KEY", path=path))
+            self.assertFalse(
+                secret_exists(
+                    service="seckit-test", account="tester", name="OPENAI_API_KEY", path=path
+                )
+            )
         finally:
             try:
                 delete_keychain(path=path)

@@ -1,10 +1,101 @@
 # Secrets-Kit Changelog
 
 **Created**: 2026-03-10  
-**Updated**: 2026-05-13
+**Updated**: 2026-05-26
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+### 2026-05-26 — Bootstrap install experience (phase 1)
+
+- **What changed:** Operator install via `curl -fsSL …/install.sh | bash`; `install.sh` + `scripts/lib/install_lib.sh` with conda → venv → managed venv (`$HOME/.local/share/seckit/venv`), `"$PYTHON" -m pip` from tagged GitHub URL, `~/.config/seckit/install.json` state, and `--upgrade` reusing the recorded interpreter when still executable. `seckit install` (--upgrade, remote SSH wrapper), `seckit doctor --install-check` (fast path in `cli/install_check.py`). Taxonomy builtin seeds added to `pyproject.toml` package-data. Docs: [INSTALL.md](docs/INSTALL.md); Makefile `install`, `install-dev`, `install-upgrade`, `install-check`.
+
+### 2026-05-26 — Taxonomy remediation completion
+
+- **What changed:** Import candidates no longer gate kinds on `ENTRY_KIND_VALUES`; import writes register vocabulary via `sync_vocabulary_on_write`. Added `taxonomy/register.py`, `tests/test_taxonomy_store.py`, `tests/test_import_taxonomy.py`, `docs/worklog.md`. Aligned [OBJECT_MODEL_AND_SCHEMA_SEMANTICS.md](docs/OBJECT_MODEL_AND_SCHEMA_SEMANTICS.md) and [LOCAL_FIRST_DATASTORE_ARCHITECTURE.md](docs/LOCAL_FIRST_DATASTORE_ARCHITECTURE.md) with vocabulary transaction authority.
+
+### 2026-05-26 — Schema/taxonomy registry keychain alignment
+
+- **What changed:** `build_metadata()` and import merge now pass `--keychain` through to `load_schema_registry` / `load_taxonomy_registry` / `save_taxonomy_registry`, so disposable or alternate keychains bootstrap and validate registries on the same backend path used for the secret write. Fixes `unknown schema_id 'builtin.secret.generic'` on `seckit set --keychain …`. Taxonomy registry is persisted only when vocabulary changed (avoids redundant Keychain rewrite after bootstrap). Keychain `set` uses delete-then-add when an item already exists (replaces flaky `-U` update on disposable keychains). Operator scripts (`scripts/lib/seckit_env.sh`) now run the **repo** CLI via `PYTHONPATH=src` by default (not an older `seckit` on PATH); set `SECKIT_USE_PATH_CLI=1` to test the installed binary. Empty schema/taxonomy registry payloads re-bootstrap bundled seeds.
+
+### 2026-05-26 — Taxonomy list filters and operator docs
+
+- **What changed:** `seckit taxonomy list` accepts `--types`, `--kinds`, and `--tags` (combine to filter); human output includes `comment` column; JSON includes `operator_comment`. Updated [TAXONOMY.md](docs/TAXONOMY.md), [CLI_REFERENCE.md](docs/CLI_REFERENCE.md), [WORKFLOWS.md](docs/WORKFLOWS.md) with `schema` and `taxonomy` command trees.
+
+### 2026-05-26 — Taxonomy registry, canonical names, vocabulary transactions
+
+- **Scope:** `secrets_kit/taxonomy/`, `backends/sqlite/vocabulary_projections.py`, `secrets_api.py`, `replay.py`, `seckit taxonomy` CLI, `docs/TAXONOMY.md`, tests.
+- **What changed:** Canonical **taxonomy** registry on `__taxonomy_registry__` (flat JSON: types, kinds, tags). Bundled seeds under `taxonomy/builtin/`. `canonical_taxonomy_name()` collapses spelling variants (`API_Key`, `api-key` → `api_key`) for stable UUIDs; CLI prompts or `--accept-normalized` / `--force-raw-name` (dev). SQLite emits `vocabulary.entry_type/kind.upsert` before `secret.set`; tables remain projections only. `seckit taxonomy list|show|export|install`. No `PRAGMA user_version` bump.
+
+### 2026-05-26 — SQLite entry type, kind, and tag tables
+
+- **Scope:** `backends/sqlite/schema.py`, `backends/sqlite/taxonomy.py`, `projections.py`, architecture docs, tests.
+- **What changed:** Added normalized `entry_types`, `entry_kinds`, `secret_tags`, and `secret_tag_assignments` tables. Each vocabulary row uses a **UUID primary key** (`entry_type_id`, `entry_kind_id`, `tag_id`) plus a unique **`name`** (CLI/metadata label). `secrets` references type/kind by UUID; transaction payloads still carry string names resolved at projection time. Bootstrap seeds built-in vocabulary with deterministic UUIDs. No migration framework — unreleased bootstrap DDL only (`PRAGMA user_version` remains 2).
+
+### 2026-05-26 — Typed metadata schemas (JSON registry)
+
+- **Scope:** `secrets_kit/schemas/`, `secrets_kit/system_objects.py`, `secrets_kit/metadata/merge.py`, `seckit schema` CLI, tests, `docs/METADATA_SCHEMAS.md`.
+- **What changed:** Canonical **metadata** schema registry (JSON descriptors with per-`schema_id` `schema_version`) lives on the `schema_registry` system locator (Keychain comment / SQLite secret row). Bundled seeds merge at `seckit init` / `seckit schema install` with add-only field union, collision fail unless `--replace`, and reference-safe field removal (`__undefined__` sentinel). `EntryMetadata` gains `schema_id`; writes use `merge_entry_metadata` and custom validation. Operator `seckit list` excludes system locators. **No SQLite `PRAGMA user_version` bump, migrations, or DDL changes** — existing Phase 2 database layout unchanged.
+
+### 2026-05-26 — Remove remaining iCloud Keychain references
+
+- **Scope:** `src/secrets_kit/backends/common.py`, `backends/keychain/`, `docs/ICLOUD_SYNC_VALIDATION.md` (deleted), `README.md`, `docs/DEFAULTS.md`, `scripts/seckit_launchd_smoke.sh`, tests.
+- **What changed:** Dropped `ICLOUD_BACKEND_REMOVED_MESSAGE`, the iCloud-specific backend rejection path, and `docs/ICLOUD_SYNC_VALIDATION.md`. Unknown backend ids (including legacy `icloud` / `icloud-helper`) now fail with the generic unsupported-backend error. README and ops docs no longer mention iCloud Keychain sync or removed backends.
+
+### 2026-05-26 — `seckit info` command and `init`
+
+- **Scope:** `cli/commands/info.py`, `cli/commands/init_cmd.py`, parsers, locales, tests, README/QUICKSTART.
+- **What changed:** Replaced the `version` subcommand with **`seckit info`** (human status by default, `--json` for automation). Keychain probes run only on **macOS**; Linux shows SQLite status and marks Keychain unsupported. **`seckit -v`** still prints the package version. Added **`seckit init`** / **`seckit init sqlite`** with destructive-operation confirmation (`-y` to skip). `seckit init` defaults to **sqlite** backend on non-macOS platforms.
+
+### 2026-05-26 — Code quality refactor (registry, dispatch, module splits)
+
+- **Scope:** `src/secrets_kit/registry/`, `src/secrets_kit/backends/dispatch.py`, `src/secrets_kit/cli/metadata_build.py`, `src/secrets_kit/backends/sqlite/{gate,secrets_api}.py`, `src/secrets_kit/backends/keychain/{comment_codec,security_run}.py`, CLI commands, tests, docs.
+- **What changed:** Split flat `registry.py` into `registry/storage.py` + `registry/resolve.py`; moved argparse metadata construction to `cli/metadata_build.py`; added `backends/dispatch.py` for backend-neutral CRUD; consolidated import commands via `_run_import`; split SQLite backend into gate + secrets API and Keychain subprocess helpers into `security_run.py`; added `tests/test_import_layer_guards.py` and `tests/test_backend_dispatch.py`; Makefile targets `test-sqlite-unit` and extended `test-fast`.
+
+### 2026-05-26 — First-class `secrets_kit.crypto` package
+
+- **Scope:** `src/secrets_kit/crypto/`, CLI export/import commands, SQLite backend, tests.
+- **What changed:** Replaced top-level `secrets_kit/crypto.py` and `backends/sqlite/crypto.py` with `secrets_kit.crypto.cli` (encrypted JSON export/import) and `secrets_kit.crypto.storage.sqlite` (SQLite column codec). Transport and other backends can import crypto boundaries without reaching through CLI or backend shim modules.
+
+### 2026-05-26 — Lint tooling and compatibility layer removal
+
+- **Scope:** `pyproject.toml`, `Makefile`, `src/secrets_kit/backends/`, `src/secrets_kit/cli/`, tests, `scripts/run_local_validation.sh`, `.github/workflows/ci.yml`, `README.md`.
+- **What changed:** `make lint` now runs ruff on `src` and `tests` plus basedpyright for import resolution (`pip install -e ".[dev]"`). Removed `secrets_kit.keychain_backend` imports and other compatibility surfaces: no `BACKEND_SECURE` / `is_secure_backend`, no `secure`/`local` backend CLI aliases, no `--allow-insecure-sqlite` flag (use `--sqlite-dev-mode` only), no keychain re-exports from `secrets_kit.cli`, and no `require_insecure_sqlite_ack` wrapper. Canonical backend ids are `keychain` and `sqlite` only.
+
+### 2026-05-25 — SQLite Phase 5A standalone CLI integration
+
+- **Scope:** SQLite backend selection, standalone SQLite adapter, `set` / `get` / `list` / `delete` CLI paths, SQLite CLI tests, architecture/status docs.
+- **What changed:** Added development-gated standalone SQLite CLI support for local `set`, `get`, `list`, and `delete`. SQLite writes now append canonical transactions and apply only the new projection atomically; reads inspect active projections only and never replay or auto-heal. SQLite remains non-production for secret material until encryption-at-rest is implemented and requires `--sqlite-dev-mode` or `SECKIT_SQLITE_DEVELOPER_MODE=1`; `--allow-insecure-sqlite` remains a compatibility alias.
+
+### 2026-05-25 — SQLite Phase 4 local replay and projection materialization
+
+- **Scope:** `src/secrets_kit/backends/sqlite/replay.py`, `src/secrets_kit/backends/sqlite/projections.py`, SQLite exports, replay tests, architecture/status docs.
+- **What changed:** Added bounded standalone SQLite replay for `secret.set` and `secret.delete`, materializing the derived `secrets` projection from canonical transactions in deterministic local `rowid` order. Unsupported transaction types fail explicitly, invalid base64 projection payloads fail before projection writes, envelopes remain ignored by replay, and SQLite remains non-user-facing with no CLI/backend resolver integration.
+
+### 2026-05-25 — SQLite Phase 3 object model semantics
+
+- **Scope:** `docs/OBJECT_MODEL_AND_SCHEMA_SEMANTICS.md`, SQLite architecture/status docs, `CHANGELOG.md`.
+- **What changed:** Added the semantic authority for future SQLite object identity, transaction lineage, projection semantics, schema identity, hashing boundaries, locator semantics, authoritative-state boundaries, lifecycle vocabulary, and replay invariants. This is documentation only; replay, projection materialization, envelope lifecycle behavior, daemon/sync integration, encryption implementation, migrations, and CLI integration remain unimplemented.
+
+### 2026-05-25 — SQLite Phase 1/2 transaction foundation and schema skeleton
+
+- **Scope:** `src/secrets_kit/backends/sqlite/`, `tests/test_sqlite_transactions.py`, architecture/status docs.
+- **What changed:** Added an isolated SQLite transaction foundation with explicit connection setup, schema bootstrap, deterministic transaction serialization and hashing, append-only transaction insertion, transaction retrieval, and existence checks. Expanded bootstrap to the canonical Phase 2 schema skeleton and added schema-only state vocabulary constraints for derived `secrets` projection rows and reserved/inert `envelopes` rows. This is isolated transaction persistence and schema foundation only; SQLite is not a user-facing backend yet.
+
+### 2026-05-23 — JSON-only imports and PyYAML dependency removal
+
+- **Scope:** `pyproject.toml`, `src/secrets_kit/importers.py`, CLI parser/help text, validation script, active docs, tests.
+- **What changed:** Removed YAML/YML file import support and the declared `PyYAML` runtime dependency. `seckit import file` now accepts JSON input only; existing JSON parsing and validation behavior is unchanged.
+
+### 2026-05-23 — CLI command decomposition repair
+
+- **Scope:** `src/secrets_kit/cli/commands/`, `src/secrets_kit/cli/*.py`, `tests/test_cli_commands.py`, `CHANGELOG.md`.
+- **What changed:** Moved command implementations and shared CLI helpers out of the temporary `cli/runtime.py` holding module into command-owned modules and focused helper modules, updated parser dispatch to import command handlers directly, preserved compatibility exports through `secrets_kit.cli`, and removed the misleading `EXIT_USAGE` alias.
+
+### 2026-05-23 — CLI/backend decomposition, locale table, and helper surface removal
+
+- **Scope:** `src/secrets_kit/cli/`, `src/secrets_kit/backends/`, `src/secrets_kit/keychain_backend.py`, `src/secrets_kit/locale.py`, `src/secrets_kit/errors.py`, `src/secrets_kit/logging.py`, tests, docs, `pyproject.toml`.
+- **What changed:** Converted the monolithic CLI module into a package with compatibility exports and `python -m secrets_kit.cli` support, moved the macOS `security` backend under `backends/keychain/` while keeping `secrets_kit.keychain_backend` imports working, added a static `en_US` message table plus POSIX-oriented error helpers and central logging helpers, and removed the obsolete native-helper command/code/test/package-data surface.
 
 ### 2026-05-13 — v1.2.3 security scan hardening for CLI output, launchd smoke paths, and GitHub Actions
 

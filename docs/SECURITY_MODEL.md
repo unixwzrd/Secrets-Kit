@@ -1,13 +1,20 @@
 # Security Model
 
+**Created**: 2026-03-10  
+**Updated**: 2026-05-12
 - [Security Model](#security-model)
+  - [Runtime layers](#runtime-layers)
   - [Where values live](#where-values-live)
+  - [SQLite plaintext debug mode (non-production)](#sqlite-plaintext-debug-mode-non-production)
   - [How entries are identified](#how-entries-are-identified)
   - [What the redaction rules do](#what-the-redaction-rules-do)
+  - [Protected authority handling (summary)](#protected-authority-handling-summary)
   - [What this protects against](#what-this-protects-against)
   - [What this does not protect against](#what-this-does-not-protect-against)
   - [launchd and unattended services](#launchd-and-unattended-services)
   - [Permissions and drift](#permissions-and-drift)
+  - [Keychain fields and limits](#keychain-fields-and-limits)
+  - [Sync behavior](#sync-behavior)
   - [Practical takeaway](#practical-takeaway)
   - [Back to README](#back-to-readme)
 
@@ -16,18 +23,44 @@ Secrets Kit is a local workflow improvement, not a promise of perfect protection
 
 If you understand that up front, the tool makes more sense and is easier to use safely.
 
+## Runtime layers
+
+```text
+CLI / runtime layer
+    → command parsing, selection, launch/injection flows
+
+Local authority layer
+    → keychain backend
+    → sqlite backend
+
+Metadata / index layer
+    → registry.json
+    → lineage / projections / replay state
+
+Transport / synchronization layer
+    → export/import bundles
+    → peer sync bundles
+    → future RSS/P2P replication transports
+```
+
+Backend identity and security posture are separate concerns. `keychain` and `sqlite` are local storage authorities. Future P2P/RSS work transports encrypted replication artifacts between local stores and is not itself an authoritative secret backend.
+
 ## Where values live
 
-- secret values are stored in macOS Keychain generic-password items
-- the default local backend uses the login Keychain, while `--keychain PATH` targets a specific local keychain file
-- **`--backend icloud` / `icloud-helper` is legacy and not supported**—it relied on a native helper and Apple policy that routinely blocks that binary; use **`--backend secure`** and export/import for cross-host work ([ICLOUD_SYNC_VALIDATION.md](ICLOUD_SYNC_VALIDATION.md))
-- authoritative managed metadata is stored in the keychain item comment as structured JSON
+- secret values are stored in the configured backend
+- the Keychain backend uses macOS generic-password items and may target either the login Keychain or a dedicated keychain file via `--keychain PATH`
+- the SQLite backend stores local authority records in a developer-mode SQLite store
+- authoritative metadata lives in the configured backend authority
 - `~/.config/seckit/registry.json` remains a local index and recovery aid
 - operator defaults live in `~/.config/seckit/defaults.json`
 
-**Do not rely on `--backend icloud` for sync.** Prefer **`--backend secure`** and encrypted **export/import** between machines. Any description below of iCloud helper behavior is historical context only.
+Security posture is a property of backend configuration, not backend identity. The Keychain backend uses platform storage. The SQLite backend is intended to become encrypted after encryption-at-rest lands; SQLite developer mode is explicitly unsafe for production secret material until then. Future P2P/RSS layers synchronize between local stores and are not queried as authoritative secret stores.
 
 The registry exists so the tool can track inventory locally without becoming the source of truth for metadata across hosts.
+
+## SQLite plaintext debug mode (non-production)
+
+When **`SECKIT_SQLITE_PLAINTEXT_DEBUG=1`**, the SQLite backend writes joint payload bytes using the plaintext codec. This mode is for **development, automated tests, and forensic inspection** on **disposable** database files only. **Do not** point it at production stores. A warning is printed on first store open.
 
 ## How entries are identified
 
@@ -44,6 +77,12 @@ That lets you keep the same environment-variable-style name in different scopes 
 Normal output is redacted by default. You have to explicitly ask for raw values with commands like `get --raw`, export them for a shell session, or launch a child process with `seckit run`.
 
 That default helps prevent casual leaks into terminal history, screenshots, or copied command output.
+
+## Protected authority handling (summary)
+
+See [RUNTIME_AUTHORITY_ADR.md](RUNTIME_AUTHORITY_ADR.md) for definitions of **resolve**, **materialize**, **inject**, and **exported** exposure. **Resolved-within-handling** may include plaintext in process memory before it **crosses** to operators, child processes, filesystems, or IPC. **Injection** (today: `seckit run`) is a **runtime-scoped materialization path** that **transfers plaintext into another execution context**, and may propagate via **environment inheritance** unless constrained.
+
+Treat **helpers**, **`repr`**, **loggers**, and **tracebacks** as high risk: they must not **implicitly** surface plaintext outside explicit materialization commands. **Exposure levels** in the ADR are **descriptive** vocabulary only, not compliance tiers.
 
 ## What this protects against
 
@@ -109,21 +148,18 @@ The practical size limit for comment JSON is determined by what macOS will store
 
 ## Sync behavior
 
-**Supported cross-host workflow:** **encrypted export** and **import** ([CROSS_HOST_VALIDATION.md](CROSS_HOST_VALIDATION.md)) with **`--backend secure`**.
+**Supported cross-host workflow:** **encrypted export** and **import** with **`--backend keychain`**.
 
-iCloud-helper / synchronizable Keychain items are **not a supported Secrets-Kit feature** ([ICLOUD_SYNC_VALIDATION.md](ICLOUD_SYNC_VALIDATION.md)). Remaining notes are for maintainers:
+**Optional — peer identity bundles:** **`seckit identity`**, **`peer`**, and **`sync`** implement **signed, encrypted JSON files** for targeted exchange with pre-registered public keys ([PEER_SYNC.md](PEER_SYNC.md)). This is **not** a live multi-master sync; transport is manual file copy.
 
-- Local backend items are local Keychain items unless your environment syncs them independently.
-- Legacy iCloud-helper code depended on macOS executing an entitled helper; typical outcomes are failure at launch, not reliable sync.
-- Any manual second-host checklist for iCloud was experimental only.
+**Peer merge authority** is **SQLite-first** for lineage-aware rules: durable `generation` / `tombstone_generation` / `deleted` live on SQLite projection rows. **Keychain** backends do not expose the same lineage columns; peer bundles that carry lineage fields **fall back to legacy timestamp merge** on Keychain for writes. Cross-host deterministic convergence for lineage-aware rules requires **SQLite** on the importing host. Read-only reporting: **`seckit reconcile verify`** (no auto-repair).
 
-That helps keep local metadata sane, but it is still operational hygiene, not a hard security boundary.
+Secrets-Kit does **not** implement Apple-managed Keychain replication. Cross-host work is **your** artifact (export, import, or peer bundle)—not OS sync of Keychain items.
+
+**Resilience, noisy export, uninstall:** Peer sync is the **primary** resilience path; full plaintext export is **explicit and high-friction**, not a default backup. Uninstall is **manual per host** with **no dark patterns**. See [OPERATOR_LIFECYCLE.md](OPERATOR_LIFECYCLE.md).
 
 ## Practical takeaway
 
 Use Secrets Kit when you want a more disciplined local workflow for tokens, passwords, API keys, and PII on macOS. Do not use it as an excuse to stop thinking about process isolation, machine trust, or downstream runtime behavior.
 
 ## [Back to README](../README.md)
-
-**Created**: 2026-03-01  
-**Updated**: 2026-05-04

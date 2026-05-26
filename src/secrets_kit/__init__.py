@@ -1,4 +1,11 @@
-"""seckit package."""
+"""
+secrets_kit
+"""
+
+from __future__ import annotations
+
+from importlib.metadata import version
+
+__version__ = version("seckit")
 
 __all__ = ["__version__"]
-__version__ = "1.2.0"

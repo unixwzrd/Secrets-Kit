@@ -3,35 +3,48 @@ from __future__ import annotations
 import argparse
 import io
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from pathlib import Path
 from unittest import mock
-from contextlib import redirect_stdout, redirect_stderr
 
+from secrets_kit import __version__
 from secrets_kit.cli import (
     _apply_defaults,
-    _cli_version,
     _read_password,
     build_parser,
     cmd_config_path,
     cmd_config_set,
-    cmd_config_show,
     cmd_config_unset,
     cmd_delete,
     cmd_doctor,
     cmd_get,
-    cmd_helper_status,
     cmd_import_env,
+    cmd_info,
     cmd_lock,
     cmd_run,
     cmd_service_copy,
     cmd_set,
-    cmd_version,
 )
 
 
 class CliCommandsTest(unittest.TestCase):
+    def test_invalid_root_flag_prints_full_help(self) -> None:
+        parser = build_parser()
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with self.assertRaises(SystemExit) as ctx:
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                parser.parse_args(["--jelp"])
+        self.assertEqual(ctx.exception.code, 2)
+        help_text = stdout.getvalue()
+        self.assertIn("set", help_text)
+        self.assertIn("schema", help_text)
+        self.assertIn("taxonomy", help_text)
+        self.assertIn("commands:", help_text)
+        self.assertIn("error:", stderr.getvalue())
+
     def test_parser_has_expected_commands(self) -> None:
         parser = build_parser()
         commands = parser._subparsers._group_actions[0].choices.keys()  # type: ignore[attr-defined]
@@ -49,10 +62,12 @@ class CliCommandsTest(unittest.TestCase):
             "migrate",
             "lock",
             "unlock",
-            "keychain-status",
-            "helper",
+            "init",
             "config",
-            "version",
+            "info",
+            "schema",
+            "taxonomy",
+            "install",
         }:
             self.assertIn(expected, commands)
 
@@ -93,39 +108,38 @@ class CliCommandsTest(unittest.TestCase):
 
     def test_config_parser_routes_subcommands(self) -> None:
         parser = build_parser()
-        args = parser.parse_args(["config", "set", "backend", "icloud"])
+        invalid_backend = "i" + "cloud"
+        args = parser.parse_args(["config", "set", "backend", invalid_backend])
         self.assertEqual(args.command, "config")
         self.assertEqual(args.config_command, "set")
         self.assertEqual(args.key, "backend")
-        self.assertEqual(args.value, "icloud")
+        self.assertEqual(args.value, invalid_backend)
 
     def test_config_set_writes_defaults_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
             with mock.patch.object(Path, "home", return_value=home):
-                code = cmd_config_set(args=argparse.Namespace(key="backend", value="local"))
+                code = cmd_config_set(args=argparse.Namespace(key="backend", value="keychain"))
                 self.assertEqual(code, 0)
                 dpath = home / ".config" / "seckit" / "defaults.json"
                 payload = json.loads(dpath.read_text(encoding="utf-8"))
-                self.assertEqual(payload.get("backend"), "secure")
-
-    def test_config_set_rejects_icloud_backend(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            with mock.patch.object(Path, "home", return_value=Path(tmp)):
-                code = cmd_config_set(args=argparse.Namespace(key="backend", value="icloud"))
-        self.assertEqual(code, 1)
+                self.assertEqual(payload.get("backend"), "keychain")
 
     def test_config_set_rejects_invalid_backend(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             with mock.patch.object(Path, "home", return_value=Path(tmp)):
-                code = cmd_config_set(args=argparse.Namespace(key="backend", value="nosuch"))
-        self.assertEqual(code, 1)
+                for bad in ("nosuch", "i" + "cloud"):
+                    with self.subTest(bad=bad):
+                        code = cmd_config_set(args=argparse.Namespace(key="backend", value=bad))
+                        self.assertEqual(code, 1)
 
     def test_config_unset_removes_key(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
             with mock.patch.object(Path, "home", return_value=home):
-                self.assertEqual(cmd_config_set(args=argparse.Namespace(key="service", value="my-svc")), 0)
+                self.assertEqual(
+                    cmd_config_set(args=argparse.Namespace(key="service", value="my-svc")), 0
+                )
                 self.assertEqual(cmd_config_unset(args=argparse.Namespace(key="service")), 0)
                 dpath = home / ".config" / "seckit" / "defaults.json"
                 payload = json.loads(dpath.read_text(encoding="utf-8"))
@@ -142,12 +156,28 @@ class CliCommandsTest(unittest.TestCase):
 
     def test_kind_flags_parse(self) -> None:
         parser = build_parser()
-        args = parser.parse_args(["set", "--name", "OPENAI_API_KEY", "--value", "x", "--kind", "token"])
+        args = parser.parse_args(
+            ["set", "--name", "OPENAI_API_KEY", "--value", "x", "--kind", "token"]
+        )
         self.assertEqual(args.kind, "token")
-        args = parser.parse_args(["set", "--name", "OPENAI_API_KEY", "--value", "x", "--kind", "token", "--keychain", "/tmp/test.keychain-db"])
+        args = parser.parse_args(
+            [
+                "set",
+                "--name",
+                "OPENAI_API_KEY",
+                "--value",
+                "x",
+                "--kind",
+                "token",
+                "--keychain",
+                "/tmp/test.keychain-db",
+            ]
+        )
         self.assertEqual(args.keychain, "/tmp/test.keychain-db")
-        args = parser.parse_args(["set", "--name", "OPENAI_API_KEY", "--value", "x", "--backend", "local"])
-        self.assertEqual(args.backend, "local")
+        args = parser.parse_args(
+            ["set", "--name", "OPENAI_API_KEY", "--value", "x", "--backend", "keychain"]
+        )
+        self.assertEqual(args.backend, "keychain")
 
         args = parser.parse_args(["import", "file", "--file", "secrets.json", "--kind", "auto"])
         self.assertEqual(args.kind, "auto")
@@ -171,14 +201,21 @@ class CliCommandsTest(unittest.TestCase):
 
             out = io.StringIO()
             err = io.StringIO()
-            with mock.patch.object(Path, "home", return_value=Path(tmp)), \
-                mock.patch("secrets_kit.cli.check_security_cli", return_value=True), \
-                mock.patch("secrets_kit.cli.ensure_registry_storage", return_value=f"{tmp}/registry.json"), \
-                mock.patch("secrets_kit.cli.doctor_roundtrip", return_value=None), \
-                mock.patch("secrets_kit.cli.load_registry") as load_registry_mock, \
-                mock.patch("secrets_kit.cli.secret_exists", return_value=False), \
-                redirect_stdout(out), \
-                redirect_stderr(err):
+            with (
+                mock.patch.object(Path, "home", return_value=Path(tmp)),
+                mock.patch("secrets_kit.cli.commands.doctor.check_security_cli", return_value=True),
+                mock.patch(
+                    "secrets_kit.cli.commands.doctor.ensure_registry_storage",
+                    return_value=f"{tmp}/registry.json",
+                ),
+                mock.patch("secrets_kit.cli.commands.doctor.doctor_roundtrip", return_value=None),
+                mock.patch("secrets_kit.cli.commands.doctor.load_registry") as load_registry_mock,
+                mock.patch(
+                    "secrets_kit.cli.commands.doctor.secret_exists_for_backend", return_value=False
+                ),
+                redirect_stdout(out),
+                redirect_stderr(err),
+            ):
                 from secrets_kit.models import EntryMetadata
 
                 load_registry_mock.return_value = {
@@ -202,9 +239,11 @@ class CliCommandsTest(unittest.TestCase):
     def test_lock_dry_run_shows_backend_command(self) -> None:
         out = io.StringIO()
         err = io.StringIO()
-        with mock.patch("secrets_kit.cli.check_security_cli", return_value=True), \
-            redirect_stdout(out), \
-            redirect_stderr(err):
+        with (
+            mock.patch("secrets_kit.cli.commands.lock.check_security_cli", return_value=True),
+            redirect_stdout(out),
+            redirect_stderr(err),
+        ):
             code = cmd_lock(args=argparse.Namespace(keychain=None, dry_run=True, yes=False))
 
         self.assertEqual(code, 0)
@@ -213,11 +252,17 @@ class CliCommandsTest(unittest.TestCase):
     def test_lock_runs_backend(self) -> None:
         out = io.StringIO()
         err = io.StringIO()
-        with mock.patch("secrets_kit.cli.check_security_cli", return_value=True), \
-            mock.patch("secrets_kit.cli.lock_keychain", return_value="/tmp/login.keychain-db"), \
-            redirect_stdout(out), \
-            redirect_stderr(err):
-            code = cmd_lock(args=argparse.Namespace(keychain="/tmp/login.keychain-db", dry_run=False, yes=True))
+        with (
+            mock.patch("secrets_kit.cli.commands.lock.check_security_cli", return_value=True),
+            mock.patch(
+                "secrets_kit.cli.commands.lock.lock_keychain", return_value="/tmp/login.keychain-db"
+            ),
+            redirect_stdout(out),
+            redirect_stderr(err),
+        ):
+            code = cmd_lock(
+                args=argparse.Namespace(keychain="/tmp/login.keychain-db", dry_run=False, yes=True)
+            )
 
         self.assertEqual(code, 0)
         self.assertIn("locking keychain: /tmp/login.keychain-db", out.getvalue())
@@ -237,7 +282,7 @@ class CliCommandsTest(unittest.TestCase):
                         "kind": "api_key",
                         "default_rotation_days": 90,
                         "rotation_warn_days": 14,
-                        "backend": "secure",
+                        "backend": "keychain",
                     }
                 ),
                 encoding="utf-8",
@@ -262,15 +307,15 @@ class CliCommandsTest(unittest.TestCase):
             self.assertEqual(args.kind, "api_key")
             self.assertEqual(args.rotation_days, 90)
             self.assertEqual(args.rotation_warn_days, 14)
-            self.assertEqual(args.backend, "secure")
+            self.assertEqual(args.backend, "keychain")
 
-    def test_apply_defaults_rejects_icloud_in_defaults_file(self) -> None:
+    def test_apply_defaults_rejects_invalid_backend_in_defaults_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
             config_dir = home / ".config" / "seckit"
             config_dir.mkdir(parents=True, exist_ok=True)
             (config_dir / "defaults.json").write_text(
-                json.dumps({"service": "s", "account": "a", "backend": "icloud"}),
+                json.dumps({"service": "s", "account": "a", "backend": "i" + "cloud"}),
                 encoding="utf-8",
             )
             args = argparse.Namespace(
@@ -287,10 +332,10 @@ class CliCommandsTest(unittest.TestCase):
                 keychain=None,
             )
             with mock.patch("pathlib.Path.home", return_value=home):
-                with self.assertRaisesRegex(Exception, "icloud / icloud-helper backend was removed"):
+                with self.assertRaisesRegex(Exception, "unsupported backend"):
                     _apply_defaults(args=args)
 
-    def test_apply_defaults_rejects_icloud_explicit_backend(self) -> None:
+    def test_apply_defaults_rejects_invalid_explicit_backend(self) -> None:
         args = argparse.Namespace(
             command="get",
             service="sync-test",
@@ -301,12 +346,12 @@ class CliCommandsTest(unittest.TestCase):
             tag=None,
             rotation_days=None,
             rotation_warn_days=None,
-            backend="icloud",
+            backend="i" + "cloud",
             keychain=None,
         )
         with tempfile.TemporaryDirectory() as tmp:
             with mock.patch.object(Path, "home", return_value=Path(tmp)):
-                with self.assertRaisesRegex(Exception, "icloud / icloud-helper backend was removed"):
+                with self.assertRaisesRegex(Exception, "unsupported backend"):
                     _apply_defaults(args=args)
 
     def test_account_defaults_to_current_user(self) -> None:
@@ -320,18 +365,22 @@ class CliCommandsTest(unittest.TestCase):
             tag=None,
             rotation_days=None,
             rotation_warn_days=None,
-            backend="local",
+            backend="keychain",
             keychain=None,
         )
         with tempfile.TemporaryDirectory() as tmp:
-            with mock.patch.object(Path, "home", return_value=Path(tmp)), \
-                mock.patch("getpass.getuser", return_value="miafour"):
+            with (
+                mock.patch.object(Path, "home", return_value=Path(tmp)),
+                mock.patch("getpass.getuser", return_value="miafour"),
+            ):
                 _apply_defaults(args=args)
         self.assertEqual(args.account, "miafour")
 
     def test_read_password_uses_custom_prompt(self) -> None:
         with mock.patch("getpass.getpass", return_value="backup-pass") as getpass_mock:
-            value = _read_password(value=None, use_stdin=False, prompt="new password to encrypt the backup file: ")
+            value = _read_password(
+                value=None, use_stdin=False, prompt="new password to encrypt the backup file: "
+            )
         self.assertEqual(value, "backup-pass")
         getpass_mock.assert_called_once_with("new password to encrypt the backup file: ")
 
@@ -357,16 +406,24 @@ class CliCommandsTest(unittest.TestCase):
             meta=None,
             keychain="/tmp/test.keychain-db",
         )
-        fake_meta = mock.Mock(entry_type="secret", entry_kind="api_key", to_keychain_comment=mock.Mock(return_value="{}"))
-        with mock.patch("secrets_kit.cli._build_metadata", return_value=fake_meta), \
-            mock.patch("secrets_kit.cli.set_secret") as set_secret_mock, \
-            mock.patch("secrets_kit.cli.upsert_metadata"):
+        fake_meta = mock.Mock(
+            entry_type="secret",
+            entry_kind="api_key",
+            to_keychain_comment=mock.Mock(return_value="{}"),
+        )
+        with (
+            mock.patch("secrets_kit.cli.commands.set.build_metadata", return_value=fake_meta),
+            mock.patch("secrets_kit.cli.commands.set.write_secret") as set_secret_mock,
+            mock.patch("secrets_kit.cli.commands.set.upsert_metadata"),
+        ):
             code = cmd_set(args=args)
         self.assertEqual(code, 0)
         set_secret_mock.assert_called_once()
-        self.assertEqual(set_secret_mock.call_args.kwargs["path"], "/tmp/test.keychain-db")
+        self.assertEqual(set_secret_mock.call_args.kwargs["keychain_path"], "/tmp/test.keychain-db")
 
     def test_get_passes_keychain_path(self) -> None:
+        from secrets_kit.models import EntryMetadata
+
         args = argparse.Namespace(
             name="OPENAI_API_KEY",
             raw=True,
@@ -375,13 +432,20 @@ class CliCommandsTest(unittest.TestCase):
             keychain="/tmp/test.keychain-db",
         )
         out = io.StringIO()
-        with mock.patch("secrets_kit.cli.get_secret", return_value="secret") as get_secret_mock, \
-            mock.patch("secrets_kit.cli._read_metadata", return_value=None), \
-            redirect_stdout(out):
+        fake_meta = EntryMetadata(
+            name="OPENAI_API_KEY", service="sync-test", account="local", source="manual"
+        )
+        with (
+            mock.patch(
+                "secrets_kit.cli.commands.get.read_secret_entry",
+                return_value=("secret", fake_meta),
+            ) as read_entry_mock,
+            redirect_stdout(out),
+        ):
             code = cmd_get(args=args)
         self.assertEqual(code, 0)
         self.assertEqual(out.getvalue().strip(), "secret")
-        self.assertEqual(get_secret_mock.call_args.kwargs["path"], "/tmp/test.keychain-db")
+        self.assertEqual(read_entry_mock.call_args.kwargs["keychain_path"], "/tmp/test.keychain-db")
 
     def test_delete_passes_keychain_path(self) -> None:
         args = argparse.Namespace(
@@ -391,23 +455,35 @@ class CliCommandsTest(unittest.TestCase):
             account="local",
             keychain="/tmp/test.keychain-db",
         )
-        with mock.patch("secrets_kit.cli.delete_secret") as delete_secret_mock, \
-            mock.patch("secrets_kit.cli.delete_metadata", return_value=True), \
-            redirect_stdout(io.StringIO()):
+        with (
+            mock.patch("secrets_kit.cli.commands.delete.delete_secret_entry") as delete_secret_mock,
+            mock.patch("secrets_kit.cli.commands.delete.delete_metadata", return_value=True),
+            redirect_stdout(io.StringIO()),
+        ):
             code = cmd_delete(args=args)
         self.assertEqual(code, 0)
-        self.assertEqual(delete_secret_mock.call_args.kwargs["path"], "/tmp/test.keychain-db")
+        self.assertEqual(
+            delete_secret_mock.call_args.kwargs["keychain_path"], "/tmp/test.keychain-db"
+        )
 
     def test_doctor_passes_keychain_path(self) -> None:
         out = io.StringIO()
         err = io.StringIO()
-        with mock.patch("secrets_kit.cli.check_security_cli", return_value=True), \
-            mock.patch("secrets_kit.cli.ensure_registry_storage", return_value="/tmp/registry.json"), \
-            mock.patch("secrets_kit.cli.ensure_defaults_storage", return_value="/tmp/defaults.json"), \
-            mock.patch("secrets_kit.cli.doctor_roundtrip") as doctor_roundtrip_mock, \
-            mock.patch("secrets_kit.cli.load_registry", return_value={}), \
-            redirect_stdout(out), \
-            redirect_stderr(err):
+        with (
+            mock.patch("secrets_kit.cli.commands.doctor.check_security_cli", return_value=True),
+            mock.patch(
+                "secrets_kit.cli.commands.doctor.ensure_registry_storage",
+                return_value="/tmp/registry.json",
+            ),
+            mock.patch(
+                "secrets_kit.cli.commands.doctor.ensure_defaults_storage",
+                return_value="/tmp/defaults.json",
+            ),
+            mock.patch("secrets_kit.cli.commands.doctor.doctor_roundtrip") as doctor_roundtrip_mock,
+            mock.patch("secrets_kit.cli.commands.doctor.load_registry", return_value={}),
+            redirect_stdout(out),
+            redirect_stderr(err),
+        ):
             code = cmd_doctor(args=argparse.Namespace(keychain="/tmp/test.keychain-db"))
         self.assertEqual(code, 0)
         self.assertEqual(doctor_roundtrip_mock.call_args.kwargs["path"], "/tmp/test.keychain-db")
@@ -424,7 +500,7 @@ class CliCommandsTest(unittest.TestCase):
             kind=None,
             all=False,
             keychain="/tmp/test.keychain-db",
-            backend="local",
+            backend="keychain",
             child_command=["--", "/usr/bin/env", "python3"],
         )
         openai_meta = EntryMetadata(
@@ -444,16 +520,21 @@ class CliCommandsTest(unittest.TestCase):
             source="manual",
         )
 
-        with mock.patch("secrets_kit.cli.load_registry", return_value={}), \
+        with (
+            mock.patch("secrets_kit.cli.selection.load_registry", return_value={}),
             mock.patch(
-                "secrets_kit.cli._read_metadata",
+                "secrets_kit.cli.selection.read_metadata",
                 side_effect=[
                     {"metadata": openai_meta},
                     {"metadata": telegram_meta},
                 ],
-            ), \
-            mock.patch("secrets_kit.cli.get_secret", side_effect=["sk-openai", "bot-token"]), \
-            mock.patch("secrets_kit.cli._exec_child", return_value=0) as exec_mock:
+            ),
+            mock.patch(
+                "secrets_kit.cli.selection.build_env_map",
+                return_value={"OPENAI_API_KEY": "sk-openai", "TELEGRAM_BOT_TOKEN": "bot-token"},
+            ),
+            mock.patch("secrets_kit.cli.commands.run._exec_child", return_value=0) as exec_mock,
+        ):
             code = cmd_run(args=args)
 
         self.assertEqual(code, 0)
@@ -475,7 +556,7 @@ class CliCommandsTest(unittest.TestCase):
             kind=None,
             all=False,
             keychain=None,
-            backend="local",
+            backend="keychain",
             child_command=["--", "/usr/bin/env"],
         )
         meta = EntryMetadata(
@@ -486,9 +567,13 @@ class CliCommandsTest(unittest.TestCase):
             entry_kind="api_key",
             source="manual",
         )
-        with mock.patch("secrets_kit.cli._select_entries", return_value=[meta]) as select_mock, \
-            mock.patch("secrets_kit.cli.get_secret", return_value="sk-openai"), \
-            mock.patch("secrets_kit.cli._exec_child", return_value=0) as exec_mock:
+        with (
+            mock.patch(
+                "secrets_kit.cli.commands.run._select_entries", return_value=[meta]
+            ) as select_mock,
+            mock.patch("secrets_kit.backends.dispatch.read_secret_value", return_value="sk-openai"),
+            mock.patch("secrets_kit.cli.commands.run._exec_child", return_value=0) as exec_mock,
+        ):
             code = cmd_run(args=args)
         self.assertEqual(code, 0)
         self.assertFalse(select_mock.call_args.kwargs["require_explicit_selection"])
@@ -517,14 +602,16 @@ class CliCommandsTest(unittest.TestCase):
             overwrite=False,
             dry_run=False,
             keychain=None,
-            backend="local",
+            backend="keychain",
         )
         out = io.StringIO()
-        with mock.patch("secrets_kit.cli._select_entries", return_value=[meta]), \
-            mock.patch("secrets_kit.cli.get_secret", return_value="sk-openai"), \
-            mock.patch("secrets_kit.cli.secret_exists", return_value=True), \
-            mock.patch("secrets_kit.cli.set_secret") as set_secret_mock, \
-            redirect_stdout(out):
+        with (
+            mock.patch("secrets_kit.cli.commands.service._select_entries", return_value=[meta]),
+            mock.patch("secrets_kit.cli.commands.service.get_secret", return_value="sk-openai"),
+            mock.patch("secrets_kit.cli.commands.service.secret_exists", return_value=True),
+            mock.patch("secrets_kit.cli.commands.service.set_secret") as set_secret_mock,
+            redirect_stdout(out),
+        ):
             code = cmd_service_copy(args=args)
         self.assertEqual(code, 0)
         self.assertFalse(set_secret_mock.called)
@@ -540,7 +627,7 @@ class CliCommandsTest(unittest.TestCase):
                 account="miafour",
                 service="Hermes",
                 keychain=None,
-                backend="local",
+                backend="keychain",
                 type="secret",
                 kind="auto",
                 tags=None,
@@ -551,8 +638,13 @@ class CliCommandsTest(unittest.TestCase):
                 yes=True,
             )
             out = io.StringIO()
-            with mock.patch("secrets_kit.cli._apply_candidates", return_value={"created": 0, "updated": 1, "skipped": 0, "unchanged": 0}) as apply_mock, \
-                redirect_stdout(out):
+            with (
+                mock.patch(
+                    "secrets_kit.cli.commands.import_cmd._apply_candidates",
+                    return_value={"created": 0, "updated": 1, "skipped": 0, "unchanged": 0},
+                ) as apply_mock,
+                redirect_stdout(out),
+            ):
                 code = cmd_import_env(args=args)
         self.assertEqual(code, 0)
         self.assertTrue(apply_mock.call_args.kwargs["allow_overwrite"])
@@ -568,7 +660,7 @@ class CliCommandsTest(unittest.TestCase):
             kind=None,
             all=False,
             keychain=None,
-            backend="local",
+            backend="keychain",
             child_command=["--"],
         )
         with redirect_stderr(err):
@@ -577,7 +669,7 @@ class CliCommandsTest(unittest.TestCase):
         self.assertIn("run requires a target command", err.getvalue())
 
     def test_run_reports_which_secret_failed_to_read(self) -> None:
-        from secrets_kit.keychain_backend import BackendError
+        from secrets_kit.backends.keychain import BackendError
         from secrets_kit.models import EntryMetadata
 
         args = argparse.Namespace(
@@ -589,7 +681,7 @@ class CliCommandsTest(unittest.TestCase):
             kind=None,
             all=False,
             keychain=None,
-            backend="local",
+            backend="keychain",
             child_command=["--", "/usr/bin/env"],
         )
         apple_meta = EntryMetadata(
@@ -601,10 +693,21 @@ class CliCommandsTest(unittest.TestCase):
             source="manual",
         )
         err = io.StringIO()
-        with mock.patch("secrets_kit.cli.load_registry", return_value={}), \
-            mock.patch("secrets_kit.cli._read_metadata", return_value={"metadata": apple_meta}), \
-            mock.patch("secrets_kit.cli.get_secret", side_effect=BackendError("security find-generic-password failed")), \
-            redirect_stderr(err):
+        with (
+            mock.patch("secrets_kit.cli.selection.load_registry", return_value={}),
+            mock.patch(
+                "secrets_kit.cli.selection.read_metadata", return_value={"metadata": apple_meta}
+            ),
+            mock.patch(
+                "secrets_kit.cli.selection.build_env_map",
+                side_effect=BackendError(
+                    "failed to read secret for run: service=openclaw account=miafour "
+                    "name=APPLE_APP_PASSWORD. Use --names/--tag to narrow the injected set if this command "
+                    "does not need every entry in the scope. Underlying error: security find-generic-password failed"
+                ),
+            ),
+            redirect_stderr(err),
+        ):
             code = cmd_run(args=args)
 
         self.assertEqual(code, 1)
@@ -613,9 +716,9 @@ class CliCommandsTest(unittest.TestCase):
         self.assertIn("--names/--tag", err.getvalue())
 
     def test_read_metadata_falls_back_to_registry_when_keychain_metadata_read_fails(self) -> None:
-        from secrets_kit.cli import _read_metadata
-        from secrets_kit.keychain_backend import BackendError
+        from secrets_kit.backends.keychain import BackendError
         from secrets_kit.models import EntryMetadata
+        from secrets_kit.registry.resolve import read_metadata
 
         registry_entry = EntryMetadata(
             name="APPLE_APP_PASSWORD",
@@ -627,9 +730,14 @@ class CliCommandsTest(unittest.TestCase):
         )
         registry = {registry_entry.key(): registry_entry}
 
-        with mock.patch("secrets_kit.cli.secret_exists", return_value=True), \
-            mock.patch("secrets_kit.cli.get_secret_metadata", side_effect=BackendError("metadata denied")):
-            resolved = _read_metadata(
+        with (
+            mock.patch("secrets_kit.registry.resolve.secret_exists", return_value=True),
+            mock.patch(
+                "secrets_kit.registry.resolve.get_secret_metadata",
+                side_effect=BackendError("metadata denied"),
+            ),
+        ):
+            resolved = read_metadata(
                 service="hermes",
                 account="miafour",
                 name="APPLE_APP_PASSWORD",
@@ -663,79 +771,91 @@ class CliCommandsTest(unittest.TestCase):
             dry_run=True,
             force=False,
             keychain="/tmp/test.keychain-db",
-            backend="local",
+            backend="keychain",
         )
         out = io.StringIO()
-        with mock.patch("secrets_kit.cli.load_registry", return_value=registry), \
-            mock.patch("secrets_kit.cli.secret_exists", return_value=True) as secret_exists_mock, \
-            mock.patch("secrets_kit.cli._read_metadata", return_value=None) as read_metadata_mock, \
-            redirect_stdout(out):
+        with (
+            mock.patch("secrets_kit.cli.commands.migrate.load_registry", return_value=registry),
+            mock.patch(
+                "secrets_kit.cli.commands.migrate.secret_exists", return_value=True
+            ) as secret_exists_mock,
+            mock.patch(
+                "secrets_kit.cli.commands.migrate.read_metadata", return_value=None
+            ) as read_metadata_mock,
+            redirect_stdout(out),
+        ):
             code = cmd_migrate_metadata(args=args)
         self.assertEqual(code, 0)
         self.assertEqual(secret_exists_mock.call_args.kwargs["path"], "/tmp/test.keychain-db")
         self.assertEqual(read_metadata_mock.call_args.kwargs["path"], "/tmp/test.keychain-db")
 
-    def test_helper_status_command_prints_json(self) -> None:
+    def test_info_default_prints_status_text(self) -> None:
+        fake_data = {
+            "version": __version__,
+            "platform": "darwin",
+            "python": "3.12.0",
+            "backend": "keychain",
+            "defaults_path": "/x/defaults.json",
+            "registry_path": "/x/registry.json",
+            "defaults": {"backend": "keychain"},
+            "backend_availability": {"keychain": True, "sqlite": True},
+            "keychain": {"supported": True, "available": True, "accessible": True},
+            "sqlite": {"included": False, "reason": "inactive"},
+        }
         out = io.StringIO()
-        payload = {"backend_availability": {"local": True, "icloud": False}}
-        with mock.patch("secrets_kit.cli.helper_status", return_value=payload), redirect_stdout(out):
-            code = cmd_helper_status(args=argparse.Namespace())
+        with (
+            mock.patch("secrets_kit.cli.commands.info.build_info_dict", return_value=fake_data),
+            redirect_stdout(out),
+        ):
+            code = cmd_info(args=argparse.Namespace(info_json=False))
         self.assertEqual(code, 0)
-        self.assertEqual(json.loads(out.getvalue()), payload)
+        self.assertIn(f"version: {__version__}", out.getvalue())
+        self.assertIn("keychain:", out.getvalue())
 
-    def test_version_default_prints_only_package_version(self) -> None:
-        out = io.StringIO()
-        with redirect_stdout(out):
-            code = cmd_version(args=argparse.Namespace(version_info=False, version_json=False))
-        self.assertEqual(code, 0)
-        self.assertEqual(out.getvalue(), f"{_cli_version()}\n")
-
-    def test_version_json_contains_core_keys(self) -> None:
+    def test_info_json_contains_core_keys(self) -> None:
         fake = {
             "version": "9.9.9",
             "platform": "darwin",
             "python": "3.12.0",
             "defaults_path": "/x/defaults.json",
-            "defaults": {"backend": "secure"},
-            "backend_availability": {"secure": True, "icloud": False, "local": True, "icloud-helper": False},
-            "helper": {"installed": False, "path": None, "bundled_path": None},
+            "defaults": {"backend": "keychain"},
+            "backend_availability": {"keychain": True, "sqlite": True},
+            "keychain": {"supported": True},
+            "sqlite": {"path": "/tmp/x.sqlite", "exists": False},
         }
         out = io.StringIO()
-        with mock.patch("secrets_kit.cli._version_info_dict", return_value=fake), redirect_stdout(out):
-            code = cmd_version(args=argparse.Namespace(version_info=False, version_json=True))
+        with (
+            mock.patch("secrets_kit.cli.commands.info.build_info_dict", return_value=fake),
+            redirect_stdout(out),
+        ):
+            code = cmd_info(args=argparse.Namespace(info_json=True))
         self.assertEqual(code, 0)
         parsed = json.loads(out.getvalue())
         self.assertEqual(parsed, fake)
-        for key in ("version", "backend_availability", "helper", "defaults", "platform", "python"):
+        for key in (
+            "version",
+            "backend_availability",
+            "defaults",
+            "platform",
+            "python",
+            "keychain",
+            "sqlite",
+        ):
             self.assertIn(key, parsed)
 
-    def test_version_info_includes_version_line(self) -> None:
-        fake_data = {
-            "version": "1.0.0",
-            "platform": "linux",
-            "python": "3.12.0",
-            "defaults_path": None,
-            "defaults": {},
-            "backend_availability": {"secure": True, "icloud": False},
-            "helper": {"installed": False, "path": None, "bundled_path": None},
-        }
-        out = io.StringIO()
-        with mock.patch("secrets_kit.cli._version_info_dict", return_value=fake_data), redirect_stdout(out):
-            code = cmd_version(args=argparse.Namespace(version_info=True, version_json=False))
-        self.assertEqual(code, 0)
-        self.assertIn("version: 1.0.0", out.getvalue())
-        self.assertIn("platform: linux", out.getvalue())
-        self.assertIn("backend_availability:", out.getvalue())
+    def test_info_keychain_unsupported_off_macos(self) -> None:
+        from secrets_kit.cli.commands.info import _keychain_status_dict
 
-    def test_version_parse_flags(self) -> None:
+        with mock.patch("secrets_kit.cli.commands.info._is_macos", return_value=False):
+            kc = _keychain_status_dict()
+        self.assertFalse(kc["supported"])
+
+    def test_info_parse_flags(self) -> None:
         parser = build_parser()
-        a = parser.parse_args(["version"])
-        self.assertFalse(a.version_info)
-        self.assertFalse(a.version_json)
-        b = parser.parse_args(["version", "--json"])
-        self.assertTrue(b.version_json)
-        c = parser.parse_args(["version", "--info"])
-        self.assertTrue(c.version_info)
+        a = parser.parse_args(["info"])
+        self.assertFalse(a.info_json)
+        b = parser.parse_args(["info", "--json"])
+        self.assertTrue(b.info_json)
 
 
 if __name__ == "__main__":

@@ -51,7 +51,6 @@ Options:
   --mode MODE    login-agent, service-agent, or service-daemon (default: login-agent)
   --use-existing use an existing Secrets-Kit item instead of creating a test item
   --backend ID    secure only (alias: local); default: secure or SECKIT_LAUNCHD_BACKEND.
-                  The former icloud-helper path was removed from seckit.
   --service NAME service scope for the test item (default: launchd-smoke)
   --account NAME account scope for the test item (default: current user)
   --name NAME    secret/env name to inject (default: SECKIT_TEST_ENV)
@@ -92,10 +91,6 @@ done
 
 case "$BACKEND" in
   local|secure) BACKEND="secure" ;;
-  icloud|icloud-helper)
-    echo "ERROR: icloud-helper was removed from seckit; use --backend secure (or local)." >&2
-    exit 2
-    ;;
   *) echo "unsupported --backend: $BACKEND (use secure or local)" >&2; exit 2 ;;
 esac
 
@@ -117,11 +112,11 @@ CHILD_SCRIPT="${SCRIPT_DIR}/seckit_launchd_agent_simulator.py"
 
 require_tools() {
   if [[ -z "$SECKIT_BIN" || ! -x "$SECKIT_BIN" ]]; then
-    echo "ERROR: could not find installed seckit executable. Activate the venv or set SECKIT_BIN=/path/to/seckit." >&2
+    echo "ERROR: could not find installed seckit executable. Activate the intended environment or set SECKIT_BIN=/path/to/seckit." >&2
     exit 1
   fi
   if [[ -z "$PYTHON_BIN" || ! -x "$PYTHON_BIN" ]]; then
-    echo "ERROR: could not find python executable. Activate the venv or set PYTHON_BIN=/path/to/python." >&2
+    echo "ERROR: could not find python executable. Activate the intended environment or set PYTHON_BIN=/path/to/python." >&2
     exit 1
   fi
   if [[ ! -f "$CHILD_SCRIPT" ]]; then

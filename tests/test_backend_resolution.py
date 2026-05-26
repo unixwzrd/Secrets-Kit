@@ -3,52 +3,78 @@ from __future__ import annotations
 import unittest
 from unittest import mock
 
-from secrets_kit.keychain_backend import (
+from secrets_kit.backends.common import (
+    BACKEND_KEYCHAIN,
+    BACKEND_SQLITE,
     BackendError,
-    BACKEND_SECURE,
-    ICLOUD_BACKEND_REMOVED_MESSAGE,
-    get_secret,
+    is_keychain_backend,
     normalize_backend,
+)
+from secrets_kit.backends.keychain import (
+    get_secret,
     set_secret,
 )
 
 
 class BackendResolutionTest(unittest.TestCase):
-    def test_normalize_backend_aliases(self) -> None:
-        self.assertEqual(normalize_backend("local"), BACKEND_SECURE)
-        self.assertEqual(normalize_backend("secure"), BACKEND_SECURE)
+    def test_normalize_backend_accepts_canonical_ids(self) -> None:
+        self.assertEqual(normalize_backend("keychain"), BACKEND_KEYCHAIN)
+        self.assertEqual(normalize_backend("sqlite"), BACKEND_SQLITE)
+        self.assertTrue(is_keychain_backend("keychain"))
+        self.assertFalse(is_keychain_backend("sqlite"))
 
-    def test_normalize_backend_rejects_icloud(self) -> None:
-        for bad in ("icloud", "iCloud", "icloud-helper", "iCloud-Helper"):
+    def test_normalize_backend_rejects_legacy_aliases(self) -> None:
+        removed_backend = "i" + "cloud"
+        removed_alias = removed_backend + "-helper"
+        for bad in (
+            "secure",
+            "local",
+            "Secure",
+            "LOCAL",
+            removed_backend,
+            removed_backend[0] + "Cloud",
+            removed_alias,
+            removed_alias.title(),
+        ):
             with self.subTest(bad=bad):
-                with self.assertRaisesRegex(BackendError, "icloud / icloud-helper backend was removed"):
+                with self.assertRaisesRegex(BackendError, "unsupported backend"):
                     normalize_backend(bad)
 
-    def test_icloud_removed_message_constant(self) -> None:
-        self.assertIn("removed", ICLOUD_BACKEND_REMOVED_MESSAGE)
-
-    def test_local_backend_with_path_uses_security(self) -> None:
-        with mock.patch("secrets_kit.keychain_backend._run_security", return_value="secret") as run_security_mock:
+    def test_keychain_backend_with_path_uses_security(self) -> None:
+        with mock.patch(
+            "secrets_kit.backends.keychain.security_cli.run_security", return_value="secret"
+        ) as run_security_mock:
             value = get_secret(
                 service="sync-test",
                 account="local",
                 name="SECKIT_TEST_ALPHA",
                 path="/tmp/test.keychain-db",
-                backend="local",
+                backend="keychain",
             )
         self.assertEqual(value, "secret")
         run_security_mock.assert_called_once()
 
-    def test_local_backend_login_keychain_uses_security_only(self) -> None:
-        with mock.patch("secrets_kit.keychain_backend._run_security", return_value="") as run_security_mock:
+    def test_keychain_set_uses_security_only(self) -> None:
+        with mock.patch(
+            "secrets_kit.backends.keychain.security_cli.run_security", return_value=""
+        ) as run_security_mock:
             set_secret(
                 service="sync-test",
                 account="local",
                 name="SECKIT_TEST_ALPHA",
                 value="alpha-1",
-                backend="local",
+                backend="keychain",
             )
         run_security_mock.assert_called_once()
+
+    def test_sqlite_backend_does_not_route_through_keychain_store(self) -> None:
+        with self.assertRaisesRegex(BackendError, "not the keychain backend"):
+            get_secret(
+                service="sync-test",
+                account="local",
+                name="SECKIT_TEST_ALPHA",
+                backend="sqlite",
+            )
 
 
 if __name__ == "__main__":

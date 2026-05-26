@@ -1,5 +1,10 @@
 # Quickstart
 
+**Created**: 2026-04-12  
+**Updated**: 2026-05-26
+
+Next steps after this page: [CONCEPTS.md](CONCEPTS.md) (mental model), [CLI_REFERENCE.md](CLI_REFERENCE.md) (all commands), [WORKFLOWS.md](WORKFLOWS.md) (recipes).
+
 - [Quickstart](#quickstart)
   - [1. Install it](#1-install-it)
   - [2. Make sure Keychain access works](#2-make-sure-keychain-access-works)
@@ -15,45 +20,32 @@ This is the shortest practical path to using Secrets Kit on a local macOS machin
 
 ## 1. Install it
 
-Preferred path, install the tagged release directly from GitHub:
+**Preferred (operator):** see [INSTALL.md](INSTALL.md).
 
 ```bash
-pip install "git+https://github.com/unixwzrd/Secrets-Kit.git@v1.2.0"
+curl -fsSL https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/v1.2.3/install.sh | bash
 ```
 
-If you explicitly want the current branch tip instead of the tagged release:
+After install, verify:
 
 ```bash
-pip install "git+https://github.com/unixwzrd/Secrets-Kit.git"
+seckit doctor --install-check
+seckit version
 ```
 
-If you want an isolated editable local checkout for development:
+**Development checkout** (editable, from a clone):
 
 ```bash
 cd ~/projects/Secrets-Kit
-python -m venv .venv
-source .venv/bin/activate
-pip install -e .
+make install-dev
 ```
 
-If `pip` is not installed or is not on your `PATH`, use `python3 -m pip` instead.
-
-Tagged release (PyPI/git URL; includes PyYAML for JSON/YAML imports):
-
-```bash
-pip install "git+https://github.com/unixwzrd/Secrets-Kit.git@v1.2.0#egg=seckit"
-```
-
-Check the installed version:
-
-```bash
-seckit version
-```
+That installs the CLI plus **ruff** and **basedpyright** for `make lint`. The installer always uses `python -m pip` on your active conda/venv, or creates `$HOME/.local/share/seckit/venv` if neither is active.
 
 ## 2. Make sure Keychain access works
 
 ```bash
-seckit keychain-status
+seckit info
 seckit unlock
 ```
 

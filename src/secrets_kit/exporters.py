@@ -1,4 +1,8 @@
-"""Export helpers for shell runtime usage."""
+"""
+secrets_kit.exporters
+
+Export helpers for shell runtime usage.
+"""
 
 from __future__ import annotations
 

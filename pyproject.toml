@@ -12,7 +12,12 @@ license = "MIT"
 authors = [{ name = "unixwzrd", email = "unixwzrd@unixwzrd.ai" }]
 dependencies = [
   "cryptography>=42.0.0",
-  "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "ruff>=0.8",
+  "basedpyright>=1.20",
 ]
 
 [project.scripts]
@@ -22,10 +27,29 @@ seckit = "secrets_kit.cli:main"
 [tool.setuptools]
 package-dir = {"" = "src"}
 
-[tool.setuptools.package-data]
-secrets_kit = [
-  "native_helper_bundled/README.md",
-]
-
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"secrets_kit.schemas" = ["builtin/*.json"]
+"secrets_kit.taxonomy" = ["builtin/*.json"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B"]
+ignore = ["E501", "B008"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/__init__.py" = ["F401"]
+
+[tool.basedpyright]
+include = ["src", "tests"]
+extraPaths = ["src"]
+pythonVersion = "3.9"
+typeCheckingMode = "off"
+reportMissingImports = true
+reportMissingModuleSource = true

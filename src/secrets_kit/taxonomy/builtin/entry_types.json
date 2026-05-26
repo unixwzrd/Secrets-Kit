@@ -1,0 +1,14 @@
+{
+  "entry_types": [
+    {
+      "name": "secret",
+      "builtin": true,
+      "operator_comment": "built-in policy bucket for general secrets"
+    },
+    {
+      "name": "pii",
+      "builtin": true,
+      "operator_comment": "built-in policy bucket for personally identifiable information"
+    }
+  ]
+}
