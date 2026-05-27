@@ -3,105 +3,98 @@
 **Created**: 2026-05-26  
 **Updated**: 2026-05-26
 
-Canonical operator install for macOS and Linux. Phase 1 is **curl | bash** plus pip-from-GitHub — no Homebrew, Docker, daemons, or repo mirroring.
+**Pre-release (`dev` line):** version `2.0.0-pre-0a` · git tag `v2.0.0-pre-0a`
 
-## First install
+Operator install: **curl | bash** + pip from GitHub. See [Publish a release](#publish-a-release) before tagging.
+
+---
+
+## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/v1.2.3/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/v2.0.0-pre-0a/install.sh | bash -s -- --yes
 ```
 
-Each release `install.sh` bakes in its tag (`v1.2.3` today). Override when needed:
+Verify:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/v1.2.3/install.sh | bash -s -- --ref v1.2.3 --yes
+seckit doctor --install-check
+seckit version
 ```
 
 ## Upgrade
 
-Preserves your Python environment, `~/.config/seckit` config, registry, and backend data. Only upgrades the package and dependencies, then reruns a fast install check.
-
 ```bash
-curl -fsSL https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/v1.2.3/install.sh | bash -s -- --upgrade
+curl -fsSL https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/v2.0.0-pre-0a/install.sh | bash -s -- --upgrade
 ```
 
-Or, after install:
-
-```bash
-seckit install --upgrade
-```
+Or: `seckit install --upgrade`
 
 ## Python environment
 
-The installer never uses arbitrary system `pip`. It always runs `"$PYTHON" -m pip` on a selected interpreter.
+Installer uses `"$PYTHON" -m pip` only. Resolution order: active **conda** → active **venv** → `$HOME/.local/share/seckit/venv`.
 
-**Resolution order (first install):**
+Upgrade reuses the interpreter in `~/.config/seckit/install.json` when it still exists.
 
-1. Active **conda** environment (`CONDA_PREFIX`)
-2. Active **venv** (`VIRTUAL_ENV`)
-3. **Managed venv** at `$HOME/.local/share/seckit/venv` (created if needed)
-
-**Upgrade:** reads `~/.config/seckit/install.json` and reuses the recorded interpreter when it still exists and is executable. If missing, the installer warns and falls back to the resolution order above.
-
-**Requirements:** Python 3.9+, `python -m pip` on that interpreter.
-
-## Install state
-
-`~/.config/seckit/install.json` records:
-
-- `interpreter` — Python used for install/upgrade
-- `venv_path` — venv path or `null`
-- `install_method` — `conda`, `venv`, or `managed`
-- `version` — installed seckit version
-- `ref` — git ref used for pip
-
-## Verify
-
-```bash
-seckit doctor --install-check
-```
-
-Fast check only (no keychain roundtrip, no registry drift scan). Target: under one second on a warm machine.
-
-## Remote install
+## Remote
 
 ```bash
 ssh -o BatchMode=yes -o ConnectTimeout=10 user@host \
-  'curl -fsSL https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/v1.2.3/install.sh | bash -s -- --yes'
+  'curl -fsSL https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/v2.0.0-pre-0a/install.sh | bash -s -- --yes'
 ```
 
-Convenience wrapper:
+## Local clone (not curl)
 
 ```bash
-seckit install user@host --yes
+./install.sh --dev --yes
+# or: make install-dev
 ```
 
-## Local development (checkout only)
+---
 
-From a git clone — not for operator `curl | bash`:
+## Publish a release
 
-```bash
-make install-dev
-# or
-./install.sh --dev
-```
+These must match **exactly**:
 
-Uses editable `pip install -e ".[dev]"` and `main` (or `--ref`) — not the baked release tag.
+| Item | Value (example) |
+|------|-----------------|
+| `pyproject.toml` → `version` | `2.0.0-pre-0a` |
+| Git tag | `v2.0.0-pre-0a` (`v` + version string) |
+| `install.sh` → `SECKIT_REF_BAKED` | `v2.0.0-pre-0a` |
+| `install.sh` → `SECKIT_INSTALL_URL` | `…/v2.0.0-pre-0a/install.sh` |
+| `install_constants.py` → `DEFAULT_REF` | same as `SECKIT_REF_BAKED` |
 
-## Makefile targets (clone only)
+**Steps:**
 
-| Target | Action |
-|--------|--------|
-| `make install` | Run `./install.sh` |
-| `make install-dev` | Run `./install.sh --dev` |
-| `make install-upgrade` | Run `./install.sh --upgrade` |
-| `make install-check` | `seckit doctor --install-check` |
+1. Commit and push branch `dev`.
+2. Tag the commit you are shipping (tip of `dev` after push):
+
+   ```bash
+   git tag -a v2.0.0-pre-0a -m "Pre-release 2.0.0-pre-0a"
+   git push origin v2.0.0-pre-0a
+   ```
+
+3. Confirm tag points at that commit (not an older `main` commit):
+
+   ```bash
+   git rev-parse v2.0.0-pre-0a origin/dev
+   git show v2.0.0-pre-0a:pyproject.toml | grep '^version'
+   ```
+
+4. Create GitHub prerelease on tag `v2.0.0-pre-0a`.
+
+5. Preflight (optional):
+
+   ```bash
+   SECKIT_RELEASE_TAG=v2.0.0-pre-0a bash ./scripts/release_preflight.sh
+   ```
+
+Pushing to branch **`dev`** does **not** move a tag. The tag must be created on the commit **after** push.
+
+---
 
 ## Non-goals (phase 1)
 
-- rsync / repo mirroring / deployment orchestration
-- systemd / launchd service install
-- Homebrew, Docker, PyInstaller
-- Custom install root directories
+No rsync deploy, Homebrew/Docker, daemons, or custom install roots.
 
 See also: [QUICKSTART.md](QUICKSTART.md), [CLI_REFERENCE.md](CLI_REFERENCE.md).

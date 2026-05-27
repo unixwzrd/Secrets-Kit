@@ -2,9 +2,9 @@
 # Secrets-Kit operator installer (curl | bash).
 set -euo pipefail
 
-# Baked in per release tag (override with --ref or SECKIT_REF env).
-SECKIT_REF_BAKED="v1.2.3"
-SECKIT_INSTALL_URL="${SECKIT_INSTALL_URL:-https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/v1.2.3/install.sh}"
+# Baked in per release (must match pyproject.toml version with a leading v).
+SECKIT_REF_BAKED="v2.0.0-pre-0a"
+SECKIT_INSTALL_URL="${SECKIT_INSTALL_URL:-https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/v2.0.0-pre-0a/install.sh}"
 SECKIT_REF="${SECKIT_REF:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -67,7 +67,7 @@ done
 
 if [[ -z "${SECKIT_REF}" ]]; then
   if [[ "${DEV_MODE}" -eq 1 ]]; then
-    SECKIT_REF="main"
+    SECKIT_REF="dev"
   else
     SECKIT_REF="${SECKIT_REF_BAKED}"
   fi

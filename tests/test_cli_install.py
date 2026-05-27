@@ -25,7 +25,7 @@ class CliInstallTest(unittest.TestCase):
     def test_remote_ssh_command_uses_batch_mode_and_curl(self) -> None:
         args = argparse.Namespace(
             remote_host="user@host.example",
-            ref="v1.2.3",
+            ref="v2.0.0-pre-0a",
             repo_url=None,
             install_url=None,
             upgrade=False,
@@ -48,7 +48,7 @@ class CliInstallTest(unittest.TestCase):
     def test_build_install_sh_argv_upgrade(self) -> None:
         args = argparse.Namespace(
             remote_host=None,
-            ref="v1.2.3",
+            ref="v2.0.0-pre-0a",
             repo_url=None,
             install_url=None,
             upgrade=True,

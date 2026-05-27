@@ -6,6 +6,10 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+### 2026-05-26 — Align installer refs with 2.0.0-pre-0a
+
+- **What changed:** `install.sh`, `install_constants.py`, and [INSTALL.md](docs/INSTALL.md) now use `v2.0.0-pre-0a` (matching `pyproject.toml`). Added minimal publish checklist (tag `v` + version, push tag after `dev` push). `--dev` install defaults pip ref to `dev`.
+
 ### 2026-05-26 — Bootstrap install experience (phase 1)
 
 - **What changed:** Operator install via `curl -fsSL …/install.sh | bash`; `install.sh` + `scripts/lib/install_lib.sh` with conda → venv → managed venv (`$HOME/.local/share/seckit/venv`), `"$PYTHON" -m pip` from tagged GitHub URL, `~/.config/seckit/install.json` state, and `--upgrade` reusing the recorded interpreter when still executable. `seckit install` (--upgrade, remote SSH wrapper), `seckit doctor --install-check` (fast path in `cli/install_check.py`). Taxonomy builtin seeds added to `pyproject.toml` package-data. Docs: [INSTALL.md](docs/INSTALL.md); Makefile `install`, `install-dev`, `install-upgrade`, `install-check`.
