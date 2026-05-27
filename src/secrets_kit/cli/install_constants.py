@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-DEFAULT_REF = "v2.0.0-pre-0a"
+DEFAULT_REF = "v2.0.0a0"
 DEFAULT_REPO_URL = "https://github.com/unixwzrd/Secrets-Kit.git"
 DEFAULT_INSTALL_URL = (
     f"https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/{DEFAULT_REF}/install.sh"

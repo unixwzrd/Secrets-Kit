@@ -6,9 +6,13 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-### 2026-05-26 — Align installer refs with 2.0.0-pre-0a
+### 2026-05-26 — PEP 440 pre-release version `2.0.0a0`
 
-- **What changed:** `install.sh`, `install_constants.py`, and [INSTALL.md](docs/INSTALL.md) now use `v2.0.0-pre-0a` (matching `pyproject.toml`). Added minimal publish checklist (tag `v` + version, push tag after `dev` push). `--dev` install defaults pip ref to `dev`.
+- **What changed:** `project.version` set to `2.0.0a0` (valid PEP 440; fixes CI/setuptools). Installer refs and docs use tag `v2.0.0a0`. Replaces invalid `2.0.0-pre-0a`.
+
+### 2026-05-26 — Align installer refs with pre-release tag
+
+- **What changed:** `install.sh`, `install_constants.py`, and [INSTALL.md](docs/INSTALL.md) aligned with `pyproject.toml`. Publish checklist (tag `v` + version). `--dev` defaults pip ref to `dev`.
 
 ### 2026-05-26 — Bootstrap install experience (phase 1)
 

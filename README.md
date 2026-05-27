@@ -4,7 +4,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.9%2B-blue)](#requirements) [![Platform](https://img.shields.io/badge/Platform-macOS-informational)](#requirements) [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-**Repository:** `Secrets-Kit` · **CLI:** `seckit` · **Current pre-release:** `v2.0.0-pre-0a` (`dev` branch)
+**Repository:** `Secrets-Kit` · **CLI:** `seckit` · **Current pre-release:** `v2.0.0a0` (`dev` branch)
 
 Secrets Kit is a **macOS** CLI that stores secret values in the **login Keychain**, keeps **metadata on the keychain item** (comment JSON), and uses **`~/.config/seckit/registry.json`** only as an index/recovery aid—not the source of truth. It can **inject** selected secrets into child processes via `seckit run` and **export** shell/dotenv or encrypted backups.
 
@@ -21,7 +21,7 @@ If that trust model is unclear, use something else until it is.
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/v2.0.0-pre-0a/install.sh | bash -s -- --yes
+curl -fsSL https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/v2.0.0a0/install.sh | bash -s -- --yes
 ```
 
 Full install/upgrade docs: [INSTALL.md](docs/INSTALL.md). Development checkout: `make install-dev`. Lint: `make lint`. For day-to-day use, the supported backend is **Keychain** (`--backend keychain`). SQLite standalone CLI use is available for development with `--backend sqlite --sqlite-dev-mode` while encryption-at-rest is still pending. **Reliable host-to-host transfer:** use the integration scripts or explicit export/import flows.

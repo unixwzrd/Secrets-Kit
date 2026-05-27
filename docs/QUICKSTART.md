@@ -23,7 +23,7 @@ This is the shortest practical path to using Secrets Kit on a local macOS machin
 **Preferred (operator):** see [INSTALL.md](INSTALL.md).
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/v2.0.0-pre-0a/install.sh | bash -s -- --yes
+curl -fsSL https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/v2.0.0a0/install.sh | bash -s -- --yes
 ```
 
 After install, verify:
