@@ -33,4 +33,5 @@ jobs:
           python -m pip install -e ".[dev]"
       - name: Run local validation
         run: |
+          export PYTHON="$(command -v python)"
           bash ./scripts/run_local_validation.sh

@@ -1,5 +1,6 @@
 PYTHONPATH=src
-PYTHON ?= python3
+# Prefer `python` (setup-python / venv on CI); override: make lint PYTHON=python3
+PYTHON ?= python
 TEST_JOBS ?= 1
 .DEFAULT_GOAL := help
 

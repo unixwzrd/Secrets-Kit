@@ -35,7 +35,14 @@ done
 
 cd "$REPO_ROOT"
 
-PYTHON_BIN="${PYTHON:-python3}"
+if [[ -n "${PYTHON:-}" ]]; then
+  PYTHON_BIN="$(command -v "$PYTHON" || echo "$PYTHON")"
+elif command -v python >/dev/null 2>&1; then
+  PYTHON_BIN="$(command -v python)"
+else
+  PYTHON_BIN="$(command -v python3)"
+fi
+export PYTHON="$PYTHON_BIN"
 
 echo "== syntax checks =="
 bash -n \
@@ -56,7 +63,8 @@ echo "== python compile check =="
 
 echo
 echo "== lint =="
-make lint PYTHON="$PYTHON_BIN"
+echo "lint interpreter: $PYTHON_BIN ($("$PYTHON_BIN" -V 2>&1 | head -1))"
+make lint
 
 echo
 echo "== python tests =="
