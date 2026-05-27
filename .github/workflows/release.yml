@@ -62,7 +62,7 @@ jobs:
           .wheel-smoke/bin/pip install dist/*.whl
           .wheel-smoke/bin/seckit --version
           .wheel-smoke/bin/seckit info --json | python -m json.tool > /dev/null
-          .wheel-smoke/bin/seckit helper status | python -m json.tool > /dev/null
+          .wheel-smoke/bin/seckit doctor --install-check | python -m json.tool > /dev/null
       - uses: actions/upload-artifact@v4
         with:
           name: wheel-py${{ matrix.python-version }}

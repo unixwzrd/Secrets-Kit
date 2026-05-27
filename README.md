@@ -63,7 +63,7 @@ Avoid repeating `--service` / `--account` via `~/.config/seckit/defaults.json` o
 Issues and PRs welcome (CLI UX, backends, docs, import/export edge cases). Local checks:
 
 ```bash
-pip install -e '.[dev]'
+bash ./scripts/install_dev_deps.sh
 make lint
 make test-fast
 make test-sqlite-unit
