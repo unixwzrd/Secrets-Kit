@@ -15,7 +15,7 @@ Secrets-Kit **wheels and sdist** ship **Python + package data** only (no bundled
 The [release workflow](../.github/workflows/release.yml):
 
 1. **validate** — **release preflight** (on tag `v*`, tag vs `pyproject.toml` `version`; optional `CHANGELOG.md` warning), then tests on **Python 3.12**. **Branch/PR CI** (`.github/workflows/ci.yml`) runs **3.9–3.13** × several macOS images.
-2. **wheel** — matrix **3.9–3.13**; `python -m build -w`; per Python smoke: `seckit version`, `seckit info --json`.
+2. **wheel** — matrix **3.9–3.13**; `python -m build -w`; per Python smoke: `seckit --version`, `seckit info --json`.
 3. **sdist** — source distribution on Ubuntu.
 4. **collect-dist** — merges wheels + sdist into **`seckit-dist`**.
 

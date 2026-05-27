@@ -172,7 +172,8 @@ pip_upgrade_seckit() {
 pip_install_dev() {
   local repo_root="${1:?repo root required}"
   install_log "editable dev install from ${repo_root}"
-  "${PYTHON}" -m pip install -e "${repo_root}[dev]"
+  # Quote .[dev] — unquoted .[dev] in zsh passes [dev] as a second arg; ./[dev] is parsed as /[dev] by pip.
+  (cd "${repo_root}" && "${PYTHON}" -m pip install -e '.[dev]')
 }
 
 write_install_state() {

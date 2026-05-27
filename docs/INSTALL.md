@@ -21,7 +21,7 @@ Verify:
 
 ```bash
 seckit doctor --install-check
-seckit version
+seckit --version
 ```
 
 ## Upgrade

@@ -14,13 +14,13 @@ Usage:
 Runs the CI-safe local validation sequence:
   - shell script syntax checks
   - Python bytecode compile check
-  - ruff + basedpyright lint (make lint; requires pip install -e ".[dev]")
+  - ruff + basedpyright lint (make lint; requires pip install -e '.[dev]' from repo root)
   - Python unittest suite
   - optional localhost transport validation when ssh localhost works
 
 Environment:
   PYTHON   interpreter to use (default: python3). Activate the intended environment first.
-  Install dev tools once: pip install -e ".[dev]"
+  Install dev tools once (zsh: quote the specifier): pip install -e '.[dev]'
 EOF
 }
 

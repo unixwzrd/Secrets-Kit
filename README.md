@@ -27,7 +27,7 @@ curl -fsSL https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/v2.0.0a0/insta
 Full install/upgrade docs: [INSTALL.md](docs/INSTALL.md). Development checkout: `make install-dev`. Lint: `make lint`. For day-to-day use, the supported backend is **Keychain** (`--backend keychain`). SQLite standalone CLI use is available for development with `--backend sqlite --sqlite-dev-mode` while encryption-at-rest is still pending. **Reliable host-to-host transfer:** use the integration scripts or explicit export/import flows.
 
 ```bash
-seckit version
+seckit --version
 ```
 
 ## First commands
@@ -63,7 +63,7 @@ Avoid repeating `--service` / `--account` via `~/.config/seckit/defaults.json` o
 Issues and PRs welcome (CLI UX, backends, docs, import/export edge cases). Local checks:
 
 ```bash
-pip install -e ".[dev]"
+pip install -e '.[dev]'
 make lint
 make test-fast
 make test-sqlite-unit

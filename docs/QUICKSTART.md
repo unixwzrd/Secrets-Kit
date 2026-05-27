@@ -30,7 +30,7 @@ After install, verify:
 
 ```bash
 seckit doctor --install-check
-seckit version
+seckit --version
 ```
 
 **Development checkout** (editable, from a clone):
