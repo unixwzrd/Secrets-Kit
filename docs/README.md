@@ -17,7 +17,8 @@ Use this page as the public documentation map. The root [README](../README.md) s
 
 | Doc | Purpose |
 |-----|---------|
-| [QUICKSTART.md](QUICKSTART.md) | Shortest path: install, unlock keychain, set/list/run |
+| [INSTALL.md](INSTALL.md) | Install, upgrade, troubleshooting |
+| [QUICKSTART.md](QUICKSTART.md) | Unlock, set, list, run, lock |
 | [USAGE.md](USAGE.md) | Entry point + links to CLI docs (minimal examples) |
 | [DEFAULTS.md](DEFAULTS.md) | `defaults.json`, env vars, `seckit config` |
 | [SECURITY_MODEL.md](SECURITY_MODEL.md) | What the tool does and does not protect |
@@ -60,6 +61,7 @@ GitHub Actions runs `scripts/run_local_validation.sh` on macOS. For local work, 
 
 | Doc | Purpose |
 |-----|---------|
+| [MAINTAINER_RELEASE.md](MAINTAINER_RELEASE.md) | Tag/version alignment, pre-release publish, CI overview |
 | [GITHUB_RELEASE_BUILD.md](GITHUB_RELEASE_BUILD.md) | Wheels, universal2, GitHub Actions secrets, local packaging scripts |
 
 ## Internal Public References

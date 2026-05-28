@@ -1,10 +1,14 @@
 # Secrets-Kit Changelog
 
 **Created**: 2026-03-10  
-**Updated**: 2026-05-26
+**Updated**: 2026-05-27
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+### 2026-05-27 — Pre-release `2.0.0a1`
+
+- **What changed:** Tag `v2.0.0a1`. Operator [INSTALL.md](docs/INSTALL.md) split from [MAINTAINER_RELEASE.md](docs/MAINTAINER_RELEASE.md). [QUICKSTART.md](docs/QUICKSTART.md) is CLI-only (unlock/set/list/run/lock). Installer Python order: conda → venv → managed → `SECKIT_PYTHON` → PATH. `install_lib.sh` is bash-only (no inline Python); Python 3.9+ prerequisite with clean failure. Release wheel smoke uses `seckit --version` and `doctor --install-check`.
 
 ### 2026-05-26 — PEP 440 pre-release version `2.0.0a0`
 

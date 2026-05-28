@@ -1,5 +1,11 @@
 # shellcheck shell=bash
 # Shared helpers for install.sh (source only).
+#
+# Shell-only policy:
+# - No inline Python (-c) in this file.
+# - install.json is read/written with bash only.
+# - Python 3.9+ must already exist. The installer detects; it does not download Python.
+# - Resolution order: conda, venv, managed venv, SECKIT_PYTHON, python3/python on PATH.
 
 set -euo pipefail
 
@@ -27,46 +33,159 @@ install_supported_os() {
   esac
 }
 
+install_python_missing_help() {
+  cat >&2 <<'EOF'
+seckit-install: Python 3.9+ is required before running this installer.
+This script does not download, bundle, or install Python for you.
+
+Options:
+  1. Install Python 3.9+ on this machine, then re-run install.sh.
+  2. Point at an existing interpreter:
+       SECKIT_PYTHON=/path/to/python3 install.sh
+  3. Re-use a previous managed install if ~/.local/share/seckit/venv still exists.
+
+macOS: https://www.python.org/downloads/macos/  or  brew install python3
+Linux: install python3.9+ from your distribution (package manager).
+EOF
+}
+
+# Escape a string for a JSON double-quoted value (no outer quotes).
+_json_escape() {
+  local s="${1-}"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  s="${s//$'\n'/\\n}"
+  s="${s//$'\r'/\\r}"
+  s="${s//$'\t'/\\t}"
+  printf '%s' "$s"
+}
+
+# Read one string field from install.json (bash only; file is installer-owned).
+install_state_field() {
+  local key="${1:?key required}"
+  local file="${SECKIT_INSTALL_STATE}"
+  local line=""
+
+  [[ -f "$file" ]] || return 1
+  line="$(grep -E "^[[:space:]]*\"${key}\"" "$file" 2>/dev/null | head -1)" || return 1
+  if [[ "$line" =~ \"${key}\"[[:space:]]*:[[:space:]]*\"([^\"]*)\" ]]; then
+    printf '%s' "${BASH_REMATCH[1]}"
+    return 0
+  fi
+  return 1
+}
+
+python_bin_dir() {
+  dirname "${PYTHON}"
+}
+
+# True when executable reports Python >= 3.9 (uses `python --version` only).
+python_version_ok() {
+  local py="${1:?python path required}"
+  local ver="" major="" minor=""
+
+  [[ -x "${py}" ]] || return 1
+  ver="$("${py}" --version 2>&1)" || return 1
+  if [[ "${ver}" =~ [Pp]ython[[:space:]]+([0-9]+)\.([0-9]+) ]]; then
+    major="${BASH_REMATCH[1]}"
+    minor="${BASH_REMATCH[2]}"
+    if (( major > 3 || (major == 3 && minor >= 9) )); then
+      return 0
+    fi
+  fi
+  return 1
+}
+
+# SECKIT_PYTHON when set and valid, or empty.
+resolve_seckit_python() {
+  if [[ -z "${SECKIT_PYTHON:-}" ]]; then
+    return 1
+  fi
+  if python_version_ok "${SECKIT_PYTHON}"; then
+    printf '%s' "${SECKIT_PYTHON}"
+    return 0
+  fi
+  install_die "SECKIT_PYTHON is not executable or is older than 3.9: ${SECKIT_PYTHON}"
+}
+
+# First usable python3/python on PATH, or empty.
+discover_python_on_path() {
+  local candidate=""
+
+  for candidate in "$(command -v python3 2>/dev/null || true)" "$(command -v python 2>/dev/null || true)"; do
+    [[ -n "${candidate}" && -x "${candidate}" ]] || continue
+    if python_version_ok "${candidate}"; then
+      printf '%s' "${candidate}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+create_managed_venv() {
+  local bootstrap_py="${1:?bootstrap interpreter required}"
+
+  if ! python_version_ok "${bootstrap_py}"; then
+    install_die "cannot create managed venv: ${bootstrap_py} is not Python 3.9+"
+  fi
+  install_log "creating managed venv at ${SECKIT_MANAGED_VENV} using ${bootstrap_py}"
+  mkdir -p "$(dirname "${SECKIT_MANAGED_VENV}")"
+  "${bootstrap_py}" -m venv "${SECKIT_MANAGED_VENV}"
+  PYTHON="${SECKIT_MANAGED_VENV}/bin/python"
+  if ! python_version_ok "${PYTHON}"; then
+    install_die "managed venv was created but ${PYTHON} is not usable"
+  fi
+  SECKIT_INSTALL_METHOD="managed"
+  SECKIT_VENV_PATH="${SECKIT_MANAGED_VENV}"
+}
+
+_use_interpreter() {
+  local py="${1:?}" method="${2:?}" venv_path="${3:-}"
+
+  if ! python_version_ok "${py}"; then
+    install_die "interpreter is not Python 3.9+: ${py}"
+  fi
+  PYTHON="${py}"
+  SECKIT_INSTALL_METHOD="${method}"
+  SECKIT_VENV_PATH="${venv_path}"
+}
+
 resolve_python() {
   PYTHON=""
   SECKIT_INSTALL_METHOD=""
   SECKIT_VENV_PATH=""
 
   if [[ -n "${CONDA_PREFIX:-}" && -x "${CONDA_PREFIX}/bin/python" ]]; then
-    PYTHON="${CONDA_PREFIX}/bin/python"
-    SECKIT_INSTALL_METHOD="conda"
+    _use_interpreter "${CONDA_PREFIX}/bin/python" "conda" ""
     return 0
   fi
 
   if [[ -n "${VIRTUAL_ENV:-}" && -x "${VIRTUAL_ENV}/bin/python" ]]; then
-    PYTHON="${VIRTUAL_ENV}/bin/python"
-    SECKIT_INSTALL_METHOD="venv"
-    SECKIT_VENV_PATH="${VIRTUAL_ENV}"
+    _use_interpreter "${VIRTUAL_ENV}/bin/python" "venv" "${VIRTUAL_ENV}"
     return 0
   fi
 
   if [[ -x "${SECKIT_MANAGED_VENV}/bin/python" ]]; then
-    PYTHON="${SECKIT_MANAGED_VENV}/bin/python"
-    SECKIT_INSTALL_METHOD="managed"
-    SECKIT_VENV_PATH="${SECKIT_MANAGED_VENV}"
+    _use_interpreter "${SECKIT_MANAGED_VENV}/bin/python" "managed" "${SECKIT_MANAGED_VENV}"
     return 0
   fi
 
-  local bootstrap_py=""
-  if command -v python3 >/dev/null 2>&1; then
-    bootstrap_py="$(command -v python3)"
-  elif command -v python >/dev/null 2>&1; then
-    bootstrap_py="$(command -v python)"
-  else
-    install_die "python3 not found; install Python 3.9+ or activate conda/venv"
+  local explicit=""
+  explicit="$(resolve_seckit_python || true)"
+  if [[ -n "${explicit}" ]]; then
+    _use_interpreter "${explicit}" "explicit" ""
+    return 0
   fi
 
-  install_log "creating managed venv at ${SECKIT_MANAGED_VENV}"
-  mkdir -p "$(dirname "${SECKIT_MANAGED_VENV}")"
-  "${bootstrap_py}" -m venv "${SECKIT_MANAGED_VENV}"
-  PYTHON="${SECKIT_MANAGED_VENV}/bin/python"
-  SECKIT_INSTALL_METHOD="managed"
-  SECKIT_VENV_PATH="${SECKIT_MANAGED_VENV}"
+  local discovered=""
+  discovered="$(discover_python_on_path || true)"
+  if [[ -n "${discovered}" ]]; then
+    create_managed_venv "${discovered}"
+    return 0
+  fi
+
+  install_python_missing_help
+  install_die "no Python 3.9+ interpreter found"
 }
 
 resolve_python_for_upgrade() {
@@ -75,40 +194,21 @@ resolve_python_for_upgrade() {
   SECKIT_VENV_PATH=""
 
   if [[ -f "${SECKIT_INSTALL_STATE}" ]]; then
-    local recorded=""
-    recorded="$(
-      "${SECKIT_PYTHON_FOR_STATE:-python3}" -c "
-import json, sys
-from pathlib import Path
-p = Path(sys.argv[1])
-if not p.is_file():
-    sys.exit(0)
-data = json.loads(p.read_text(encoding='utf-8'))
-print(data.get('interpreter', ''))
-" "${SECKIT_INSTALL_STATE}" 2>/dev/null || true
-    )"
+    local recorded="" method="" venv_path=""
+    recorded="$(install_state_field interpreter || true)"
     if [[ -n "${recorded}" && -x "${recorded}" ]]; then
-      PYTHON="${recorded}"
-      SECKIT_INSTALL_METHOD="$(
-        "${recorded}" -c "
-import json, sys
-from pathlib import Path
-data = json.loads(Path(sys.argv[1]).read_text(encoding='utf-8'))
-print(data.get('install_method', 'unknown'))
-" "${SECKIT_INSTALL_STATE}" 2>/dev/null || echo unknown
-      )"
-      SECKIT_VENV_PATH="$(
-        "${recorded}" -c "
-import json, sys
-from pathlib import Path
-data = json.loads(Path(sys.argv[1]).read_text(encoding='utf-8'))
-print(data.get('venv_path') or '')
-" "${SECKIT_INSTALL_STATE}" 2>/dev/null || true
-      )"
-      install_log "upgrade: reusing interpreter ${PYTHON}"
-      return 0
-    fi
-    if [[ -n "${recorded}" ]]; then
+      if ! python_version_ok "${recorded}"; then
+        install_warn "recorded interpreter is not Python 3.9+: ${recorded}"
+      else
+        PYTHON="${recorded}"
+        method="$(install_state_field install_method || true)"
+        SECKIT_INSTALL_METHOD="${method:-unknown}"
+        venv_path="$(install_state_field venv_path || true)"
+        SECKIT_VENV_PATH="${venv_path}"
+        install_log "upgrade: reusing interpreter ${PYTHON}"
+        return 0
+      fi
+    elif [[ -n "${recorded}" ]]; then
       install_warn "recorded interpreter missing or not executable: ${recorded}"
     fi
   else
@@ -119,21 +219,18 @@ print(data.get('venv_path') or '')
 }
 
 validate_python() {
+  local ver=""
+
   if [[ -z "${PYTHON:-}" || ! -x "${PYTHON}" ]]; then
     install_die "no Python interpreter selected"
   fi
 
-  "${PYTHON}" -c '
-import platform, sys
-if sys.version_info < (3, 9):
-    raise SystemExit(f"Python {sys.version_info[0]}.{sys.version_info[1]} < 3.9")
-system = platform.system()
-machine = platform.machine()
-print(f"platform={system} machine={machine} python={platform.python_version()}")
-unsupported = {"Windows"}
-if system in unsupported:
-    raise SystemExit(f"unsupported platform: {system}")
-' || install_die "Python validation failed"
+  if ! python_version_ok "${PYTHON}"; then
+    install_die "selected interpreter is not Python 3.9+: ${PYTHON}"
+  fi
+
+  ver="$("${PYTHON}" --version 2>&1)" || install_die "could not read Python version from ${PYTHON}"
+  install_log "${ver} ($(uname -s) $(uname -m))"
 
   if ! "${PYTHON}" -m pip --version >/dev/null 2>&1; then
     install_die "pip not available for ${PYTHON}; run: ${PYTHON} -m ensurepip --upgrade"
@@ -176,35 +273,60 @@ pip_install_dev() {
   (cd "${repo_root}" && "${PYTHON}" -m pip install -e '.[dev]')
 }
 
-write_install_state() {
-  local version=""
-  version="$("${PYTHON}" -c 'from secrets_kit import __version__; print(__version__)' 2>/dev/null || echo unknown)"
-  mkdir -p "$(dirname "${SECKIT_INSTALL_STATE}")"
-  SECKIT_INSTALL_STATE="${SECKIT_INSTALL_STATE}" \
-  SECKIT_INSTALL_METHOD="${SECKIT_INSTALL_METHOD}" \
-  SECKIT_VENV_PATH="${SECKIT_VENV_PATH:-}" \
-  SECKIT_REF="${SECKIT_REF}" \
-  SECKIT_VERSION="${version}" \
-  SECKIT_INTERPRETER="${PYTHON}" \
-    "${PYTHON}" -c '
-import json, os
-from pathlib import Path
-state = {
-    "interpreter": os.environ["SECKIT_INTERPRETER"],
-    "venv_path": os.environ.get("SECKIT_VENV_PATH") or None,
-    "install_method": os.environ["SECKIT_INSTALL_METHOD"],
-    "version": os.environ.get("SECKIT_VERSION", "unknown"),
-    "ref": os.environ.get("SECKIT_REF", ""),
+seckit_installed_version() {
+  local bin="" version=""
+  bin="$(python_bin_dir)/seckit"
+  if [[ ! -x "${bin}" ]]; then
+    printf '%s' "unknown"
+    return 0
+  fi
+  version="$("${bin}" --version 2>/dev/null | awk 'NF { print $2; exit }')"
+  if [[ -z "${version}" ]]; then
+    printf '%s' "unknown"
+  else
+    printf '%s' "${version}"
+  fi
 }
-path = Path(os.environ["SECKIT_INSTALL_STATE"])
-path.parent.mkdir(parents=True, exist_ok=True)
-path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
-'
+
+write_install_state() {
+  local version="" interpreter_escaped="" method_escaped="" venv_escaped="" version_escaped="" ref_escaped=""
+
+  version="$(seckit_installed_version)"
+  interpreter_escaped="$(_json_escape "${PYTHON}")"
+  method_escaped="$(_json_escape "${SECKIT_INSTALL_METHOD}")"
+  version_escaped="$(_json_escape "${version}")"
+  ref_escaped="$(_json_escape "${SECKIT_REF}")"
+  if [[ -n "${SECKIT_VENV_PATH:-}" ]]; then
+    venv_escaped="$(_json_escape "${SECKIT_VENV_PATH}")"
+  fi
+
+  mkdir -p "$(dirname "${SECKIT_INSTALL_STATE}")"
+  if [[ -n "${venv_escaped:-}" ]]; then
+    cat >"${SECKIT_INSTALL_STATE}" <<EOF
+{
+  "interpreter": "${interpreter_escaped}",
+  "venv_path": "${venv_escaped}",
+  "install_method": "${method_escaped}",
+  "version": "${version_escaped}",
+  "ref": "${ref_escaped}"
+}
+EOF
+  else
+    cat >"${SECKIT_INSTALL_STATE}" <<EOF
+{
+  "interpreter": "${interpreter_escaped}",
+  "venv_path": null,
+  "install_method": "${method_escaped}",
+  "version": "${version_escaped}",
+  "ref": "${ref_escaped}"
+}
+EOF
+  fi
 }
 
 run_seckit() {
   local bin_dir=""
-  bin_dir="$("${PYTHON}" -c 'import sys; print(sys.prefix)')/bin"
+  bin_dir="$(python_bin_dir)"
   if [[ -x "${bin_dir}/seckit" ]]; then
     "${bin_dir}/seckit" "$@"
     return $?
@@ -229,7 +351,7 @@ preflight_install() {
 
 install_print_finish() {
   local bin_dir=""
-  bin_dir="$("${PYTHON}" -c 'import sys; print(sys.prefix)')/bin"
+  bin_dir="$(python_bin_dir)"
   install_log "done (ref=${SECKIT_REF}, method=${SECKIT_INSTALL_METHOD})"
   if [[ "${SECKIT_INSTALL_METHOD}" == "managed" && -d "${bin_dir}" ]]; then
     install_log "add seckit to your shell PATH:"
