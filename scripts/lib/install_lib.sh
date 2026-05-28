@@ -226,3 +226,14 @@ preflight_install() {
   fi
   rm -f "$(dirname "${SECKIT_INSTALL_STATE}")/.write_test"
 }
+
+install_print_finish() {
+  local bin_dir=""
+  bin_dir="$("${PYTHON}" -c 'import sys; print(sys.prefix)')/bin"
+  install_log "done (ref=${SECKIT_REF}, method=${SECKIT_INSTALL_METHOD})"
+  if [[ "${SECKIT_INSTALL_METHOD}" == "managed" && -d "${bin_dir}" ]]; then
+    install_log "add seckit to your shell PATH:"
+    printf '  export PATH="%s:$PATH"\n' "${bin_dir}" >&2
+  fi
+  install_log "next: seckit --version && seckit info"
+}

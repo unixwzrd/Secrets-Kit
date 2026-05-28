@@ -21,25 +21,35 @@ JSON_OUT=0
 
 usage() {
   cat <<EOF
-Usage: install.sh [options]
+Secrets-Kit installer
 
-Options:
-  --ref TAG           Git ref for pip install (default: ${SECKIT_REF_BAKED}, or main with --dev)
-  --repo-url URL      Git repository URL (default: ${SECKIT_REPO_URL})
-  --upgrade           Upgrade package only; preserve config and data
-  --dev               Editable install from local repo (developer checkout)
-  --yes               Non-interactive init
-  --no-init           Skip seckit init on first install
-  --no-verify         Skip seckit doctor --install-check
+Typical install (no options required):
+  curl -fsSL ${SECKIT_INSTALL_URL} | bash
+
+  Installs the seckit CLI, runs first-time setup (seckit init), and verifies the install.
+  macOS: defaults to the login Keychain backend. Linux: defaults to SQLite.
+  Uses your active conda/venv if set; otherwise creates ~/.local/share/seckit/venv.
+
+Upgrade an existing install:
+  curl -fsSL ${SECKIT_INSTALL_URL} | bash -s -- --upgrade
+
+Advanced options (non-standard installs only):
+  --ref TAG           Pin a different git tag or branch for pip (default: ${SECKIT_REF_BAKED})
+  --repo-url URL      Alternate Git repository (default: ${SECKIT_REPO_URL})
+  --dev               Editable install from this checkout (developer clone only)
+  --yes               Skip confirmation when overwriting existing config (auto-enabled when stdin is not a TTY)
+  --no-init           Install the package but skip seckit init
+  --no-verify         Skip seckit doctor --install-check after install
   --dry-run           Print planned actions only
   --json              Machine-readable status on stdout
   -h, --help          Show this help
 
-Operator install:
-  curl -fsSL ${SECKIT_INSTALL_URL} | bash
+Environment (advanced):
+  SECKIT_MANAGED_VENV   Alternate managed venv path (default: ~/.local/share/seckit/venv)
+  SECKIT_INSTALL_STATE  Alternate install state file (default: ~/.config/seckit/install.json)
 
-Upgrade:
-  curl -fsSL ${SECKIT_INSTALL_URL} | bash -s -- --upgrade
+Backend and config paths are set by seckit init / seckit config after install, not by install.sh.
+See docs/INSTALL.md for details.
 EOF
 }
 
@@ -64,6 +74,11 @@ while [[ $# -gt 0 ]]; do
     *) install_die "unknown option: $1" ;;
   esac
 done
+
+# curl | bash and other non-interactive installs cannot answer init prompts.
+if [[ "${YES}" -eq 0 && ! -t 0 ]]; then
+  YES=1
+fi
 
 if [[ -z "${SECKIT_REF}" ]]; then
   if [[ "${DEV_MODE}" -eq 1 ]]; then
@@ -123,7 +138,7 @@ main() {
   if [[ "${JSON_OUT}" -eq 1 ]]; then
     emit_json "{\"ok\":true,\"ref\":\"${SECKIT_REF}\",\"interpreter\":\"${PYTHON}\",\"install_method\":\"${SECKIT_INSTALL_METHOD}\"}"
   else
-    install_log "done (ref=${SECKIT_REF})"
+    install_print_finish
   fi
 }
 
