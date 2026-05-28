@@ -68,6 +68,16 @@ def _check_cryptography(*, issues: list[str]) -> bool:
     return True
 
 
+def _read_runtime_root_from_file(path: Path) -> str:
+    """Read first line of runtime-path; tolerate legacy literal ``\\n`` suffix."""
+    raw = path.read_text(encoding="utf-8")
+    line = raw.splitlines()[0] if raw.splitlines() else raw
+    line = line.strip()
+    if line.endswith("\\n"):
+        line = line[:-2]
+    return line
+
+
 def _check_config_writable(*, issues: list[str]) -> bool:
     config_dir = registry_dir()
     try:
@@ -89,7 +99,7 @@ def _check_launcher_runtime(*, issues: list[str]) -> bool:
     if not _SECKIT_RUNTIME_PATH_FILE.is_file():
         issues.append(f"runtime path file not found: {_SECKIT_RUNTIME_PATH_FILE}")
         return False
-    runtime_root = _SECKIT_RUNTIME_PATH_FILE.read_text(encoding="utf-8").strip()
+    runtime_root = _read_runtime_root_from_file(_SECKIT_RUNTIME_PATH_FILE)
     if not runtime_root:
         issues.append(f"runtime path file is empty: {_SECKIT_RUNTIME_PATH_FILE}")
         return False

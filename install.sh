@@ -135,9 +135,17 @@ atomic_write_file_from() {
 read_runtime_path() {
   [[ -f "${SECKIT_RUNTIME_PATH_FILE}" ]] || return 1
   local p
-  p="$(tr -d '\r' <"${SECKIT_RUNTIME_PATH_FILE}" | head -1)"
+  p="$(head -1 "${SECKIT_RUNTIME_PATH_FILE}" | tr -d '\r' | sed -e 's/[[:space:]]*$//' -e 's/\\n$//')"
   [[ -n "${p}" ]] || return 1
   printf '%s' "${p}"
+}
+
+write_runtime_path_file() {
+  local target="${1:?}" runtime_path="${2:?}" tmp
+  tmp="${target}.tmp.$$"
+  printf '%s\n' "${runtime_path}" >"${tmp}"
+  sync "${tmp}" 2>/dev/null || true
+  mv -f "${tmp}" "${target}"
 }
 
 find_python_candidate() {
@@ -204,7 +212,7 @@ resolve_uv() {
   install_log "Preparing isolated runtime environment..."
   verbose_log "runtime tool not found; bootstrapping via network"
 
-  if [[ "${IS_INTERACTIVE}" -eq 1 && "${YES}" -eq 0 && -t 1 ]]; then
+  if [[ "${IS_INTERACTIVE}" -eq 1 && "${YES}" -eq 0 ]]; then
     local reply=""
     printf 'Download and install runtime components? [Y/n] ' >&2
     read -r reply </dev/tty || reply=""
@@ -216,8 +224,17 @@ resolve_uv() {
   if [[ "${DRY_RUN}" -eq 1 ]]; then
     return 0
   fi
-  run_capture sh -c "curl -LsSf https://astral.sh/uv/install.sh | sh" \
-    || install_die "failed preparing isolated runtime environment"
+
+  install_log "Downloading runtime components (may take a few minutes)..."
+  local bootstrap_sh='curl -LsSf --connect-timeout 30 --max-time 600 https://astral.sh/uv/install.sh | sh'
+  if [[ "${VERBOSE}" -eq 1 ]]; then
+    append_log "RUN ${bootstrap_sh}"
+    sh -c "${bootstrap_sh}" || install_die "failed preparing isolated runtime environment"
+  else
+    run_capture sh -c "${bootstrap_sh}" \
+      || install_die "failed preparing isolated runtime environment (see ${SECKIT_INSTALL_LOG})"
+  fi
+  install_log "Runtime components ready."
   if command -v uv >/dev/null 2>&1; then
     UV_BIN="$(command -v uv)"
     verbose_log "bootstrapped runtime tool: ${UV_BIN}"
@@ -294,7 +311,7 @@ EOF_JSON
   atomic_write_file_from "${SECKIT_RUNTIME_JSON}" "${runtime_json}"
   rm -f "${runtime_json}"
 
-  atomic_write_text "${SECKIT_RUNTIME_PATH_FILE}" "${TARGET_RUNTIME}\n"
+  write_runtime_path_file "${SECKIT_RUNTIME_PATH_FILE}" "${TARGET_RUNTIME}"
 
   current_link_tmp="${SECKIT_RUNTIME_DIR}/current.tmp.$$"
   ln -sfn "${TARGET_RUNTIME}" "${current_link_tmp}"
@@ -329,7 +346,7 @@ if [[ ! -f "${RUNTIME_PATH_FILE}" ]]; then
   echo "seckit launcher: runtime path missing (${RUNTIME_PATH_FILE})" >&2
   exit 1
 fi
-RUNTIME_DIR="$(head -1 "${RUNTIME_PATH_FILE}" | tr -d '\r')"
+RUNTIME_DIR="$(head -1 "${RUNTIME_PATH_FILE}" | tr -d '\r' | sed -e 's/[[:space:]]*$//' -e 's/\\n$//')"
 if [[ -z "${RUNTIME_DIR}" || ! -x "${RUNTIME_DIR}/bin/seckit" ]]; then
   echo "seckit launcher: invalid runtime path (${RUNTIME_DIR})" >&2
   exit 1

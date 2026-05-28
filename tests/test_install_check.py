@@ -7,7 +7,11 @@ import unittest
 from unittest import mock
 
 from secrets_kit.cli.commands.doctor import cmd_doctor
-from secrets_kit.cli.install_check import install_state_path, run_install_check
+from secrets_kit.cli.install_check import (
+    _read_runtime_root_from_file,
+    install_state_path,
+    run_install_check,
+)
 
 
 class InstallCheckTest(unittest.TestCase):
@@ -25,6 +29,15 @@ class InstallCheckTest(unittest.TestCase):
         ):
             result = run_install_check()
         self.assertFalse(result["ok"])
+
+    def test_read_runtime_root_strips_legacy_literal_backslash_n(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "runtime-path"
+            path.write_text("/tmp/runtime\\n", encoding="utf-8")
+            self.assertEqual(_read_runtime_root_from_file(path), "/tmp/runtime")
 
     def test_install_state_path_under_config(self) -> None:
         path = install_state_path()
