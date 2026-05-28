@@ -6,9 +6,13 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+### 2026-05-28 — Installer default bootstrap (post-`2.0.0a2`)
+
+- **What changed:** Default `curl | bash` install now bootstraps missing runtime tooling automatically (no extra flags). `--safe` and `--no-uv-download` opt out of network bootstrap. Deprecated `--allow-uv-download`. Operator messages avoid runtime-manager product names in default mode.
+
 ### 2026-05-28 — Pre-release `2.0.0a2`
 
-- **What changed:** Tag `v2.0.0a2`. Standalone `install.sh` UV bootstrap (isolated runtime under `~/.local/share/seckit`, launcher at `~/.local/bin/seckit`). Installer flags: `--repair`, `--verbose`, `--safe`, shell-profile controls, `--allow-uv-download`. `seckit install` forwards new flags; `doctor --install-check` validates launcher and runtime-path. Version refs aligned across `pyproject.toml`, `install.sh`, and `install_constants.py`.
+- **What changed:** Tag `v2.0.0a2`. Standalone `install.sh` UV bootstrap (isolated runtime under `~/.local/share/seckit`, launcher at `~/.local/bin/seckit`). Installer flags: `--repair`, `--verbose`, `--safe`, shell-profile controls. `seckit install` forwards new flags; `doctor --install-check` validates launcher and runtime-path. Version refs aligned across `pyproject.toml`, `install.sh`, and `install_constants.py`.
 
 ### 2026-05-27 — Pre-release `2.0.0a1`
 

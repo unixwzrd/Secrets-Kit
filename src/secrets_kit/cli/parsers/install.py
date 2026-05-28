@@ -64,9 +64,9 @@ def register_install_commands(
         help=msg("cli.install.shell_profile_force_help"),
     )
     p_install.add_argument(
-        "--allow-uv-download",
+        "--no-uv-download",
         action="store_true",
-        help=msg("cli.install.allow_uv_download_help"),
+        help=msg("cli.install.no_uv_download_help"),
     )
     p_install.set_defaults(func=cmd_install)
 

@@ -31,9 +31,9 @@ DRY_RUN=0
 JSON_OUT=0
 VERBOSE=0
 SAFE_MODE=0
+NO_UV_DOWNLOAD=0
 NO_SHELL_PROFILE=0
 SHELL_PROFILE_FORCE=0
-ALLOW_UV_DOWNLOAD=0
 SECKIT_DEBUG="${SECKIT_DEBUG:-0}"
 
 PYTHON=""
@@ -181,33 +181,54 @@ find_python_candidate() {
   return 1
 }
 
+uv_bootstrap_blocked() {
+  [[ "${NO_UV_DOWNLOAD}" -eq 1 || "${SAFE_MODE}" -eq 1 ]]
+}
+
 resolve_uv() {
   if command -v uv >/dev/null 2>&1; then
     UV_BIN="$(command -v uv)"
-    verbose_log "using existing uv: ${UV_BIN}"
+    verbose_log "using existing runtime tool: ${UV_BIN}"
+    return 0
+  fi
+  if [[ -x "${HOME}/.local/bin/uv" ]]; then
+    UV_BIN="${HOME}/.local/bin/uv"
+    verbose_log "using existing runtime tool: ${UV_BIN}"
     return 0
   fi
 
-  install_warn "uv runtime manager not found."
-  if [[ "${ALLOW_UV_DOWNLOAD}" -eq 0 ]]; then
-    install_die "uv missing. Re-run with --allow-uv-download (or install uv manually)"
+  if uv_bootstrap_blocked; then
+    install_die "runtime bootstrap unavailable (--safe or --no-uv-download). Install Python 3.9+ and retry without those flags, or use a host with runtime tooling already present."
   fi
 
-  install_log "uv missing: acquiring uv bootstrap tool..."
+  install_log "Preparing isolated runtime environment..."
+  verbose_log "runtime tool not found; bootstrapping via network"
+
+  if [[ "${IS_INTERACTIVE}" -eq 1 && "${YES}" -eq 0 && -t 1 ]]; then
+    local reply=""
+    printf 'Download and install runtime components? [Y/n] ' >&2
+    read -r reply </dev/tty || reply=""
+    case "${reply}" in
+      [nN]|[nN][oO]) install_die "install cancelled" ;;
+    esac
+  fi
+
   if [[ "${DRY_RUN}" -eq 1 ]]; then
     return 0
   fi
-  run_capture sh -c "curl -LsSf https://astral.sh/uv/install.sh | sh" || install_die "failed acquiring uv"
+  run_capture sh -c "curl -LsSf https://astral.sh/uv/install.sh | sh" \
+    || install_die "failed preparing isolated runtime environment"
   if command -v uv >/dev/null 2>&1; then
     UV_BIN="$(command -v uv)"
-    verbose_log "using acquired uv: ${UV_BIN}"
+    verbose_log "bootstrapped runtime tool: ${UV_BIN}"
     return 0
   fi
-  if [[ -x "$HOME/.local/bin/uv" ]]; then
-    UV_BIN="$HOME/.local/bin/uv"
+  if [[ -x "${HOME}/.local/bin/uv" ]]; then
+    UV_BIN="${HOME}/.local/bin/uv"
+    verbose_log "bootstrapped runtime tool: ${UV_BIN}"
     return 0
   fi
-  install_die "uv acquisition reported success but uv is still unavailable"
+  install_die "runtime bootstrap reported success but the environment is still unavailable"
 }
 
 ensure_dirs() {
@@ -423,10 +444,10 @@ Options:
   --dry-run              Print planned actions only
   --json                 Emit machine-readable result
   --verbose              Verbose decision + subprocess output
-  --safe                 Deterministic mode (no shell profile edits)
+  --safe                 CI/SSH: no shell profile edits, no runtime bootstrap download
+  --no-uv-download       Do not download runtime tooling; fail if unavailable
   --no-shell-profile     Never modify shell startup files
   --shell-profile-force  Allow profile edits in non-interactive mode
-  --allow-uv-download    Permit explicit uv acquisition when missing
   -h, --help             Show this help
 EOF
 }
@@ -451,10 +472,14 @@ parse_args() {
       --dry-run) DRY_RUN=1; shift ;;
       --json) JSON_OUT=1; shift ;;
       --verbose) VERBOSE=1; shift ;;
-      --safe) SAFE_MODE=1; shift ;;
+      --safe) SAFE_MODE=1; NO_UV_DOWNLOAD=1; shift ;;
+      --no-uv-download) NO_UV_DOWNLOAD=1; shift ;;
       --no-shell-profile) NO_SHELL_PROFILE=1; shift ;;
       --shell-profile-force) SHELL_PROFILE_FORCE=1; shift ;;
-      --allow-uv-download) ALLOW_UV_DOWNLOAD=1; shift ;;
+      --allow-uv-download)
+        install_warn "--allow-uv-download is deprecated (default install bootstraps automatically)"
+        shift
+        ;;
       -h|--help) usage; exit 0 ;;
       *) install_die "unknown option: $1" ;;
     esac
@@ -489,7 +514,7 @@ main() {
     exit 0
   fi
 
-  step 1 "Checking runtime manager..."
+  step 1 "Preparing runtime..."
   resolve_uv
 
   step 2 "Creating isolated runtime..."

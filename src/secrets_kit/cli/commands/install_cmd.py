@@ -71,8 +71,8 @@ def _build_install_sh_argv(*, args: argparse.Namespace) -> list[str]:
         argv.append("--no-shell-profile")
     if _flag(args, "shell_profile_force"):
         argv.append("--shell-profile-force")
-    if _flag(args, "allow_uv_download"):
-        argv.append("--allow-uv-download")
+    if _flag(args, "no_uv_download"):
+        argv.append("--no-uv-download")
     if _flag(args, "dev"):
         argv.append("--dev")
     return argv
@@ -104,8 +104,8 @@ def _remote_ssh_command(*, host: str, args: argparse.Namespace) -> list[str]:
         remote_args.append("--no-shell-profile")
     if _flag(args, "shell_profile_force"):
         remote_args.append("--shell-profile-force")
-    if _flag(args, "allow_uv_download"):
-        remote_args.append("--allow-uv-download")
+    if _flag(args, "no_uv_download"):
+        remote_args.append("--no-uv-download")
 
     remote_cmd = f"curl -fsSL {shlex.quote(install_url)} | bash -s --"
     if remote_args:
@@ -147,7 +147,7 @@ def cmd_install(*, args: argparse.Namespace) -> int:
         or _flag(args, "safe")
         or _flag(args, "no_shell_profile")
         or _flag(args, "shell_profile_force")
-        or _flag(args, "allow_uv_download")
+        or _flag(args, "no_uv_download")
     ):
         try:
             argv = _build_install_sh_argv(args=args)

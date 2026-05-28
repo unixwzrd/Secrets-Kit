@@ -42,7 +42,8 @@ seckit doctor --install-check
 ## Troubleshooting
 
 - `no Python 3.9+ interpreter found`: install Python 3.9+, activate conda/venv, or set `SECKIT_PYTHON=/path/to/python3`
-- `seckit: command not found`: add managed venv bin to PATH (installer prints the line)
+- `runtime bootstrap unavailable` with `--safe` or `--no-uv-download`: remove those flags for a normal install, or preinstall runtime tooling on locked-down hosts
+- `seckit: command not found`: add `~/.local/bin` to PATH (installer prints the line)
 - Upgrade used unexpected Python: check `~/.config/seckit/install.json` and rerun with intended env active
 
 ## Python Resolution
@@ -70,10 +71,10 @@ Use only when needed:
 - `--json` emit machine-readable installer result
 - `--verbose` show installer decision and subprocess detail
 - `--repair` rebuild runtime/launcher while preserving operator config/state
-- `--safe` deterministic mode for CI/SSH (no shell profile edits)
+- `--safe` CI/SSH: no shell profile edits, no automatic runtime bootstrap download
+- `--no-uv-download` do not download runtime tooling; fail if unavailable
 - `--no-shell-profile` never modify shell startup files
 - `--shell-profile-force` allow startup file updates in non-interactive mode
-- `--allow-uv-download` permit explicit uv acquisition when missing
 
 Optional environment overrides:
 
