@@ -32,7 +32,7 @@ Exhaustive command list in **taxonomy order** (same as `seckit --help` epilog). 
 | `unlock` | Unlock configured **macOS Keychain** backend. |
 | `lock` | Lock configured **macOS Keychain** backend. |
 | `init` | Reset `defaults.json` + empty `registry.json` (`-y` to skip confirm). Subcommand `sqlite` recreates developer DB. |
-| `install` | Show `curl \| bash` instructions; `--upgrade`; `user@host` for remote SSH + curl install. See [INSTALL.md](INSTALL.md). |
+| `install` | Show `curl \| bash` instructions; supports `--upgrade`, `--repair`, `--safe`, `--verbose`, and `user@host` remote SSH install. See [INSTALL.md](INSTALL.md). |
 | `info` | Environment status: version, defaults, Keychain policy (**macOS** only), SQLite when active or on non-macOS. `--json` for automation. |
 
 ## Inventory / diagnostics

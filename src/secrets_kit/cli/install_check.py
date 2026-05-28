@@ -6,6 +6,7 @@ Fast post-install verification (no backend roundtrips, no registry scan).
 
 from __future__ import annotations
 
+import os
 import platform
 import sys
 from importlib.resources import files
@@ -23,6 +24,15 @@ _SCHEMA_SEEDS = (
 _TAXONOMY_SEEDS = (
     "entry_types.json",
     "entry_kinds.json",
+)
+
+_SECKIT_SHARE_DIR = Path(os.environ.get("SECKIT_SHARE_DIR", Path.home() / ".local" / "share" / "seckit"))
+_SECKIT_STATE_DIR = Path(os.environ.get("SECKIT_STATE_DIR", _SECKIT_SHARE_DIR / "state"))
+_SECKIT_RUNTIME_PATH_FILE = Path(
+    os.environ.get("SECKIT_RUNTIME_PATH_FILE", _SECKIT_STATE_DIR / "runtime-path")
+)
+_SECKIT_LAUNCHER_PATH = Path(
+    os.environ.get("SECKIT_LAUNCHER_PATH", Path.home() / ".local" / "bin" / "seckit")
 )
 
 
@@ -71,6 +81,25 @@ def _check_config_writable(*, issues: list[str]) -> bool:
     return True
 
 
+def _check_launcher_runtime(*, issues: list[str]) -> bool:
+    ok = True
+    if not _SECKIT_LAUNCHER_PATH.is_file():
+        issues.append(f"launcher not found: {_SECKIT_LAUNCHER_PATH}")
+        ok = False
+    if not _SECKIT_RUNTIME_PATH_FILE.is_file():
+        issues.append(f"runtime path file not found: {_SECKIT_RUNTIME_PATH_FILE}")
+        return False
+    runtime_root = _SECKIT_RUNTIME_PATH_FILE.read_text(encoding="utf-8").strip()
+    if not runtime_root:
+        issues.append(f"runtime path file is empty: {_SECKIT_RUNTIME_PATH_FILE}")
+        return False
+    runtime_bin = Path(runtime_root) / "bin" / "seckit"
+    if not runtime_bin.is_file():
+        issues.append(f"runtime seckit binary not found: {runtime_bin}")
+        ok = False
+    return ok
+
+
 def _backend_hints() -> dict[str, Any]:
     system = platform.system().lower()
     machine = platform.machine()
@@ -105,6 +134,7 @@ def run_install_check() -> dict[str, Any]:
         _check_cryptography(issues=issues),
         _check_package_seeds(issues=issues),
         _check_config_writable(issues=issues),
+        _check_launcher_runtime(issues=issues),
     ]
     result: dict[str, Any] = {
         "ok": all(checks) and not issues,
@@ -113,6 +143,8 @@ def run_install_check() -> dict[str, Any]:
         "backend_hints": _backend_hints(),
         "config_dir": str(registry_dir()),
         "interpreter": sys.executable,
+        "launcher": str(_SECKIT_LAUNCHER_PATH),
+        "runtime_path_file": str(_SECKIT_RUNTIME_PATH_FILE),
     }
     return result
 

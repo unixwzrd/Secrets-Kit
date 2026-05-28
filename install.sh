@@ -1,58 +1,87 @@
 #!/usr/bin/env bash
-# Secrets-Kit operator installer (curl | bash).
+# Secrets-Kit operator installer (curl | bash compatible, standalone).
 set -euo pipefail
 
-# Baked in per release (must match pyproject.toml version with a leading v).
-SECKIT_REF_BAKED="v2.0.0a1"
-SECKIT_INSTALL_URL="${SECKIT_INSTALL_URL:-https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/v2.0.0a1/install.sh}"
+SECKIT_REF_BAKED="v2.0.0a2"
+SECKIT_INSTALL_URL="${SECKIT_INSTALL_URL:-https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/v2.0.0a2/install.sh}"
 SECKIT_REF="${SECKIT_REF:-}"
-SECKIT_MANAGED_VENV="${SECKIT_MANAGED_VENV:-$HOME/.local/share/seckit/venv}"
-SECKIT_INSTALL_STATE="${SECKIT_INSTALL_STATE:-$HOME/.config/seckit/install.json}"
 SECKIT_REPO_URL="${SECKIT_REPO_URL:-https://github.com/unixwzrd/Secrets-Kit.git}"
 SECKIT_INSTALL_ROOT="${SECKIT_INSTALL_ROOT:-$PWD}"
 
+SECKIT_SHARE_DIR="${SECKIT_SHARE_DIR:-$HOME/.local/share/seckit}"
+SECKIT_RUNTIME_DIR="${SECKIT_RUNTIME_DIR:-$SECKIT_SHARE_DIR/runtime}"
+SECKIT_STATE_DIR="${SECKIT_STATE_DIR:-$SECKIT_SHARE_DIR/state}"
+SECKIT_CACHE_DIR="${SECKIT_CACHE_DIR:-$SECKIT_SHARE_DIR/cache}"
+SECKIT_RUNTIME_PATH_FILE="${SECKIT_RUNTIME_PATH_FILE:-$SECKIT_STATE_DIR/runtime-path}"
+SECKIT_RUNTIME_JSON="${SECKIT_RUNTIME_JSON:-$SECKIT_STATE_DIR/runtime.json}"
+SECKIT_INSTALL_LOG="${SECKIT_INSTALL_LOG:-$SECKIT_STATE_DIR/install.log}"
+SECKIT_LAUNCHER_BIN_DIR="${SECKIT_LAUNCHER_BIN_DIR:-$HOME/.local/bin}"
+SECKIT_LAUNCHER_PATH="${SECKIT_LAUNCHER_PATH:-$SECKIT_LAUNCHER_BIN_DIR/seckit}"
+
+SECKIT_CONFIG_DIR="${SECKIT_CONFIG_DIR:-$HOME/.config/seckit}"
+SECKIT_INSTALL_STATE="${SECKIT_INSTALL_STATE:-$SECKIT_CONFIG_DIR/install.json}"
+
 UPGRADE=0
+REPAIR=0
 DEV_MODE=0
 YES=0
 NO_INIT=0
 NO_VERIFY=0
 DRY_RUN=0
 JSON_OUT=0
+VERBOSE=0
+SAFE_MODE=0
+NO_SHELL_PROFILE=0
+SHELL_PROFILE_FORCE=0
+ALLOW_UV_DOWNLOAD=0
+SECKIT_DEBUG="${SECKIT_DEBUG:-0}"
 
-install_log() {
-  printf 'seckit-install: %s\n' "$*" >&2
-}
+PYTHON=""
+UV_BIN=""
+INSTALL_METHOD=""
+TARGET_RUNTIME=""
+CURRENT_RUNTIME=""
+IS_INTERACTIVE=0
+PROFILE_CHANGED=0
+PROFILE_CHANGED_FILE=""
+PROFILE_BACKUP_FILE=""
 
-install_warn() {
-  printf 'seckit-install: warning: %s\n' "$*" >&2
-}
+if [[ -t 0 && -t 1 ]]; then
+  IS_INTERACTIVE=1
+fi
+if [[ "${SECKIT_DEBUG}" == "1" ]]; then
+  VERBOSE=1
+fi
 
-install_die() {
-  printf 'seckit-install: error: %s\n' "$*" >&2
-  exit 1
+install_log() { printf 'seckit-install: %s\n' "$*" >&2; }
+install_warn() { printf 'seckit-install: warning: %s\n' "$*" >&2; }
+install_die() { printf 'seckit-install: error: %s\n' "$*" >&2; exit 1; }
+verbose_log() { [[ "${VERBOSE}" -eq 1 ]] && install_log "$*"; }
+step() { printf '[%s/5] %s\n' "$1" "$2" >&2; }
+
+append_log() {
+  mkdir -p "$(dirname "${SECKIT_INSTALL_LOG}")"
+  printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"${SECKIT_INSTALL_LOG}"
 }
 
 install_supported_os() {
   case "$(uname -s)" in
-    Darwin | Linux) return 0 ;;
+    Darwin|Linux) return 0 ;;
     *) return 1 ;;
   esac
 }
 
-install_python_missing_help() {
-  cat >&2 <<'EOF'
-seckit-install: Python 3.9+ is required before running this installer.
-This script does not download, bundle, or install Python for you.
-
-Options:
-  1. Install Python 3.9+ on this machine, then re-run install.sh.
-  2. Point at an existing interpreter:
-       SECKIT_PYTHON=/path/to/python3 install.sh
-  3. Re-use a previous managed install if ~/.local/share/seckit/venv still exists.
-
-macOS: https://www.python.org/downloads/macos/  or  brew install python3
-Linux: install python3.9+ from your distribution (package manager).
-EOF
+python_version_ok() {
+  local py="${1:?}" ver major minor
+  [[ -x "${py}" ]] || return 1
+  ver="$(${py} --version 2>&1)" || return 1
+  if [[ "${ver}" =~ [Pp]ython[[:space:]]+([0-9]+)\.([0-9]+) ]]; then
+    major="${BASH_REMATCH[1]}"
+    minor="${BASH_REMATCH[2]}"
+    (( major > 3 || (major == 3 && minor >= 9) ))
+    return $?
+  fi
+  return 1
 }
 
 _json_escape() {
@@ -65,56 +94,86 @@ _json_escape() {
   printf '%s' "$s"
 }
 
-install_state_field() {
-  local key="${1:?key required}"
-  local file="${SECKIT_INSTALL_STATE}"
-  local line=""
+run_capture() {
+  local out_file err_file rc
+  out_file="$(mktemp -t seckit-install-out.XXXXXX)"
+  err_file="$(mktemp -t seckit-install-err.XXXXXX)"
+  if [[ "${VERBOSE}" -eq 1 ]]; then
+    append_log "RUN $*"
+    "$@"
+    return $?
+  fi
+  append_log "RUN $*"
+  "$@" >"${out_file}" 2>"${err_file}" || rc=$?
+  rc="${rc:-0}"
+  if [[ "${rc}" -ne 0 ]]; then
+    [[ -s "${out_file}" ]] && sed 's/^/  /' "${out_file}" >&2
+    [[ -s "${err_file}" ]] && sed 's/^/  /' "${err_file}" >&2
+    [[ -s "${out_file}" ]] && cat "${out_file}" >>"${SECKIT_INSTALL_LOG}"
+    [[ -s "${err_file}" ]] && cat "${err_file}" >>"${SECKIT_INSTALL_LOG}"
+  fi
+  rm -f "${out_file}" "${err_file}"
+  return "${rc}"
+}
 
-  [[ -f "$file" ]] || return 1
-  line="$(grep -E "^[[:space:]]*\"${key}\"" "$file" 2>/dev/null | head -1)" || return 1
-  if [[ "$line" =~ \"${key}\"[[:space:]]*:[[:space:]]*\"([^\"]*)\" ]]; then
-    printf '%s' "${BASH_REMATCH[1]}"
+atomic_write_text() {
+  local target="${1:?}" content="${2:-}" tmp
+  tmp="${target}.tmp.$$"
+  printf '%s' "${content}" >"${tmp}"
+  sync "${tmp}" 2>/dev/null || true
+  mv -f "${tmp}" "${target}"
+}
+
+atomic_write_file_from() {
+  local target="${1:?}" src="${2:?}" tmp
+  tmp="${target}.tmp.$$"
+  cp "${src}" "${tmp}"
+  sync "${tmp}" 2>/dev/null || true
+  mv -f "${tmp}" "${target}"
+}
+
+read_runtime_path() {
+  [[ -f "${SECKIT_RUNTIME_PATH_FILE}" ]] || return 1
+  local p
+  p="$(tr -d '\r' <"${SECKIT_RUNTIME_PATH_FILE}" | head -1)"
+  [[ -n "${p}" ]] || return 1
+  printf '%s' "${p}"
+}
+
+find_python_candidate() {
+  local candidate=""
+
+  if [[ -n "${CONDA_PREFIX:-}" && -x "${CONDA_PREFIX}/bin/python" ]] && python_version_ok "${CONDA_PREFIX}/bin/python"; then
+    INSTALL_METHOD="conda"
+    printf '%s' "${CONDA_PREFIX}/bin/python"
     return 0
   fi
-  return 1
-}
+  if [[ -n "${VIRTUAL_ENV:-}" && -x "${VIRTUAL_ENV}/bin/python" ]] && python_version_ok "${VIRTUAL_ENV}/bin/python"; then
+    INSTALL_METHOD="venv"
+    printf '%s' "${VIRTUAL_ENV}/bin/python"
+    return 0
+  fi
 
-python_bin_dir() {
-  dirname "${PYTHON}"
-}
+  CURRENT_RUNTIME="$(read_runtime_path || true)"
+  if [[ -n "${CURRENT_RUNTIME}" && -x "${CURRENT_RUNTIME}/bin/python" ]] && python_version_ok "${CURRENT_RUNTIME}/bin/python"; then
+    INSTALL_METHOD="managed"
+    printf '%s' "${CURRENT_RUNTIME}/bin/python"
+    return 0
+  fi
 
-python_version_ok() {
-  local py="${1:?python path required}"
-  local ver="" major="" minor=""
-
-  [[ -x "${py}" ]] || return 1
-  ver="$("${py}" --version 2>&1)" || return 1
-  if [[ "${ver}" =~ [Pp]ython[[:space:]]+([0-9]+)\.([0-9]+) ]]; then
-    major="${BASH_REMATCH[1]}"
-    minor="${BASH_REMATCH[2]}"
-    if (( major > 3 || (major == 3 && minor >= 9) )); then
+  if [[ -n "${SECKIT_PYTHON:-}" ]]; then
+    if python_version_ok "${SECKIT_PYTHON}"; then
+      INSTALL_METHOD="explicit"
+      printf '%s' "${SECKIT_PYTHON}"
       return 0
     fi
+    install_die "SECKIT_PYTHON is not executable or is older than 3.9: ${SECKIT_PYTHON}"
   fi
-  return 1
-}
 
-resolve_seckit_python() {
-  if [[ -z "${SECKIT_PYTHON:-}" ]]; then
-    return 1
-  fi
-  if python_version_ok "${SECKIT_PYTHON}"; then
-    printf '%s' "${SECKIT_PYTHON}"
-    return 0
-  fi
-  install_die "SECKIT_PYTHON is not executable or is older than 3.9: ${SECKIT_PYTHON}"
-}
-
-discover_python_on_path() {
-  local candidate=""
   for candidate in "$(command -v python3 2>/dev/null || true)" "$(command -v python 2>/dev/null || true)"; do
     [[ -n "${candidate}" && -x "${candidate}" ]] || continue
     if python_version_ok "${candidate}"; then
+      INSTALL_METHOD="path"
       printf '%s' "${candidate}"
       return 0
     fi
@@ -122,358 +181,359 @@ discover_python_on_path() {
   return 1
 }
 
-create_managed_venv() {
-  local bootstrap_py="${1:?bootstrap interpreter required}"
-  if ! python_version_ok "${bootstrap_py}"; then
-    install_die "cannot create managed venv: ${bootstrap_py} is not Python 3.9+"
+resolve_uv() {
+  if command -v uv >/dev/null 2>&1; then
+    UV_BIN="$(command -v uv)"
+    verbose_log "using existing uv: ${UV_BIN}"
+    return 0
   fi
-  install_log "creating managed venv at ${SECKIT_MANAGED_VENV} using ${bootstrap_py}"
-  mkdir -p "$(dirname "${SECKIT_MANAGED_VENV}")"
-  "${bootstrap_py}" -m venv "${SECKIT_MANAGED_VENV}"
-  PYTHON="${SECKIT_MANAGED_VENV}/bin/python"
-  if ! python_version_ok "${PYTHON}"; then
-    install_die "managed venv was created but ${PYTHON} is not usable"
+
+  install_warn "uv runtime manager not found."
+  if [[ "${ALLOW_UV_DOWNLOAD}" -eq 0 ]]; then
+    install_die "uv missing. Re-run with --allow-uv-download (or install uv manually)"
   fi
-  SECKIT_INSTALL_METHOD="managed"
-  SECKIT_VENV_PATH="${SECKIT_MANAGED_VENV}"
+
+  install_log "uv missing: acquiring uv bootstrap tool..."
+  if [[ "${DRY_RUN}" -eq 1 ]]; then
+    return 0
+  fi
+  run_capture sh -c "curl -LsSf https://astral.sh/uv/install.sh | sh" || install_die "failed acquiring uv"
+  if command -v uv >/dev/null 2>&1; then
+    UV_BIN="$(command -v uv)"
+    verbose_log "using acquired uv: ${UV_BIN}"
+    return 0
+  fi
+  if [[ -x "$HOME/.local/bin/uv" ]]; then
+    UV_BIN="$HOME/.local/bin/uv"
+    return 0
+  fi
+  install_die "uv acquisition reported success but uv is still unavailable"
 }
 
-_use_interpreter() {
-  local py="${1:?}" method="${2:?}" venv_path="${3:-}"
-  if ! python_version_ok "${py}"; then
-    install_die "interpreter is not Python 3.9+: ${py}"
-  fi
-  PYTHON="${py}"
-  SECKIT_INSTALL_METHOD="${method}"
-  SECKIT_VENV_PATH="${venv_path}"
+ensure_dirs() {
+  mkdir -p "${SECKIT_RUNTIME_DIR}" "${SECKIT_STATE_DIR}" "${SECKIT_CACHE_DIR}" "${SECKIT_CONFIG_DIR}" "${SECKIT_LAUNCHER_BIN_DIR}"
 }
 
-resolve_python() {
-  PYTHON=""
-  SECKIT_INSTALL_METHOD=""
-  SECKIT_VENV_PATH=""
-
-  if [[ -n "${CONDA_PREFIX:-}" && -x "${CONDA_PREFIX}/bin/python" ]]; then
-    _use_interpreter "${CONDA_PREFIX}/bin/python" "conda" ""
-    return 0
-  fi
-  if [[ -n "${VIRTUAL_ENV:-}" && -x "${VIRTUAL_ENV}/bin/python" ]]; then
-    _use_interpreter "${VIRTUAL_ENV}/bin/python" "venv" "${VIRTUAL_ENV}"
-    return 0
-  fi
-  if [[ -x "${SECKIT_MANAGED_VENV}/bin/python" ]]; then
-    _use_interpreter "${SECKIT_MANAGED_VENV}/bin/python" "managed" "${SECKIT_MANAGED_VENV}"
-    return 0
-  fi
-
-  local explicit=""
-  explicit="$(resolve_seckit_python || true)"
-  if [[ -n "${explicit}" ]]; then
-    _use_interpreter "${explicit}" "explicit" ""
-    return 0
-  fi
-
-  local discovered=""
-  discovered="$(discover_python_on_path || true)"
-  if [[ -n "${discovered}" ]]; then
-    create_managed_venv "${discovered}"
-    return 0
-  fi
-
-  install_python_missing_help
-  install_die "no Python 3.9+ interpreter found"
-}
-
-resolve_python_for_upgrade() {
-  PYTHON=""
-  SECKIT_INSTALL_METHOD=""
-  SECKIT_VENV_PATH=""
-
-  if [[ -f "${SECKIT_INSTALL_STATE}" ]]; then
-    local recorded="" method="" venv_path=""
-    recorded="$(install_state_field interpreter || true)"
-    if [[ -n "${recorded}" && -x "${recorded}" ]]; then
-      if ! python_version_ok "${recorded}"; then
-        install_warn "recorded interpreter is not Python 3.9+: ${recorded}"
-      else
-        PYTHON="${recorded}"
-        method="$(install_state_field install_method || true)"
-        SECKIT_INSTALL_METHOD="${method:-unknown}"
-        venv_path="$(install_state_field venv_path || true)"
-        SECKIT_VENV_PATH="${venv_path}"
-        install_log "upgrade: reusing interpreter ${PYTHON}"
-        return 0
-      fi
-    elif [[ -n "${recorded}" ]]; then
-      install_warn "recorded interpreter missing or not executable: ${recorded}"
+next_runtime_generation() {
+  local stamp idx candidate
+  stamp="$(date +%Y%m%d)"
+  idx=1
+  while :; do
+    candidate="${SECKIT_RUNTIME_DIR}/runtime-${stamp}-$(printf '%03d' "${idx}")"
+    if [[ ! -e "${candidate}" ]]; then
+      printf '%s' "${candidate}"
+      return 0
     fi
+    idx=$((idx + 1))
+  done
+}
+
+create_runtime() {
+  TARGET_RUNTIME="$(next_runtime_generation)"
+  verbose_log "creating runtime: ${TARGET_RUNTIME}"
+
+  local -a cmd=("${UV_BIN}" venv "${TARGET_RUNTIME}" --python "${PYTHON}")
+  [[ "${VERBOSE}" -eq 1 ]] || cmd+=(--quiet)
+  UV_CACHE_DIR="${SECKIT_CACHE_DIR}" run_capture "${cmd[@]}" || install_die "failed creating uv runtime"
+}
+
+uv_install_secrets_kit() {
+  local spec="" mode="${1:?}"
+  if [[ "${DEV_MODE}" -eq 1 ]]; then
+    [[ -f "${SECKIT_INSTALL_ROOT}/pyproject.toml" ]] || install_die "--dev requires local checkout containing pyproject.toml"
+    spec="-e .[dev]"
   else
-    install_warn "no install state at ${SECKIT_INSTALL_STATE}; resolving environment"
+    spec="git+${SECKIT_REPO_URL}@${SECKIT_REF}"
   fi
 
-  resolve_python
-}
+  local -a cmd=("${UV_BIN}" pip install --python "${TARGET_RUNTIME}/bin/python")
+  [[ "${mode}" == "upgrade" ]] && cmd+=(--upgrade)
+  [[ "${VERBOSE}" -eq 1 ]] || cmd+=(--quiet)
 
-validate_python() {
-  local ver=""
-  if [[ -z "${PYTHON:-}" || ! -x "${PYTHON}" ]]; then
-    install_die "no Python interpreter selected"
-  fi
-  if ! python_version_ok "${PYTHON}"; then
-    install_die "selected interpreter is not Python 3.9+: ${PYTHON}"
-  fi
-  ver="$("${PYTHON}" --version 2>&1)" || install_die "could not read Python version from ${PYTHON}"
-  install_log "${ver} ($(uname -s) $(uname -m))"
-
-  if ! "${PYTHON}" -m pip --version >/dev/null 2>&1; then
-    install_die "pip not available for ${PYTHON}; run: ${PYTHON} -m ensurepip --upgrade"
-  fi
-
-  case "$(uname -s)" in
-    Darwin)
-      if ! command -v security >/dev/null 2>&1; then
-        install_warn "security CLI not found; macOS keychain backend may not work"
-      fi
-      ;;
-    Linux)
-      install_log "Linux default backend is sqlite (use sqlite_dev_mode for developer workflows)"
-      ;;
-  esac
-}
-
-pip_vcs_url() {
-  printf '%s' "git+${SECKIT_REPO_URL}@${SECKIT_REF}"
-}
-
-pip_install_seckit() {
-  local spec=""
-  spec="$(pip_vcs_url)"
-  install_log "installing ${spec}"
-  "${PYTHON}" -m pip install "${spec}"
-}
-
-pip_upgrade_seckit() {
-  local spec=""
-  spec="$(pip_vcs_url)"
-  install_log "upgrading ${spec}"
-  "${PYTHON}" -m pip install --upgrade "${spec}"
-}
-
-pip_install_dev() {
-  local repo_root="${1:?repo root required}"
-  if [[ ! -f "${repo_root}/pyproject.toml" ]]; then
-    install_die "--dev requires a local checkout containing pyproject.toml (set SECKIT_INSTALL_ROOT)"
-  fi
-  install_log "editable dev install from ${repo_root}"
-  (cd "${repo_root}" && "${PYTHON}" -m pip install -e '.[dev]')
-}
-
-seckit_installed_version() {
-  local bin="" version=""
-  bin="$(python_bin_dir)/seckit"
-  if [[ ! -x "${bin}" ]]; then
-    printf '%s' "unknown"
-    return 0
-  fi
-  version="$("${bin}" --version 2>/dev/null | awk 'NF { print $2; exit }')"
-  if [[ -z "${version}" ]]; then
-    printf '%s' "unknown"
+  if [[ "${DEV_MODE}" -eq 1 ]]; then
+    append_log "RUN (cd ${SECKIT_INSTALL_ROOT} && ${cmd[*]} ${spec})"
+    (cd "${SECKIT_INSTALL_ROOT}" && UV_CACHE_DIR="${SECKIT_CACHE_DIR}" run_capture "${cmd[@]}" "${spec}") || install_die "failed installing editable seckit"
   else
-    printf '%s' "${version}"
+    UV_CACHE_DIR="${SECKIT_CACHE_DIR}" run_capture "${cmd[@]}" "${spec}" || install_die "failed installing seckit"
   fi
+}
+
+write_runtime_state() {
+  local runtime_json current_link_tmp
+  runtime_json="$(mktemp -t seckit-runtime-json.XXXXXX)"
+  cat >"${runtime_json}" <<EOF_JSON
+{
+  "runtime": "$(_json_escape "${TARGET_RUNTIME}")",
+  "method": "$(_json_escape "${INSTALL_METHOD}")",
+  "python": "$(_json_escape "${PYTHON}")",
+  "uv": "$(_json_escape "${UV_BIN}")",
+  "ref": "$(_json_escape "${SECKIT_REF}")"
+}
+EOF_JSON
+  atomic_write_file_from "${SECKIT_RUNTIME_JSON}" "${runtime_json}"
+  rm -f "${runtime_json}"
+
+  atomic_write_text "${SECKIT_RUNTIME_PATH_FILE}" "${TARGET_RUNTIME}\n"
+
+  current_link_tmp="${SECKIT_RUNTIME_DIR}/current.tmp.$$"
+  ln -sfn "${TARGET_RUNTIME}" "${current_link_tmp}"
+  mv -f "${current_link_tmp}" "${SECKIT_RUNTIME_DIR}/current"
 }
 
 write_install_state() {
-  local version="" interpreter_escaped="" method_escaped="" venv_escaped="" version_escaped="" ref_escaped=""
-  version="$(seckit_installed_version)"
-  interpreter_escaped="$(_json_escape "${PYTHON}")"
-  method_escaped="$(_json_escape "${SECKIT_INSTALL_METHOD}")"
-  version_escaped="$(_json_escape "${version}")"
-  ref_escaped="$(_json_escape "${SECKIT_REF}")"
-  if [[ -n "${SECKIT_VENV_PATH:-}" ]]; then
-    venv_escaped="$(_json_escape "${SECKIT_VENV_PATH}")"
-  fi
-
-  mkdir -p "$(dirname "${SECKIT_INSTALL_STATE}")"
-  if [[ -n "${venv_escaped:-}" ]]; then
-    cat >"${SECKIT_INSTALL_STATE}" <<EOF
+  local version install_json
+  version="$(${TARGET_RUNTIME}/bin/seckit --version 2>/dev/null | awk 'NF {print $2; exit}')"
+  install_json="$(mktemp -t seckit-install-json.XXXXXX)"
+  cat >"${install_json}" <<EOF_JSON
 {
-  "interpreter": "${interpreter_escaped}",
-  "venv_path": "${venv_escaped}",
-  "install_method": "${method_escaped}",
-  "version": "${version_escaped}",
-  "ref": "${ref_escaped}"
+  "version": "$(_json_escape "${version:-unknown}")",
+  "ref": "$(_json_escape "${SECKIT_REF}")",
+  "method": "uv",
+  "updated_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
-EOF
-  else
-    cat >"${SECKIT_INSTALL_STATE}" <<EOF
-{
-  "interpreter": "${interpreter_escaped}",
-  "venv_path": null,
-  "install_method": "${method_escaped}",
-  "version": "${version_escaped}",
-  "ref": "${ref_escaped}"
+EOF_JSON
+  atomic_write_file_from "${SECKIT_INSTALL_STATE}" "${install_json}"
+  rm -f "${install_json}"
 }
-EOF
+
+write_launcher() {
+  local launcher
+  launcher="$(mktemp -t seckit-launcher.XXXXXX)"
+  cat >"${launcher}" <<'EOF_LAUNCH'
+#!/usr/bin/env bash
+set -euo pipefail
+STATE_DIR="${SECKIT_STATE_DIR_OVERRIDE:-$HOME/.local/share/seckit/state}"
+RUNTIME_PATH_FILE="${STATE_DIR}/runtime-path"
+if [[ ! -f "${RUNTIME_PATH_FILE}" ]]; then
+  echo "seckit launcher: runtime path missing (${RUNTIME_PATH_FILE})" >&2
+  exit 1
+fi
+RUNTIME_DIR="$(head -1 "${RUNTIME_PATH_FILE}" | tr -d '\r')"
+if [[ -z "${RUNTIME_DIR}" || ! -x "${RUNTIME_DIR}/bin/seckit" ]]; then
+  echo "seckit launcher: invalid runtime path (${RUNTIME_DIR})" >&2
+  exit 1
+fi
+exec "${RUNTIME_DIR}/bin/seckit" "$@"
+EOF_LAUNCH
+  chmod 755 "${launcher}"
+  atomic_write_file_from "${SECKIT_LAUNCHER_PATH}" "${launcher}"
+  rm -f "${launcher}"
+}
+
+detect_shell_profile() {
+  local shell_name
+  shell_name="$(basename "${SHELL:-}")"
+  case "${shell_name}" in
+    zsh) printf '%s' "${HOME}/.zshrc" ;;
+    bash)
+      if [[ -f "${HOME}/.bashrc" ]]; then
+        printf '%s' "${HOME}/.bashrc"
+      else
+        printf '%s' "${HOME}/.bash_profile"
+      fi
+      ;;
+    *) printf '' ;;
+  esac
+}
+
+apply_shell_profile_block() {
+  local profile tmp begin end line
+  begin="# >>> seckit path >>>"
+  end="# <<< seckit path <<<"
+  line="export PATH=\"${SECKIT_LAUNCHER_BIN_DIR}:\$PATH\""
+
+  if [[ "${NO_SHELL_PROFILE}" -eq 1 || "${SAFE_MODE}" -eq 1 ]]; then
+    install_log "PATH hint: export PATH=\"${SECKIT_LAUNCHER_BIN_DIR}:\$PATH\""
+    return 0
+  fi
+  if [[ "${IS_INTERACTIVE}" -ne 1 && "${SHELL_PROFILE_FORCE}" -ne 1 ]]; then
+    install_log "PATH hint: export PATH=\"${SECKIT_LAUNCHER_BIN_DIR}:\$PATH\""
+    return 0
+  fi
+
+  profile="$(detect_shell_profile)"
+  if [[ -z "${profile}" ]]; then
+    install_log "PATH hint: export PATH=\"${SECKIT_LAUNCHER_BIN_DIR}:\$PATH\""
+    return 0
+  fi
+
+  mkdir -p "$(dirname "${profile}")"
+  touch "${profile}"
+
+  tmp="$(mktemp -t seckit-profile.XXXXXX)"
+  awk -v b="${begin}" -v e="${end}" '
+    BEGIN { skip=0 }
+    {
+      if ($0 == b) { skip=1; next }
+      if (skip == 1 && $0 == e) { skip=0; next }
+      if (skip == 0) print
+    }
+  ' "${profile}" >"${tmp}"
+
+  PROFILE_BACKUP_FILE="${profile}.seckit.bak.$$"
+  cp "${profile}" "${PROFILE_BACKUP_FILE}"
+  {
+    cat "${tmp}"
+    printf '\n%s\n%s\n%s\n' "${begin}" "${line}" "${end}"
+  } >"${profile}"
+  rm -f "${tmp}"
+
+  PROFILE_CHANGED=1
+  PROFILE_CHANGED_FILE="${profile}"
+  install_log "updated shell profile: ${profile}"
+}
+
+rollback_shell_profile_if_needed() {
+  if [[ "${PROFILE_CHANGED}" -eq 1 && -n "${PROFILE_CHANGED_FILE}" && -n "${PROFILE_BACKUP_FILE}" && -f "${PROFILE_BACKUP_FILE}" ]]; then
+    cp "${PROFILE_BACKUP_FILE}" "${PROFILE_CHANGED_FILE}" || true
+    rm -f "${PROFILE_BACKUP_FILE}" || true
   fi
 }
 
-run_seckit() {
-  local bin_dir=""
-  bin_dir="$(python_bin_dir)"
-  if [[ -x "${bin_dir}/seckit" ]]; then
-    "${bin_dir}/seckit" "$@"
-    return $?
+clear_shell_profile_backup() {
+  if [[ -n "${PROFILE_BACKUP_FILE}" && -f "${PROFILE_BACKUP_FILE}" ]]; then
+    rm -f "${PROFILE_BACKUP_FILE}"
   fi
-  if command -v seckit >/dev/null 2>&1; then
-    seckit "$@"
-    return $?
-  fi
-  install_die "seckit not found on PATH after install"
 }
 
-preflight_install() {
-  if ! install_supported_os; then
-    install_die "unsupported OS; macOS and Linux only"
-  fi
-  mkdir -p "$(dirname "${SECKIT_INSTALL_STATE}")"
-  if ! touch "$(dirname "${SECKIT_INSTALL_STATE}")/.write_test" 2>/dev/null; then
-    install_die "~/.config/seckit is not writable"
-  fi
-  rm -f "$(dirname "${SECKIT_INSTALL_STATE}")/.write_test"
-}
-
-install_print_finish() {
-  local bin_dir=""
-  bin_dir="$(python_bin_dir)"
-  install_log "done (ref=${SECKIT_REF}, method=${SECKIT_INSTALL_METHOD})"
-  if [[ "${SECKIT_INSTALL_METHOD}" == "managed" && -d "${bin_dir}" ]]; then
-    install_log "add seckit to your shell PATH:"
-    printf '  export PATH="%s:$PATH"\n' "${bin_dir}" >&2
-  fi
-  install_log "next: seckit --version && seckit info"
+run_install_check() {
+  local -a args=(doctor --install-check)
+  run_capture "${TARGET_RUNTIME}/bin/seckit" "${args[@]}"
 }
 
 usage() {
   cat <<EOF
 Secrets-Kit installer
 
-Typical install (no options required):
+Typical install:
   curl -fsSL ${SECKIT_INSTALL_URL} | bash
 
-  Requires Python 3.9+ already installed (this script does not install Python).
-  Installs the seckit CLI, runs first-time setup (seckit init), and verifies the install.
-  Python order: active conda, active venv, managed venv, SECKIT_PYTHON, then python3 on PATH.
-
-Upgrade an existing install:
+Upgrade:
   curl -fsSL ${SECKIT_INSTALL_URL} | bash -s -- --upgrade
 
-Advanced options (non-standard installs only):
-  --ref TAG           Pin a different git tag or branch for pip (default: ${SECKIT_REF_BAKED})
-  --repo-url URL      Alternate Git repository (default: ${SECKIT_REPO_URL})
-  --dev               Editable install from this checkout (developer clone only)
-  --yes               Skip confirmation when overwriting existing config (auto-enabled when stdin is not a TTY)
-  --no-init           Install the package but skip seckit init
-  --no-verify         Skip seckit doctor --install-check after install
-  --dry-run           Print planned actions only
-  --json              Machine-readable status on stdout
-  -h, --help          Show this help
-
-Environment (advanced):
-  SECKIT_PYTHON         Explicit Python 3.9+ interpreter (required if python3 is not on PATH)
-  SECKIT_MANAGED_VENV   Alternate managed venv path (default: ~/.local/share/seckit/venv)
-  SECKIT_INSTALL_STATE  Alternate install state file (default: ~/.config/seckit/install.json)
-
-Backend and config paths are set by seckit init / seckit config after install, not by install.sh.
-See docs/INSTALL.md for details.
+Options:
+  --upgrade              Upgrade runtime/package only
+  --repair               Rebuild runtime/launcher while preserving config/state
+  --dev                  Editable install from local checkout
+  --yes                  Non-interactive init overwrite confirmations
+  --no-init              Skip seckit init
+  --no-verify            Skip doctor --install-check
+  --ref TAG              Install from different git ref
+  --repo-url URL         Install from different git repository
+  --dry-run              Print planned actions only
+  --json                 Emit machine-readable result
+  --verbose              Verbose decision + subprocess output
+  --safe                 Deterministic mode (no shell profile edits)
+  --no-shell-profile     Never modify shell startup files
+  --shell-profile-force  Allow profile edits in non-interactive mode
+  --allow-uv-download    Permit explicit uv acquisition when missing
+  -h, --help             Show this help
 EOF
 }
 
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --ref)
-      SECKIT_REF="${2:?--ref requires a value}"
-      shift 2
-      ;;
-    --repo-url)
-      SECKIT_REPO_URL="${2:?--repo-url requires a value}"
-      shift 2
-      ;;
-    --upgrade) UPGRADE=1; shift ;;
-    --dev) DEV_MODE=1; shift ;;
-    --yes) YES=1; shift ;;
-    --no-init) NO_INIT=1; shift ;;
-    --no-verify) NO_VERIFY=1; shift ;;
-    --dry-run) DRY_RUN=1; shift ;;
-    --json) JSON_OUT=1; shift ;;
-    -h | --help) usage; exit 0 ;;
-    *) install_die "unknown option: $1" ;;
-  esac
-done
-
-# curl | bash and other non-interactive installs cannot answer init prompts.
-if [[ "${YES}" -eq 0 && ! -t 0 ]]; then
-  YES=1
-fi
-
-if [[ -z "${SECKIT_REF}" ]]; then
-  if [[ "${DEV_MODE}" -eq 1 ]]; then
-    SECKIT_REF="dev"
-  else
-    SECKIT_REF="${SECKIT_REF_BAKED}"
-  fi
-fi
-
-emit_json() {
-  printf '%s\n' "$1"
+preflight_install() {
+  install_supported_os || install_die "unsupported OS (macOS and Linux only)"
+  ensure_dirs
+  append_log "--- installer start pid=$$ ---"
 }
 
+parse_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --ref) SECKIT_REF="${2:?--ref requires a value}"; shift 2 ;;
+      --repo-url) SECKIT_REPO_URL="${2:?--repo-url requires a value}"; shift 2 ;;
+      --upgrade) UPGRADE=1; shift ;;
+      --repair) REPAIR=1; UPGRADE=1; NO_INIT=1; shift ;;
+      --dev) DEV_MODE=1; shift ;;
+      --yes) YES=1; shift ;;
+      --no-init) NO_INIT=1; shift ;;
+      --no-verify) NO_VERIFY=1; shift ;;
+      --dry-run) DRY_RUN=1; shift ;;
+      --json) JSON_OUT=1; shift ;;
+      --verbose) VERBOSE=1; shift ;;
+      --safe) SAFE_MODE=1; shift ;;
+      --no-shell-profile) NO_SHELL_PROFILE=1; shift ;;
+      --shell-profile-force) SHELL_PROFILE_FORCE=1; shift ;;
+      --allow-uv-download) ALLOW_UV_DOWNLOAD=1; shift ;;
+      -h|--help) usage; exit 0 ;;
+      *) install_die "unknown option: $1" ;;
+    esac
+  done
+}
+
+emit_json() { printf '%s\n' "$1"; }
+
 main() {
+  trap rollback_shell_profile_if_needed ERR
+
+  parse_args "$@"
   preflight_install
 
+  if [[ "${YES}" -eq 0 && ! -t 0 ]]; then
+    YES=1
+  fi
+  if [[ -z "${SECKIT_REF}" ]]; then
+    if [[ "${DEV_MODE}" -eq 1 ]]; then
+      SECKIT_REF="dev"
+    else
+      SECKIT_REF="${SECKIT_REF_BAKED}"
+    fi
+  fi
+
   if [[ "${DRY_RUN}" -eq 1 ]]; then
-    install_log "dry-run: ref=${SECKIT_REF} upgrade=${UPGRADE} dev=${DEV_MODE}"
+    install_log "dry-run: ref=${SECKIT_REF} upgrade=${UPGRADE} repair=${REPAIR} dev=${DEV_MODE}"
+    install_log "dry-run: runtime root ${SECKIT_RUNTIME_DIR}"
     if [[ "${JSON_OUT}" -eq 1 ]]; then
-      emit_json "{\"dry_run\":true,\"ref\":\"${SECKIT_REF}\",\"upgrade\":${UPGRADE},\"dev\":${DEV_MODE}}"
+      emit_json "{\"dry_run\":true,\"ref\":\"${SECKIT_REF}\",\"upgrade\":${UPGRADE},\"repair\":${REPAIR},\"dev\":${DEV_MODE}}"
     fi
     exit 0
   fi
 
+  step 1 "Checking runtime manager..."
+  resolve_uv
+
+  step 2 "Creating isolated runtime..."
+  PYTHON="$(find_python_candidate || true)"
+  [[ -n "${PYTHON}" ]] || install_die "no Python 3.9+ interpreter found"
+  verbose_log "selected interpreter: ${PYTHON} (${INSTALL_METHOD})"
+  create_runtime
+
+  step 3 "Installing Secrets-Kit..."
   if [[ "${UPGRADE}" -eq 1 ]]; then
-    resolve_python_for_upgrade
+    uv_install_secrets_kit "upgrade"
   else
-    resolve_python
+    uv_install_secrets_kit "install"
   fi
-
-  validate_python
-  install_log "using ${PYTHON} (method=${SECKIT_INSTALL_METHOD})"
-
-  if [[ "${DEV_MODE}" -eq 1 ]]; then
-    pip_install_dev "${SECKIT_INSTALL_ROOT}"
-  elif [[ "${UPGRADE}" -eq 1 ]]; then
-    pip_upgrade_seckit
-  else
-    pip_install_seckit
-  fi
-
+  write_runtime_state
+  write_launcher
   write_install_state
 
+  step 4 "Running first-time setup..."
   if [[ "${UPGRADE}" -eq 0 && "${NO_INIT}" -eq 0 ]]; then
-    init_args=()
-    if [[ "${YES}" -eq 1 ]]; then
-      init_args+=(--yes)
-    fi
-    run_seckit init "${init_args[@]}"
+    local -a init_args=(init)
+    [[ "${YES}" -eq 1 ]] && init_args+=(--yes)
+    run_capture "${TARGET_RUNTIME}/bin/seckit" "${init_args[@]}" || install_die "seckit init failed"
+  else
+    verbose_log "init skipped"
+  fi
+  apply_shell_profile_block
+
+  step 5 "Verifying install..."
+  if [[ "${NO_VERIFY}" -eq 0 ]]; then
+    run_install_check || install_die "install verification failed"
+  else
+    verbose_log "verification skipped"
   fi
 
-  if [[ "${NO_VERIFY}" -eq 0 ]]; then
-    run_seckit doctor --install-check
-  fi
+  clear_shell_profile_backup
 
   if [[ "${JSON_OUT}" -eq 1 ]]; then
-    emit_json "{\"ok\":true,\"ref\":\"${SECKIT_REF}\",\"interpreter\":\"${PYTHON}\",\"install_method\":\"${SECKIT_INSTALL_METHOD}\"}"
+    emit_json "{\"ok\":true,\"ref\":\"${SECKIT_REF}\",\"runtime\":\"${TARGET_RUNTIME}\",\"uv\":\"${UV_BIN}\"}"
   else
-    install_print_finish
+    printf '\nSecrets-Kit installed successfully.\n' >&2
+    if [[ "${IS_INTERACTIVE}" -eq 0 || "${NO_SHELL_PROFILE}" -eq 1 || "${SAFE_MODE}" -eq 1 ]]; then
+      install_log "PATH hint: export PATH=\"${SECKIT_LAUNCHER_BIN_DIR}:\$PATH\""
+    fi
   fi
 }
 

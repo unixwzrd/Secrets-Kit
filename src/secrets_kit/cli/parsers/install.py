@@ -36,6 +36,7 @@ def register_install_commands(
         help=msg("cli.install.install_url_help", default_url=DEFAULT_INSTALL_URL),
     )
     p_install.add_argument("--upgrade", action="store_true", help=msg("cli.install.upgrade_help"))
+    p_install.add_argument("--repair", action="store_true", help=msg("cli.install.repair_help"))
     p_install.add_argument("--dev", action="store_true", help=msg("cli.install.dev_help"))
     p_install.add_argument("--yes", action="store_true", help=msg("cli.common.yes_help"))
     p_install.add_argument("--no-init", action="store_true", help=msg("cli.install.no_init_help"))
@@ -46,6 +47,27 @@ def register_install_commands(
     )
     p_install.add_argument("--dry-run", action="store_true", help=msg("cli.common.dry_run_help"))
     p_install.add_argument("--json", action="store_true", help=msg("cli.install.json_help"))
+    p_install.add_argument("--verbose", action="store_true", help=msg("cli.install.verbose_help"))
+    p_install.add_argument(
+        "--safe",
+        action="store_true",
+        help=msg("cli.install.safe_help"),
+    )
+    p_install.add_argument(
+        "--no-shell-profile",
+        action="store_true",
+        help=msg("cli.install.no_shell_profile_help"),
+    )
+    p_install.add_argument(
+        "--shell-profile-force",
+        action="store_true",
+        help=msg("cli.install.shell_profile_force_help"),
+    )
+    p_install.add_argument(
+        "--allow-uv-download",
+        action="store_true",
+        help=msg("cli.install.allow_uv_download_help"),
+    )
     p_install.set_defaults(func=cmd_install)
 
 

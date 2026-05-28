@@ -12,18 +12,19 @@ Installer does not install Python. If no suitable Python is found, install stops
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/v2.0.0a1/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/v2.0.0a2/install.sh | bash
 ```
 
-Default install runs package install, `seckit init`, and a post-install doctor check.
+Default install provisions an isolated runtime, installs Secrets-Kit, runs `seckit init`, and runs a post-install doctor check.
+Output is concise progress/status only.
 
 ## Upgrade
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/v2.0.0a1/install.sh | bash -s -- --upgrade
+curl -fsSL https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/v2.0.0a2/install.sh | bash -s -- --upgrade
 ```
 
-Upgrade updates the package in the existing install environment and skips `seckit init`.
+Upgrade refreshes runtime/package in the existing install environment and skips `seckit init`.
 
 ## Verify
 
@@ -31,6 +32,12 @@ Upgrade updates the package in the existing install environment and skips `secki
 seckit --version
 seckit doctor --install-check
 ```
+
+## Execution Modes
+
+- Default: concise progress output, quiet dependency chatter.
+- `--verbose`: environment resolution details, selected interpreter, subprocess detail.
+- Debug: `bash -x install.sh` (or `SECKIT_DEBUG=1`) for shell-level tracing.
 
 ## Troubleshooting
 
@@ -61,6 +68,12 @@ Use only when needed:
 - `--repo-url URL` install from a fork or alternate git remote
 - `--dry-run` print planned actions; make no changes
 - `--json` emit machine-readable installer result
+- `--verbose` show installer decision and subprocess detail
+- `--repair` rebuild runtime/launcher while preserving operator config/state
+- `--safe` deterministic mode for CI/SSH (no shell profile edits)
+- `--no-shell-profile` never modify shell startup files
+- `--shell-profile-force` allow startup file updates in non-interactive mode
+- `--allow-uv-download` permit explicit uv acquisition when missing
 
 Optional environment overrides:
 
