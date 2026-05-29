@@ -16,7 +16,7 @@ curl -fsSL https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/v2.0.0a2/insta
 ```
 
 Default install provisions an isolated runtime, installs Secrets-Kit, runs `seckit init`, and runs a post-install doctor check.
-Output is concise progress/status only.
+Output shows step progress (`[1/5]` … `[5/5]`), short status lines during long operations, and a clear success line. Tool resolver noise stays hidden unless install fails.
 
 ## Upgrade
 

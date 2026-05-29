@@ -58,6 +58,7 @@ install_warn() { printf 'seckit-install: warning: %s\n' "$*" >&2; }
 install_die() { printf 'seckit-install: error: %s\n' "$*" >&2; exit 1; }
 verbose_log() { [[ "${VERBOSE}" -eq 1 ]] && install_log "$*"; }
 step() { printf '[%s/5] %s\n' "$1" "$2" >&2; }
+step_done() { install_log "[%s/5] complete." "$1"; }
 
 append_log() {
   mkdir -p "$(dirname "${SECKIT_INSTALL_LOG}")"
@@ -197,11 +198,13 @@ resolve_uv() {
   if command -v uv >/dev/null 2>&1; then
     UV_BIN="$(command -v uv)"
     verbose_log "using existing runtime tool: ${UV_BIN}"
+    install_log "Runtime tools ready."
     return 0
   fi
   if [[ -x "${HOME}/.local/bin/uv" ]]; then
     UV_BIN="${HOME}/.local/bin/uv"
     verbose_log "using existing runtime tool: ${UV_BIN}"
+    install_log "Runtime tools ready."
     return 0
   fi
 
@@ -436,7 +439,33 @@ clear_shell_profile_backup() {
 
 run_install_check() {
   local -a args=(doctor --install-check)
-  run_capture "${TARGET_RUNTIME}/bin/seckit" "${args[@]}"
+  if [[ "${VERBOSE}" -eq 1 ]]; then
+    run_capture "${TARGET_RUNTIME}/bin/seckit" "${args[@]}"
+    return $?
+  fi
+  local out_file err_file rc
+  out_file="$(mktemp -t seckit-install-check-out.XXXXXX)"
+  err_file="$(mktemp -t seckit-install-check-err.XXXXXX)"
+  append_log "RUN ${TARGET_RUNTIME}/bin/seckit ${args[*]}"
+  "${TARGET_RUNTIME}/bin/seckit" "${args[@]}" >"${out_file}" 2>"${err_file}" || rc=$?
+  rc="${rc:-0}"
+  if [[ "${rc}" -ne 0 ]]; then
+    [[ -s "${out_file}" ]] && sed 's/^/  /' "${out_file}" >&2
+    [[ -s "${err_file}" ]] && sed 's/^/  /' "${err_file}" >&2
+    [[ -s "${out_file}" ]] && cat "${out_file}" >>"${SECKIT_INSTALL_LOG}"
+    [[ -s "${err_file}" ]] && cat "${err_file}" >>"${SECKIT_INSTALL_LOG}"
+    rm -f "${out_file}" "${err_file}"
+    return "${rc}"
+  fi
+  if grep -q '"ok"[[:space:]]*:[[:space:]]*false' "${out_file}" 2>/dev/null; then
+    sed 's/^/  /' "${out_file}" >&2
+    cat "${out_file}" >>"${SECKIT_INSTALL_LOG}" 2>/dev/null || true
+    rm -f "${out_file}" "${err_file}"
+    return 1
+  fi
+  install_log "Install verification passed."
+  rm -f "${out_file}" "${err_file}"
+  return 0
 }
 
 usage() {
@@ -533,39 +562,56 @@ main() {
 
   step 1 "Preparing runtime..."
   resolve_uv
+  step_done 1
 
   step 2 "Creating isolated runtime..."
+  install_log "Locating Python 3.9+ interpreter..."
   PYTHON="$(find_python_candidate || true)"
   [[ -n "${PYTHON}" ]] || install_die "no Python 3.9+ interpreter found"
-  verbose_log "selected interpreter: ${PYTHON} (${INSTALL_METHOD})"
+  install_log "Using interpreter: ${PYTHON}"
+  verbose_log "interpreter method: ${INSTALL_METHOD:-unknown}"
+  install_log "Creating isolated environment (may take a minute)..."
   create_runtime
+  install_log "Isolated environment ready."
+  step_done 2
 
   step 3 "Installing Secrets-Kit..."
   if [[ "${UPGRADE}" -eq 1 ]]; then
+    install_log "Upgrading package (may take a few minutes)..."
     uv_install_secrets_kit "upgrade"
   else
+    install_log "Installing package (may take a few minutes)..."
     uv_install_secrets_kit "install"
   fi
   write_runtime_state
   write_launcher
   write_install_state
+  install_log "Package installed."
+  step_done 3
 
   step 4 "Running first-time setup..."
   if [[ "${UPGRADE}" -eq 0 && "${NO_INIT}" -eq 0 ]]; then
+    install_log "Initializing configuration..."
     local -a init_args=(init)
     [[ "${YES}" -eq 1 ]] && init_args+=(--yes)
     run_capture "${TARGET_RUNTIME}/bin/seckit" "${init_args[@]}" || install_die "seckit init failed"
+    install_log "Configuration initialized."
   else
+    install_log "First-time setup skipped."
     verbose_log "init skipped"
   fi
   apply_shell_profile_block
+  step_done 4
 
   step 5 "Verifying install..."
   if [[ "${NO_VERIFY}" -eq 0 ]]; then
+    install_log "Running install verification..."
     run_install_check || install_die "install verification failed"
   else
+    install_log "Install verification skipped."
     verbose_log "verification skipped"
   fi
+  step_done 5
 
   clear_shell_profile_backup
 
@@ -573,6 +619,8 @@ main() {
     emit_json "{\"ok\":true,\"ref\":\"${SECKIT_REF}\",\"runtime\":\"${TARGET_RUNTIME}\",\"uv\":\"${UV_BIN}\"}"
   else
     printf '\nSecrets-Kit installed successfully.\n' >&2
+    install_log "Version: $(${TARGET_RUNTIME}/bin/seckit --version 2>/dev/null | awk 'NF {print $2; exit}')"
+    install_log "Command: ${SECKIT_LAUNCHER_PATH}"
     if [[ "${IS_INTERACTIVE}" -eq 0 || "${NO_SHELL_PROFILE}" -eq 1 || "${SAFE_MODE}" -eq 1 ]]; then
       install_log "PATH hint: export PATH=\"${SECKIT_LAUNCHER_BIN_DIR}:\$PATH\""
     fi
