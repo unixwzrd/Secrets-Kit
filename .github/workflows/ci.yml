@@ -6,31 +6,54 @@ name: ci
 
 on:
   push:
+    branches:
+      - main
+    tags-ignore:
+      - "v*"
+
   pull_request:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   PIP_NO_CACHE_DIR: "1"
 
 jobs:
+
   tests:
-    runs-on: ${{ matrix.os }}
+
     strategy:
       fail-fast: false
+
       matrix:
-        os: [macos-14, macos-15, macos-latest]
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        os:
+          - macos-15
+          - ubuntu-latest
+
+        python-version:
+          - "3.11"
+          - "3.12"
+          - "3.13"
+
+    runs-on: ${{ matrix.os }}
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+
       - name: Install
         run: |
           python -m pip install -U pip setuptools wheel
           python -m pip install -e ".[dev]"
+
       - name: Run local validation
         run: |
           export PYTHON="$(command -v python)"
