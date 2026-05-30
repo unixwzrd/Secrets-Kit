@@ -6,6 +6,10 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+### 2026-05-30 — Fix silent default install exit (`set -e` + `verbose_log`)
+
+- **What changed:** Default `curl | bash` no longer exits immediately after step 1. `verbose_log` and other conditional helpers no longer use `[[ … ]] && cmd` patterns that abort the script under `set -euo pipefail` when verbose mode is off.
+
 ### 2026-05-28 — Installer default bootstrap (post-`2.0.0a2`)
 
 - **What changed:** Default `curl | bash` install now bootstraps missing runtime tooling automatically (no extra flags). `--safe` and `--no-uv-download` opt out of network bootstrap. Deprecated `--allow-uv-download`. Operator messages avoid runtime-manager product names in default mode.

@@ -56,7 +56,11 @@ fi
 install_log() { printf 'seckit-install: %s\n' "$*" >&2; }
 install_warn() { printf 'seckit-install: warning: %s\n' "$*" >&2; }
 install_die() { printf 'seckit-install: error: %s\n' "$*" >&2; exit 1; }
-verbose_log() { [[ "${VERBOSE}" -eq 1 ]] && install_log "$*"; }
+verbose_log() {
+  if [[ "${VERBOSE}" -eq 1 ]]; then
+    install_log "$*"
+  fi
+}
 step() { printf '[%s/5] %s\n' "$1" "$2" >&2; }
 step_done() { install_log "[%s/5] complete." "$1"; }
 
@@ -274,7 +278,9 @@ create_runtime() {
   verbose_log "creating runtime: ${TARGET_RUNTIME}"
 
   local -a cmd=("${UV_BIN}" venv "${TARGET_RUNTIME}" --python "${PYTHON}")
-  [[ "${VERBOSE}" -eq 1 ]] || cmd+=(--quiet)
+  if [[ "${VERBOSE}" -ne 1 ]]; then
+    cmd+=(--quiet)
+  fi
   UV_CACHE_DIR="${SECKIT_CACHE_DIR}" run_capture "${cmd[@]}" || install_die "failed creating uv runtime"
 }
 
@@ -288,8 +294,12 @@ uv_install_secrets_kit() {
   fi
 
   local -a cmd=("${UV_BIN}" pip install --python "${TARGET_RUNTIME}/bin/python")
-  [[ "${mode}" == "upgrade" ]] && cmd+=(--upgrade)
-  [[ "${VERBOSE}" -eq 1 ]] || cmd+=(--quiet)
+  if [[ "${mode}" == "upgrade" ]]; then
+    cmd+=(--upgrade)
+  fi
+  if [[ "${VERBOSE}" -ne 1 ]]; then
+    cmd+=(--quiet)
+  fi
 
   if [[ "${DEV_MODE}" -eq 1 ]]; then
     append_log "RUN (cd ${SECKIT_INSTALL_ROOT} && ${cmd[*]} ${spec})"
@@ -593,7 +603,9 @@ main() {
   if [[ "${UPGRADE}" -eq 0 && "${NO_INIT}" -eq 0 ]]; then
     install_log "Initializing configuration..."
     local -a init_args=(init)
-    [[ "${YES}" -eq 1 ]] && init_args+=(--yes)
+    if [[ "${YES}" -eq 1 ]]; then
+      init_args+=(--yes)
+    fi
     run_capture "${TARGET_RUNTIME}/bin/seckit" "${init_args[@]}" || install_die "seckit init failed"
     install_log "Configuration initialized."
   else
