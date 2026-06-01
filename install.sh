@@ -166,21 +166,23 @@ resolve_latest_release_tag() {
   local json tag=""
   json="$(github_api_get "releases?per_page=30")" \
     || install_die "unable to query GitHub releases for ${SECKIT_GITHUB_REPO}"
-  tag="$(printf '%s' "${json}" | SECKIT_RELEASE_CHANNEL="${SECKIT_RELEASE_CHANNEL}" python3 - <<'PY'
-import json, os, sys
-channel = os.environ.get("SECKIT_RELEASE_CHANNEL", "prerelease")
-releases = json.load(sys.stdin)
-for release in releases:
-    if release.get("draft"):
-        continue
-    if channel == "release" and release.get("prerelease"):
-        continue
-    if channel == "prerelease" and not release.get("prerelease"):
-        continue
-    print(release["tag_name"])
-    break
-PY
-)" || true
+  while IFS= read -r release; do
+    printf '%s\n' "${release}" | grep -q '"draft"[[:space:]]*:[[:space:]]*true' && continue
+    case "${SECKIT_RELEASE_CHANNEL}" in
+      release)
+        printf '%s\n' "${release}" | grep -q '"prerelease"[[:space:]]*:[[:space:]]*true' && continue
+        ;;
+      prerelease)
+        printf '%s\n' "${release}" | grep -q '"prerelease"[[:space:]]*:[[:space:]]*true' || continue
+        ;;
+      *)
+        install_die "unsupported release channel: ${SECKIT_RELEASE_CHANNEL} (expected release or prerelease)"
+        ;;
+    esac
+    tag="$(printf '%s\n' "${release}" | sed -nE 's/.*"tag_name"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p')"
+    [[ -n "${tag}" ]] && break
+  done < <(printf '%s' "${json}" | sed 's/},{/}\
+{/g')
   [[ -n "${tag}" ]] || install_die "no GitHub release found (channel=${SECKIT_RELEASE_CHANNEL})"
   SECKIT_REF="${tag}"
   install_log "Using release: ${SECKIT_REF}"
@@ -201,44 +203,20 @@ artifact_url_exists() {
 }
 
 pick_release_asset_url() {
-  local json url=""
-  json="$(github_api_get "releases/tags/${SECKIT_REF}")" \
-    || install_die "unable to load release assets for ${SECKIT_REF}"
-  url="$(printf '%s' "${json}" | python3 - <<'PY'
-import json, sys
-
-data = json.load(sys.stdin)
-assets = data.get("assets") or []
-
-universal_wheels = []
-other_py3_wheels = []
-sdists = []
-for asset in assets:
-    name = asset.get("name", "")
-    url = asset.get("browser_download_url", "")
-    if name.endswith(".tar.gz") and name.startswith("seckit-") and url.startswith("http"):
-        sdists.append((name, url))
-        continue
-    if not name.endswith(".whl") or not url.startswith("http"):
-        continue
-    if name.endswith("py3-none-any.whl"):
-        universal_wheels.append((name, url))
-    elif "py3-none" in name:
-        other_py3_wheels.append((name, url))
-
-if universal_wheels:
-    universal_wheels.sort(key=lambda item: item[0])
-    print(universal_wheels[0][1])
-elif other_py3_wheels:
-    other_py3_wheels.sort(key=lambda item: item[0])
-    print(other_py3_wheels[0][1])
-elif sdists:
-    sdists.sort(key=lambda item: item[0])
-    print(sdists[0][1])
-PY
-)" || true
-  [[ -n "${url}" ]] || install_die "no compatible release artifact found in ${SECKIT_REF}"
-  printf '%s' "${url}"
+  local base version wheel_url sdist_url
+  base="$(release_download_base)"
+  version="$(ref_to_version "${SECKIT_REF}")"
+  wheel_url="${base}/seckit-${version}-py3-none-any.whl"
+  sdist_url="${base}/seckit-${version}.tar.gz"
+  if artifact_url_exists "${wheel_url}"; then
+    printf '%s' "${wheel_url}"
+    return 0
+  fi
+  if artifact_url_exists "${sdist_url}"; then
+    printf '%s' "${sdist_url}"
+    return 0
+  fi
+  install_die "no compatible release artifact found in ${SECKIT_REF} (expected seckit-${version}-py3-none-any.whl or seckit-${version}.tar.gz)"
 }
 
 resolve_release_artifact_url() {
@@ -290,7 +268,7 @@ ensure_uv_runtime_python() {
   [[ -n "${PYTHON}" && -x "${PYTHON}" ]] \
     || install_die "Python ${py_spec} unavailable. Remove --safe/--no-uv-download or preinstall: uv python install ${py_spec}"
 
-  RUNTIME_PYTHON_VERSION="$("${PYTHON}" -c 'import sys; print(".".join(map(str, sys.version_info[:3])))')"
+  RUNTIME_PYTHON_VERSION="$("${PYTHON}" --version 2>&1 | sed -E 's/^[Pp]ython[[:space:]]+//')"
   install_log "Runtime Python: ${RUNTIME_PYTHON_VERSION}"
   verbose_log "runtime interpreter: ${PYTHON}"
 }
