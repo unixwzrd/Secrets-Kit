@@ -163,26 +163,37 @@ github_api_get() {
 
 resolve_latest_release_tag() {
   [[ -n "${SECKIT_REF}" ]] && return 0
-  local json tag=""
+  local json tag="" candidate_tag="" candidate_draft="" candidate_prerelease=""
   json="$(github_api_get "releases?per_page=30")" \
     || install_die "unable to query GitHub releases for ${SECKIT_GITHUB_REPO}"
-  while IFS= read -r release; do
-    printf '%s\n' "${release}" | grep -q '"draft"[[:space:]]*:[[:space:]]*true' && continue
-    case "${SECKIT_RELEASE_CHANNEL}" in
-      release)
-        printf '%s\n' "${release}" | grep -q '"prerelease"[[:space:]]*:[[:space:]]*true' && continue
-        ;;
-      prerelease)
-        printf '%s\n' "${release}" | grep -q '"prerelease"[[:space:]]*:[[:space:]]*true' || continue
-        ;;
-      *)
-        install_die "unsupported release channel: ${SECKIT_RELEASE_CHANNEL} (expected release or prerelease)"
-        ;;
-    esac
-    tag="$(printf '%s\n' "${release}" | sed -nE 's/.*"tag_name"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p')"
-    [[ -n "${tag}" ]] && break
-  done < <(printf '%s' "${json}" | sed 's/},{/}\
-{/g')
+  case "${SECKIT_RELEASE_CHANNEL}" in
+    release|prerelease) ;;
+    *) install_die "unsupported release channel: ${SECKIT_RELEASE_CHANNEL} (expected release or prerelease)" ;;
+  esac
+
+  while IFS= read -r line; do
+    if [[ "${line}" =~ ^[[:space:]]{2}\{ ]]; then
+      candidate_tag=""
+      candidate_draft=""
+      candidate_prerelease=""
+    fi
+    if [[ "${line}" =~ \"tag_name\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]]; then
+      candidate_tag="${BASH_REMATCH[1]}"
+    elif [[ "${line}" =~ \"draft\"[[:space:]]*:[[:space:]]*(true|false) ]]; then
+      candidate_draft="${BASH_REMATCH[1]}"
+    elif [[ "${line}" =~ \"prerelease\"[[:space:]]*:[[:space:]]*(true|false) ]]; then
+      candidate_prerelease="${BASH_REMATCH[1]}"
+      [[ -n "${candidate_tag}" && "${candidate_draft}" != "true" ]] || continue
+      if [[ "${SECKIT_RELEASE_CHANNEL}" == "release" && "${candidate_prerelease}" == "true" ]]; then
+        continue
+      fi
+      if [[ "${SECKIT_RELEASE_CHANNEL}" == "prerelease" && "${candidate_prerelease}" != "true" ]]; then
+        continue
+      fi
+      tag="${candidate_tag}"
+      break
+    fi
+  done <<<"${json}"
   [[ -n "${tag}" ]] || install_die "no GitHub release found (channel=${SECKIT_RELEASE_CHANNEL})"
   SECKIT_REF="${tag}"
   install_log "Using release: ${SECKIT_REF}"
@@ -203,11 +214,12 @@ artifact_url_exists() {
 }
 
 pick_release_asset_url() {
-  local base version wheel_url sdist_url
+  local base version wheel_url sdist_url source_url
   base="$(release_download_base)"
   version="$(ref_to_version "${SECKIT_REF}")"
   wheel_url="${base}/seckit-${version}-py3-none-any.whl"
   sdist_url="${base}/seckit-${version}.tar.gz"
+  source_url="https://github.com/${SECKIT_GITHUB_REPO}/archive/refs/tags/${SECKIT_REF}.tar.gz"
   if artifact_url_exists "${wheel_url}"; then
     printf '%s' "${wheel_url}"
     return 0
@@ -216,7 +228,12 @@ pick_release_asset_url() {
     printf '%s' "${sdist_url}"
     return 0
   fi
-  install_die "no compatible release artifact found in ${SECKIT_REF} (expected seckit-${version}-py3-none-any.whl or seckit-${version}.tar.gz)"
+  if artifact_url_exists "${source_url}"; then
+    install_warn "release assets missing for ${SECKIT_REF}; installing tagged source archive"
+    printf '%s' "${source_url}"
+    return 0
+  fi
+  install_die "no compatible release artifact found in ${SECKIT_REF} (expected seckit-${version}-py3-none-any.whl, seckit-${version}.tar.gz, or tag source archive)"
 }
 
 resolve_release_artifact_url() {
