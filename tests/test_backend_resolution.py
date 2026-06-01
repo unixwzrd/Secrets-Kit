@@ -110,11 +110,18 @@ class BackendResolutionTest(unittest.TestCase):
 
     def test_keychain_path_prefers_security_default_keychain(self) -> None:
         proc = mock.MagicMock(returncode=0, stdout='    "/Users/test/Library/Keychains/login.keychain-db"\n')
-        with mock.patch(
-            "secrets_kit.backends.keychain.security_cli.subprocess.run",
-            return_value=proc,
+        with (
+            mock.patch(
+                "secrets_kit.backends.keychain.security_cli.shutil.which",
+                return_value="/usr/bin/security",
+            ),
+            mock.patch(
+                "secrets_kit.backends.keychain.security_cli.subprocess.run",
+                return_value=proc,
+            ) as run_mock,
         ):
             self.assertEqual(keychain_path(), "/Users/test/Library/Keychains/login.keychain-db")
+        run_mock.assert_called_once()
 
 
 if __name__ == "__main__":
