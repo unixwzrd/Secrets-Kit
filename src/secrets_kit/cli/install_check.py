@@ -38,8 +38,8 @@ _SECKIT_LAUNCHER_PATH = Path(
 
 def _check_python_version(*, issues: list[str]) -> bool:
     major, minor = sys.version_info[:2]
-    if (major, minor) < (3, 9):
-        issues.append(f"python version {major}.{minor} < 3.9")
+    if (major, minor) < (3, 11):
+        issues.append(f"python version {major}.{minor} < 3.11")
         return False
     return True
 

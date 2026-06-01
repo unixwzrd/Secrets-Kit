@@ -1,85 +1,137 @@
 # Install Secrets-Kit
 
-**Updated**: 2026-05-27
+**Updated**: 2026-05-30
+
+Canonical operator install for macOS and Linux.
 
 ## Prerequisites
 
 - macOS or Linux
-- Python 3.9+
+- Network access for first install (runtime bootstrap and release artifacts)
 
-Installer does not install Python. If no suitable Python is found, install stops with a clear error.
+The installer provisions **Python 3.12** via uv and installs the **latest GitHub release** for the active channel.
 
 ## Install
 
+Development channel (default):
+
 ```bash
-curl -fsSL https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/v2.0.0a2/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/dev/install.sh | bash
 ```
 
-Default install provisions an isolated runtime, installs Secrets-Kit, runs `seckit init`, and runs a post-install doctor check.
-Output shows step progress (`[1/5]` … `[5/5]`), short status lines during long operations, and a clear success line. Tool resolver noise stays hidden unless install fails.
+Stable channel:
+
+```bash
+SECKIT_RELEASE_CHANNEL=release \
+  curl -fsSL https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/main/install.sh | bash
+```
+
+Default install:
+
+1. Bootstraps uv when needed
+2. Provisions Python 3.12 and creates an isolated runtime
+3. Resolves the latest GitHub release and installs the universal wheel (`py3-none-any`) when available, falling back to sdist
+4. Runs `seckit init` and `seckit doctor --install-check`
 
 ## Upgrade
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/v2.0.0a2/install.sh | bash -s -- --upgrade
+curl -fsSL https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/dev/install.sh | bash -s -- --upgrade
 ```
 
-Upgrade refreshes runtime/package in the existing install environment and skips `seckit init`.
+Or, after install:
+
+```bash
+seckit install --upgrade
+```
+
+Upgrade refreshes runtime/package, keeps the previous runtime generation as fallback, removes older generations, and skips `seckit init`.
+
+## Runtime layout
+
+| Path | Purpose |
+|------|---------|
+| `~/.local/bin/seckit` | Launcher shim |
+| `~/.local/share/seckit/runtime/` | Isolated uv venv generations |
+| `~/.local/share/seckit/state/runtime-path` | Active runtime pointer |
+| `~/.local/share/seckit/state/runtime.json` | Python version, release ref, package source |
+| `~/.config/seckit/install.json` | Installed version and update metadata |
+| `~/.config/seckit/defaults.json` | Operator defaults |
 
 ## Verify
 
 ```bash
 seckit --version
+seckit info
 seckit doctor --install-check
 ```
 
-## Execution Modes
+Fast check only (no keychain roundtrip, no registry drift scan).
+
+## Remote install
+
+```bash
+ssh -o BatchMode=yes -o ConnectTimeout=10 user@host \
+  'curl -fsSL https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/dev/install.sh | bash -s -- --yes'
+```
+
+Convenience wrapper:
+
+```bash
+seckit install user@host --yes
+```
+
+## Local development (checkout only)
+
+From a git clone — not for operator `curl | bash`:
+
+```bash
+make install-dev
+# or
+./install.sh --dev
+```
+
+Uses editable install from the local checkout. Pin a git ref with `./install.sh --ref TAG` when testing non-release builds.
+
+## Makefile targets (clone only)
+
+| Target | Action |
+|--------|--------|
+| `make install` | Run `./install.sh` |
+| `make install-dev` | Run `./install.sh --dev` |
+| `make install-upgrade` | Run `./install.sh --upgrade` |
+| `make install-check` | `seckit doctor --install-check` |
+
+## Execution modes
 
 - Default: concise progress output, quiet dependency chatter.
-- `--verbose`: environment resolution details, selected interpreter, subprocess detail.
-- Debug: `bash -x install.sh` (or `SECKIT_DEBUG=1`) for shell-level tracing.
+- `--verbose`: interpreter resolution, release selection, subprocess detail.
+- Debug: pipe to `SECKIT_DEBUG=1 bash` for shell-level tracing.
 
 ## Troubleshooting
 
-- `no Python 3.9+ interpreter found`: install Python 3.9+, activate conda/venv, or set `SECKIT_PYTHON=/path/to/python3`
-- `runtime bootstrap unavailable` with `--safe` or `--no-uv-download`: remove those flags for a normal install, or preinstall runtime tooling on locked-down hosts
-- `seckit: command not found`: add `~/.local/bin` to PATH (installer prints the line)
-- Upgrade used unexpected Python: check `~/.config/seckit/install.json` and rerun with intended env active
+- `no GitHub release found`: no prerelease exists for the dev channel, or no stable release for the release channel.
+- `no compatible release artifact found`: release assets missing; maintainer must publish the universal wheel and sdist.
+- `runtime bootstrap unavailable` with `--safe` or `--no-uv-download`: remove those flags, or preinstall uv and `uv python install 3.12`.
+- `seckit: command not found`: add `~/.local/bin` to PATH (installer prints the line when it cannot edit your shell profile).
+- `defaults.account` shows `root` after a sudo install: rerun `seckit init --yes` as the operator user.
 
-## Python Resolution
+## Advanced flags (appendix)
 
-Resolution order:
-
-1. Active conda
-2. Active venv
-3. Existing managed venv
-4. `SECKIT_PYTHON`
-5. `python3` / `python` on `PATH` (used to create managed venv)
-
-## Advanced Flags (Appendix)
-
-Use only when needed:
-
-- `--upgrade` update package in-place; skip `seckit init`
+- `--upgrade` update package/runtime; skip `seckit init`
 - `--dev` editable install from a local checkout (`SECKIT_INSTALL_ROOT`, default `PWD`)
+- `--ref TAG` install from **git** at TAG instead of release wheel
 - `--yes` non-interactive mode when init would prompt
 - `--no-init` install package only; skip `seckit init`
 - `--no-verify` skip post-install `seckit doctor --install-check`
-- `--ref TAG` install from a different git ref (for testing pins)
-- `--repo-url URL` install from a fork or alternate git remote
-- `--dry-run` print planned actions; make no changes
-- `--json` emit machine-readable installer result
-- `--verbose` show installer decision and subprocess detail
-- `--repair` rebuild runtime/launcher while preserving operator config/state
-- `--safe` CI/SSH: no shell profile edits, no automatic runtime bootstrap download
-- `--no-uv-download` do not download runtime tooling; fail if unavailable
-- `--no-shell-profile` never modify shell startup files
-- `--shell-profile-force` allow startup file updates in non-interactive mode
+- `--verbose`, `--repair`, `--safe`, `--no-uv-download`, `--no-shell-profile`, `--shell-profile-force`
 
-Optional environment overrides:
+Environment overrides:
 
-- `SECKIT_PYTHON=/path/to/python3` force a specific Python 3.9+ interpreter
-- `SECKIT_MANAGED_VENV=/path/to/venv` change managed venv location
-- `SECKIT_INSTALL_STATE=/path/to/install.json` change install state file location
+- `SECKIT_RELEASE_CHANNEL=prerelease|release` choose latest prerelease vs stable release
+- `SECKIT_INSTALL_BRANCH=dev|main` branch used by docs/examples for `install.sh` URL
+- `SECKIT_RUNTIME_PYTHON=3.12` pin uv-managed Python series
+- `SECKIT_REF=vX.Y.Z` pin a specific release tag
+- `SECKIT_WHEEL_URL=URL` force a specific wheel or sdist URL (testing)
 
-For exhaustive command/reference details: [CLI_REFERENCE.md](CLI_REFERENCE.md). For runtime defaults: [DEFAULTS.md](DEFAULTS.md).
+See also: [QUICKSTART.md](QUICKSTART.md) (operator workflow), [CLI_REFERENCE.md](CLI_REFERENCE.md), [MAINTAINER_RELEASE.md](MAINTAINER_RELEASE.md).

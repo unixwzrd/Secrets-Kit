@@ -1,5 +1,4 @@
 PYTHONPATH=src
-# Prefer `python` (setup-python / venv on CI); override: make lint PYTHON=python3
 PYTHON ?= python
 TEST_JOBS ?= 1
 .DEFAULT_GOAL := help
@@ -51,7 +50,7 @@ help:
 	@printf '%s\n' 'Secrets-Kit make targets:'
 	@printf '%s\n' ''
 	@printf '%s\n' '  help                 Show this help'
-	@printf '%s\n' '  lint                 Run ruff + basedpyright (see scripts/install_dev_deps.sh)'
+	@printf '%s\n' '  lint                 Run ruff + basedpyright (pip install -e ".[dev]")'
 	@printf '%s\n' '  fmt                  Run ruff autofix on src and tests (alias: FMT)'
 	@printf '%s\n' '  format               Run ruff format on src and tests'
 	@printf '%s\n' '  test-fast            Run fast unit module group'
@@ -87,7 +86,7 @@ lint-ruff:
 lint-types:
 	@$(PYTHON) -c "import basedpyright" 2>/dev/null || { \
 	  printf '%s\n' 'basedpyright is not installed for this Python.' \
-	    'Install dev dependencies: bash ./scripts/install_dev_deps.sh'; \
+	    'Install dev dependencies: pip install -e ".[dev]"'; \
 	  exit 1; \
 	}
 	$(PYTHON) -m basedpyright src tests
@@ -104,7 +103,7 @@ format: fmt-ruff-check
 fmt-ruff-check:
 	@$(PYTHON) -c "import ruff" 2>/dev/null || { \
 	  printf '%s\n' 'ruff is not installed for this Python.' \
-	    'Install dev dependencies: bash ./scripts/install_dev_deps.sh'; \
+	    'Install dev dependencies: pip install -e ".[dev]"'; \
 	  exit 1; \
 	}
 

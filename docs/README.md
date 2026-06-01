@@ -17,8 +17,7 @@ Use this page as the public documentation map. The root [README](../README.md) s
 
 | Doc | Purpose |
 |-----|---------|
-| [INSTALL.md](INSTALL.md) | Install, upgrade, troubleshooting |
-| [QUICKSTART.md](QUICKSTART.md) | Unlock, set, list, run, lock |
+| [QUICKSTART.md](QUICKSTART.md) | Shortest path: install, unlock keychain, set/list/run |
 | [USAGE.md](USAGE.md) | Entry point + links to CLI docs (minimal examples) |
 | [DEFAULTS.md](DEFAULTS.md) | `defaults.json`, env vars, `seckit config` |
 | [SECURITY_MODEL.md](SECURITY_MODEL.md) | What the tool does and does not protect |
@@ -53,16 +52,13 @@ Use this page as the public documentation map. The root [README](../README.md) s
 
 ## Testing And CI
 
-GitHub Actions runs `scripts/run_local_validation.sh` on macOS. For local work, install dev dependencies once (`pip install -e '.[dev]'` in your active Python environment — see [README Contributing](../README.md#contributing)), then use `make` / `make help` for validation targets. Start with `make validate-fast`; use `make validate-full` or `make make-all` when you also want integration and launchd layers. `make lint` requires **basedpyright** from the `[dev]` extra. `make test-keychain` runs the Keychain integration path, `make test-sqlite` runs the SQLite developer-mode integration path, and `make test-integration` runs both. Some tests require interactive Keychain access or PyNaCl; others use SQLite-only harnesses.
-
-**SQLite subprocess gate (optional, not part of default CI):** from repo root, after `pip install -e '.[dev]'` (or `pip install -e .` if you only run smoke scripts, not `make lint`), run `bash test-scripts/smoke_full_local_runtime.sh`. Scripts use a temp `HOME`, prefer **`seckit` on `PATH`** (fallback: `python -m secrets_kit.cli.main`), and the `sqlite3` CLI; they require **PyNaCl** when using the module path (set `PYTHON=/path/to/python` if needed). Each runner writes a timestamped report under `test-reports/<name>/` (gitignored).
+GitHub Actions runs `scripts/run_local_validation.sh` on macOS. For local work, install dev dependencies once (`pip install -e ".[dev]"` in your active Python environment — see [README Contributing](../README.md#contributing)), then use `make` / `make help` for validation targets. Start with `make validate-fast`; use `make validate-full` or `make make-all` when you also want integration and launchd layers. `make lint` requires **basedpyright** from the `[dev]` extra. `make test-keychain` runs the Keychain integration path, `make test-sqlite` runs the SQLite developer-mode integration path, and `make test-integration` runs both. Some tests require interactive Keychain access or PyNaCl; others use SQLite-only harnesses.
 
 ## Packaging And Maintainers
 
 | Doc | Purpose |
 |-----|---------|
-| [MAINTAINER_RELEASE.md](MAINTAINER_RELEASE.md) | Tag/version alignment, pre-release publish, CI overview |
-| [GITHUB_RELEASE_BUILD.md](GITHUB_RELEASE_BUILD.md) | Wheels, universal2, GitHub Actions secrets, local packaging scripts |
+| [GITHUB_RELEASE_BUILD.md](GITHUB_RELEASE_BUILD.md) | Universal wheel, sdist, GitHub release assets, local packaging checks |
 
 ## Internal Public References
 

@@ -1,11 +1,17 @@
-"""Defaults for operator install URLs (baked per release)."""
+"""Defaults for operator install URLs (branch-based; version resolved at install time)."""
 
 from __future__ import annotations
 
-DEFAULT_REF = "v2.0.0a2"
-DEFAULT_REPO_URL = "https://github.com/unixwzrd/Secrets-Kit.git"
+DEFAULT_REPO = "unixwzrd/Secrets-Kit"
+DEFAULT_INSTALL_BRANCH = "dev"
+DEFAULT_REPO_URL = f"https://github.com/{DEFAULT_REPO}.git"
 DEFAULT_INSTALL_URL = (
-    f"https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/{DEFAULT_REF}/install.sh"
+    f"https://raw.githubusercontent.com/{DEFAULT_REPO}/{DEFAULT_INSTALL_BRANCH}/install.sh"
 )
 
-__all__ = ["DEFAULT_REF", "DEFAULT_REPO_URL", "DEFAULT_INSTALL_URL"]
+__all__ = [
+    "DEFAULT_INSTALL_BRANCH",
+    "DEFAULT_INSTALL_URL",
+    "DEFAULT_REPO",
+    "DEFAULT_REPO_URL",
+]

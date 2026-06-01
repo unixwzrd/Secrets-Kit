@@ -40,7 +40,7 @@ STRINGS = {
     "cli.install.no_init_help": "Skip seckit init on first install",
     "cli.install.no_shell_profile_help": "Do not modify shell startup files",
     "cli.install.no_verify_help": "Skip doctor --install-check after install",
-    "cli.install.ref_help": "Git ref for package install (default release: {default_ref})",
+    "cli.install.ref_help": "Git ref override (default: latest GitHub release for channel)",
     "cli.install.repair_help": "Rebuild runtime/launcher while preserving config/state",
     "cli.install.remote_help": "Remote install via ssh host 'curl -fsSL URL | bash'",
     "cli.install.repo_url_help": "Override Git repository URL for package install",

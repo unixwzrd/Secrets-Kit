@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse
 
 from secrets_kit.cli.commands.install_cmd import cmd_install
-from secrets_kit.cli.install_constants import DEFAULT_INSTALL_URL, DEFAULT_REF
+from secrets_kit.cli.install_constants import DEFAULT_INSTALL_URL
 from secrets_kit.locale import msg
 
 
@@ -27,7 +27,7 @@ def register_install_commands(
     p_install.add_argument(
         "--ref",
         default=None,
-        help=msg("cli.install.ref_help", default_ref=DEFAULT_REF),
+        help=msg("cli.install.ref_help"),
     )
     p_install.add_argument("--repo-url", help=msg("cli.install.repo_url_help"))
     p_install.add_argument(

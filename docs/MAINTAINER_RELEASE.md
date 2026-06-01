@@ -1,55 +1,58 @@
 # Maintainer release guide
 
 **Created**: 2026-05-27  
-**Updated**: 2026-05-27
+**Updated**: 2026-05-31
 
-Operator install docs: [INSTALL.md](INSTALL.md). CI wheel/sdist detail: [GITHUB_RELEASE_BUILD.md](GITHUB_RELEASE_BUILD.md).
+Operator install docs: [INSTALL.md](INSTALL.md). CI artifact detail: [GITHUB_RELEASE_BUILD.md](GITHUB_RELEASE_BUILD.md).
 
 ---
 
 ## Version and tag alignment
 
-`project.version` in `pyproject.toml` must be valid [PEP 440](https://peps.python.org/pep-0440/) (e.g. `2.0.0a1` for alpha 1 — not `2.0.0-pre-0a`).
+`project.version` in `pyproject.toml` must be valid [PEP 440](https://peps.python.org/pep-0440/).
 
-These must match **exactly** for a tagged release:
+These must match for a tagged release:
 
 | Item | Example |
 |------|---------|
-| `pyproject.toml` → `version` | `2.0.0a1` |
-| Git tag | `v2.0.0a1` (`v` + version string) |
-| `install.sh` → `SECKIT_REF_BAKED` | `v2.0.0a1` |
-| `install.sh` → `SECKIT_INSTALL_URL` | `…/v2.0.0a1/install.sh` |
-| `install_constants.py` → `DEFAULT_REF` | same as `SECKIT_REF_BAKED` |
+| `pyproject.toml` → `version` | `2.0.0a3` |
+| Git tag | `v2.0.0a3` (`v` + version string) |
+| `install.sh` | branch-based (`dev` or `main`); no baked version |
+| `install_constants.py` → `DEFAULT_INSTALL_BRANCH` | `dev` or `main` |
 
 ---
 
-## Publish a pre-release (sterile `dev` line)
+## Publish a pre-release from sterile `dev`
 
-1. Commit and push branch `dev`.
-2. Tag the commit you are shipping (tip of `dev` after push):
-
-   ```bash
-   git tag -a v2.0.0a1 -m "Pre-release 2.0.0a1"
-   git push origin v2.0.0a1
-   ```
-
-3. Confirm tag points at that commit (not an old `main` tip):
+1. Regenerate the sterile public `dev` branch from the curated `dev-local` tree.
+2. Validate the sterile tree.
+3. Push branch `dev`.
+4. Tag the exact commit being shipped:
 
    ```bash
-   git rev-parse v2.0.0a1 origin/dev
-   git show v2.0.0a1:pyproject.toml | grep '^version'
+   git tag -a v2.0.0a3 -m "Pre-release v2.0.0a3"
+   git push origin v2.0.0a3
    ```
 
-4. Wait for the **release** GitHub Actions workflow on the tag push.
-5. Create a GitHub **pre-release** on tag `v2.0.0a1`.
+5. Confirm tag and package version agree:
 
-Preflight (optional, local):
+   ```bash
+   git rev-parse v2.0.0a3 origin/dev
+   git show v2.0.0a3:pyproject.toml | grep '^version'
+   ```
+
+6. Wait for the release GitHub Actions workflow on the tag push.
+7. Confirm the GitHub pre-release has:
+   - `seckit-2.0.0a3-py3-none-any.whl`
+   - `seckit-2.0.0a3.tar.gz`
+
+Preflight:
 
 ```bash
-SECKIT_RELEASE_TAG=v2.0.0a1 bash ./scripts/release_preflight.sh
+SECKIT_RELEASE_TAG=v2.0.0a3 bash ./scripts/release_preflight.sh
 ```
 
-Pushing to branch **`dev`** does **not** move an existing tag. Create or move the tag on the commit you intend to ship.
+Pushing branch `dev` does not move an existing tag. Create or move tags deliberately only on the commit being shipped.
 
 ---
 
@@ -57,22 +60,29 @@ Pushing to branch **`dev`** does **not** move an existing tag. Create or move th
 
 Tag push runs `.github/workflows/release.yml`:
 
-1. **validate** — `release_preflight.sh` (tag vs `pyproject.toml`), then `run_local_validation.sh` on macOS.
-2. **wheel** — matrix Python 3.9–3.13; smoke: `seckit --version`, `seckit info --json`, `seckit doctor --install-check`.
-3. **sdist** — source tarball on Ubuntu.
+1. **validate** — `release_preflight.sh` and `run_local_validation.sh` on macOS and Ubuntu.
+2. **wheel** — one universal `py3-none-any` wheel using Python 3.12.
+3. **sdist** — one source tarball on Ubuntu.
 4. **collect-dist** — artifact bundle for release upload.
+5. **publish-github-release** — uploads wheel and sdist to the GitHub release for the tag.
 
-See [GITHUB_RELEASE_BUILD.md](GITHUB_RELEASE_BUILD.md) for wheel platform tags and local packaging scripts.
+Release flow from the sterile repo:
+
+```bash
+bash scripts/release
+```
+
+That script rsyncs from `../secrets-kit/`, commits, tags from `pyproject.toml`, pushes, and creates/updates the GitHub release. CI on tag push builds and uploads artifacts.
 
 ---
 
 ## Bumping the pre-release version
 
-For a **new** pre-release (e.g. `2.0.0a0` → `2.0.0a1`):
+For a new pre-release:
 
 1. Bump `pyproject.toml` `version`.
-2. Align `install.sh`, `install_constants.py`, and operator doc curl URLs.
-3. Front-post `CHANGELOG.md`.
-4. Push `dev`, tag `v` + new version, push tag.
+2. Front-post `CHANGELOG.md`.
+3. Regenerate sterile `dev` from `dev-local`.
+4. From the sterile repo, run `bash scripts/release` or tag/push manually.
 
-Do not re-use the same tag name for a different commit unless intentionally force-moving a broken tag (avoid for normal releases).
+Avoid reusing the same tag name for a different commit unless intentionally replacing a broken pre-release tag.

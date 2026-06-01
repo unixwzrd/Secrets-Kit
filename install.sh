@@ -2,10 +2,14 @@
 # Secrets-Kit operator installer (curl | bash compatible, standalone).
 set -euo pipefail
 
-SECKIT_REF_BAKED="v2.0.0a2"
-SECKIT_INSTALL_URL="${SECKIT_INSTALL_URL:-https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/v2.0.0a2/install.sh}"
+SECKIT_GITHUB_REPO="${SECKIT_GITHUB_REPO:-unixwzrd/Secrets-Kit}"
+SECKIT_INSTALL_BRANCH="${SECKIT_INSTALL_BRANCH:-dev}"
+SECKIT_RELEASE_CHANNEL="${SECKIT_RELEASE_CHANNEL:-prerelease}"
+SECKIT_INSTALL_URL="${SECKIT_INSTALL_URL:-https://raw.githubusercontent.com/${SECKIT_GITHUB_REPO}/${SECKIT_INSTALL_BRANCH}/install.sh}"
 SECKIT_REF="${SECKIT_REF:-}"
-SECKIT_REPO_URL="${SECKIT_REPO_URL:-https://github.com/unixwzrd/Secrets-Kit.git}"
+SECKIT_REPO_URL="${SECKIT_REPO_URL:-https://github.com/${SECKIT_GITHUB_REPO}.git}"
+SECKIT_RELEASE_BASE="${SECKIT_RELEASE_BASE:-}"
+SECKIT_RUNTIME_PYTHON="${SECKIT_RUNTIME_PYTHON:-3.12}"
 SECKIT_INSTALL_ROOT="${SECKIT_INSTALL_ROOT:-$PWD}"
 
 SECKIT_SHARE_DIR="${SECKIT_SHARE_DIR:-$HOME/.local/share/seckit}"
@@ -40,7 +44,11 @@ PYTHON=""
 UV_BIN=""
 INSTALL_METHOD=""
 TARGET_RUNTIME=""
-CURRENT_RUNTIME=""
+PREVIOUS_RUNTIME=""
+PACKAGE_SOURCE=""
+PACKAGE_SPEC=""
+RUNTIME_PYTHON_VERSION=""
+SECKIT_REF_EXPLICIT=0
 IS_INTERACTIVE=0
 PROFILE_CHANGED=0
 PROFILE_CHANGED_FILE=""
@@ -62,7 +70,7 @@ verbose_log() {
   fi
 }
 step() { printf '[%s/5] %s\n' "$1" "$2" >&2; }
-step_done() { install_log "[%s/5] complete." "$1"; }
+step_done() { install_log "[${1}/5] complete."; }
 
 append_log() {
   mkdir -p "$(dirname "${SECKIT_INSTALL_LOG}")"
@@ -74,19 +82,6 @@ install_supported_os() {
     Darwin|Linux) return 0 ;;
     *) return 1 ;;
   esac
-}
-
-python_version_ok() {
-  local py="${1:?}" ver major minor
-  [[ -x "${py}" ]] || return 1
-  ver="$(${py} --version 2>&1)" || return 1
-  if [[ "${ver}" =~ [Pp]ython[[:space:]]+([0-9]+)\.([0-9]+) ]]; then
-    major="${BASH_REMATCH[1]}"
-    minor="${BASH_REMATCH[2]}"
-    (( major > 3 || (major == 3 && minor >= 9) ))
-    return $?
-  fi
-  return 1
 }
 
 _json_escape() {
@@ -153,45 +148,151 @@ write_runtime_path_file() {
   mv -f "${tmp}" "${target}"
 }
 
-find_python_candidate() {
-  local candidate=""
+ref_to_version() {
+  local ref="${1:?}"
+  ref="${ref#v}"
+  printf '%s' "${ref}"
+}
 
-  if [[ -n "${CONDA_PREFIX:-}" && -x "${CONDA_PREFIX}/bin/python" ]] && python_version_ok "${CONDA_PREFIX}/bin/python"; then
-    INSTALL_METHOD="conda"
-    printf '%s' "${CONDA_PREFIX}/bin/python"
+github_api_get() {
+  local path="${1:?}"
+  curl -fsSL --connect-timeout 15 --max-time 60 \
+    -H "Accept: application/vnd.github+json" \
+    "https://api.github.com/repos/${SECKIT_GITHUB_REPO}/${path}"
+}
+
+resolve_latest_release_tag() {
+  [[ -n "${SECKIT_REF}" ]] && return 0
+  local json tag=""
+  json="$(github_api_get "releases?per_page=30")" \
+    || install_die "unable to query GitHub releases for ${SECKIT_GITHUB_REPO}"
+  tag="$(printf '%s' "${json}" | SECKIT_RELEASE_CHANNEL="${SECKIT_RELEASE_CHANNEL}" python3 - <<'PY'
+import json, os, sys
+channel = os.environ.get("SECKIT_RELEASE_CHANNEL", "prerelease")
+releases = json.load(sys.stdin)
+for release in releases:
+    if release.get("draft"):
+        continue
+    if channel == "release" and release.get("prerelease"):
+        continue
+    if channel == "prerelease" and not release.get("prerelease"):
+        continue
+    print(release["tag_name"])
+    break
+PY
+)" || true
+  [[ -n "${tag}" ]] || install_die "no GitHub release found (channel=${SECKIT_RELEASE_CHANNEL})"
+  SECKIT_REF="${tag}"
+  install_log "Using release: ${SECKIT_REF}"
+  verbose_log "release channel: ${SECKIT_RELEASE_CHANNEL}"
+}
+
+release_download_base() {
+  if [[ -n "${SECKIT_RELEASE_BASE}" ]]; then
+    printf '%s' "${SECKIT_RELEASE_BASE}"
     return 0
   fi
-  if [[ -n "${VIRTUAL_ENV:-}" && -x "${VIRTUAL_ENV}/bin/python" ]] && python_version_ok "${VIRTUAL_ENV}/bin/python"; then
-    INSTALL_METHOD="venv"
-    printf '%s' "${VIRTUAL_ENV}/bin/python"
+  printf '%s' "https://github.com/${SECKIT_GITHUB_REPO}/releases/download/${SECKIT_REF}"
+}
+
+artifact_url_exists() {
+  local url="${1:?}"
+  curl -fsSIL --connect-timeout 15 --max-time 60 "${url}" >/dev/null 2>&1
+}
+
+pick_release_asset_url() {
+  local json url=""
+  json="$(github_api_get "releases/tags/${SECKIT_REF}")" \
+    || install_die "unable to load release assets for ${SECKIT_REF}"
+  url="$(printf '%s' "${json}" | python3 - <<'PY'
+import json, sys
+
+data = json.load(sys.stdin)
+assets = data.get("assets") or []
+
+universal_wheels = []
+other_py3_wheels = []
+sdists = []
+for asset in assets:
+    name = asset.get("name", "")
+    url = asset.get("browser_download_url", "")
+    if name.endswith(".tar.gz") and name.startswith("seckit-") and url.startswith("http"):
+        sdists.append((name, url))
+        continue
+    if not name.endswith(".whl") or not url.startswith("http"):
+        continue
+    if name.endswith("py3-none-any.whl"):
+        universal_wheels.append((name, url))
+    elif "py3-none" in name:
+        other_py3_wheels.append((name, url))
+
+if universal_wheels:
+    universal_wheels.sort(key=lambda item: item[0])
+    print(universal_wheels[0][1])
+elif other_py3_wheels:
+    other_py3_wheels.sort(key=lambda item: item[0])
+    print(other_py3_wheels[0][1])
+elif sdists:
+    sdists.sort(key=lambda item: item[0])
+    print(sdists[0][1])
+PY
+)" || true
+  [[ -n "${url}" ]] || install_die "no compatible release artifact found in ${SECKIT_REF}"
+  printf '%s' "${url}"
+}
+
+resolve_release_artifact_url() {
+  if [[ -n "${SECKIT_WHEEL_URL:-}" ]]; then
+    printf '%s' "${SECKIT_WHEEL_URL}"
     return 0
   fi
+  pick_release_asset_url
+}
 
-  CURRENT_RUNTIME="$(read_runtime_path || true)"
-  if [[ -n "${CURRENT_RUNTIME}" && -x "${CURRENT_RUNTIME}/bin/python" ]] && python_version_ok "${CURRENT_RUNTIME}/bin/python"; then
-    INSTALL_METHOD="managed"
-    printf '%s' "${CURRENT_RUNTIME}/bin/python"
+resolve_package_spec() {
+  if [[ "${DEV_MODE}" -eq 1 ]]; then
+    [[ -f "${SECKIT_INSTALL_ROOT}/pyproject.toml" ]] || install_die "--dev requires local checkout containing pyproject.toml"
+    PACKAGE_SOURCE="editable"
+    PACKAGE_SPEC="-e .[dev]"
     return 0
   fi
+  if [[ "${SECKIT_REF_EXPLICIT}" -eq 1 ]]; then
+    PACKAGE_SOURCE="git"
+    PACKAGE_SPEC="git+${SECKIT_REPO_URL}@${SECKIT_REF}"
+    return 0
+  fi
+  PACKAGE_SOURCE="release"
+  PACKAGE_SPEC="$(resolve_release_artifact_url)"
+  if [[ "${PACKAGE_SPEC}" == file://* ]]; then
+    [[ -f "${PACKAGE_SPEC#file://}" ]] || install_die "local release artifact not found: ${PACKAGE_SPEC#file://}"
+    return 0
+  fi
+  if ! artifact_url_exists "${PACKAGE_SPEC}"; then
+    install_die "release artifact not found: ${PACKAGE_SPEC} (publish GitHub release assets for ${SECKIT_REF}, or use --ref for git install)"
+  fi
+}
 
-  if [[ -n "${SECKIT_PYTHON:-}" ]]; then
-    if python_version_ok "${SECKIT_PYTHON}"; then
-      INSTALL_METHOD="explicit"
-      printf '%s' "${SECKIT_PYTHON}"
-      return 0
+ensure_uv_runtime_python() {
+  local py_spec="${SECKIT_RUNTIME_PYTHON}"
+  INSTALL_METHOD="uv-managed"
+
+  if ! uv_bootstrap_blocked; then
+    install_log "Provisioning Python ${py_spec} (may take a minute)..."
+    local -a install_cmd=("${UV_BIN}" python install "${py_spec}")
+    if [[ "${VERBOSE}" -ne 1 ]]; then
+      install_cmd+=(--quiet)
     fi
-    install_die "SECKIT_PYTHON is not executable or is older than 3.9: ${SECKIT_PYTHON}"
+    UV_CACHE_DIR="${SECKIT_CACHE_DIR}" run_capture "${install_cmd[@]}" \
+      || install_die "failed provisioning Python ${py_spec}"
   fi
 
-  for candidate in "$(command -v python3 2>/dev/null || true)" "$(command -v python 2>/dev/null || true)"; do
-    [[ -n "${candidate}" && -x "${candidate}" ]] || continue
-    if python_version_ok "${candidate}"; then
-      INSTALL_METHOD="path"
-      printf '%s' "${candidate}"
-      return 0
-    fi
-  done
-  return 1
+  PYTHON="$("${UV_BIN}" python find "${py_spec}" 2>/dev/null || true)"
+  [[ -n "${PYTHON}" && -x "${PYTHON}" ]] \
+    || install_die "Python ${py_spec} unavailable. Remove --safe/--no-uv-download or preinstall: uv python install ${py_spec}"
+
+  RUNTIME_PYTHON_VERSION="$("${PYTHON}" -c 'import sys; print(".".join(map(str, sys.version_info[:3])))')"
+  install_log "Runtime Python: ${RUNTIME_PYTHON_VERSION}"
+  verbose_log "runtime interpreter: ${PYTHON}"
 }
 
 uv_bootstrap_blocked() {
@@ -213,7 +314,7 @@ resolve_uv() {
   fi
 
   if uv_bootstrap_blocked; then
-    install_die "runtime bootstrap unavailable (--safe or --no-uv-download). Install Python 3.9+ and retry without those flags, or use a host with runtime tooling already present."
+    install_die "runtime bootstrap unavailable (--safe or --no-uv-download). Install uv and preinstall runtime Python with: uv python install ${SECKIT_RUNTIME_PYTHON}"
   fi
 
   install_log "Preparing isolated runtime environment..."
@@ -277,7 +378,7 @@ create_runtime() {
   TARGET_RUNTIME="$(next_runtime_generation)"
   verbose_log "creating runtime: ${TARGET_RUNTIME}"
 
-  local -a cmd=("${UV_BIN}" venv "${TARGET_RUNTIME}" --python "${PYTHON}")
+  local -a cmd=("${UV_BIN}" venv "${TARGET_RUNTIME}" --python "${SECKIT_RUNTIME_PYTHON}")
   if [[ "${VERBOSE}" -ne 1 ]]; then
     cmd+=(--quiet)
   fi
@@ -285,13 +386,8 @@ create_runtime() {
 }
 
 uv_install_secrets_kit() {
-  local spec="" mode="${1:?}"
-  if [[ "${DEV_MODE}" -eq 1 ]]; then
-    [[ -f "${SECKIT_INSTALL_ROOT}/pyproject.toml" ]] || install_die "--dev requires local checkout containing pyproject.toml"
-    spec="-e .[dev]"
-  else
-    spec="git+${SECKIT_REPO_URL}@${SECKIT_REF}"
-  fi
+  local mode="${1:?}"
+  [[ -n "${PACKAGE_SPEC}" ]] || install_die "internal error: package spec not resolved"
 
   local -a cmd=("${UV_BIN}" pip install --python "${TARGET_RUNTIME}/bin/python")
   if [[ "${mode}" == "upgrade" ]]; then
@@ -301,12 +397,36 @@ uv_install_secrets_kit() {
     cmd+=(--quiet)
   fi
 
-  if [[ "${DEV_MODE}" -eq 1 ]]; then
-    append_log "RUN (cd ${SECKIT_INSTALL_ROOT} && ${cmd[*]} ${spec})"
-    (cd "${SECKIT_INSTALL_ROOT}" && UV_CACHE_DIR="${SECKIT_CACHE_DIR}" run_capture "${cmd[@]}" "${spec}") || install_die "failed installing editable seckit"
-  else
-    UV_CACHE_DIR="${SECKIT_CACHE_DIR}" run_capture "${cmd[@]}" "${spec}" || install_die "failed installing seckit"
-  fi
+  case "${PACKAGE_SOURCE}" in
+    editable)
+      append_log "RUN (cd ${SECKIT_INSTALL_ROOT} && ${cmd[*]} ${PACKAGE_SPEC})"
+      (cd "${SECKIT_INSTALL_ROOT}" && UV_CACHE_DIR="${SECKIT_CACHE_DIR}" run_capture "${cmd[@]}" "${PACKAGE_SPEC}") \
+        || install_die "failed installing editable seckit"
+      ;;
+    *)
+      verbose_log "package source: ${PACKAGE_SOURCE} (${PACKAGE_SPEC})"
+      UV_CACHE_DIR="${SECKIT_CACHE_DIR}" run_capture "${cmd[@]}" "${PACKAGE_SPEC}" \
+        || install_die "failed installing seckit (${PACKAGE_SOURCE})"
+      ;;
+  esac
+}
+
+prune_old_runtimes() {
+  local dir keep_a keep_b path name
+  keep_a="${TARGET_RUNTIME}"
+  keep_b="${PREVIOUS_RUNTIME:-}"
+  [[ -d "${SECKIT_RUNTIME_DIR}" ]] || return 0
+
+  shopt -s nullglob
+  for path in "${SECKIT_RUNTIME_DIR}"/runtime-*; do
+    [[ -d "${path}" ]] || continue
+    if [[ "${path}" == "${keep_a}" || ( -n "${keep_b}" && "${path}" == "${keep_b}" ) ]]; then
+      continue
+    fi
+    verbose_log "removing old runtime: ${path}"
+    rm -rf "${path}"
+  done
+  shopt -u nullglob
 }
 
 write_runtime_state() {
@@ -317,6 +437,11 @@ write_runtime_state() {
   "runtime": "$(_json_escape "${TARGET_RUNTIME}")",
   "method": "$(_json_escape "${INSTALL_METHOD}")",
   "python": "$(_json_escape "${PYTHON}")",
+  "python_version": "$(_json_escape "${RUNTIME_PYTHON_VERSION}")",
+  "python_source": "uv-managed",
+  "runtime_python": "$(_json_escape "${SECKIT_RUNTIME_PYTHON}")",
+  "package_source": "$(_json_escape "${PACKAGE_SOURCE}")",
+  "package_spec": "$(_json_escape "${PACKAGE_SPEC}")",
   "uv": "$(_json_escape "${UV_BIN}")",
   "ref": "$(_json_escape "${SECKIT_REF}")"
 }
@@ -340,6 +465,8 @@ write_install_state() {
   "version": "$(_json_escape "${version:-unknown}")",
   "ref": "$(_json_escape "${SECKIT_REF}")",
   "method": "uv",
+  "package_source": "$(_json_escape "${PACKAGE_SOURCE}")",
+  "runtime_python": "$(_json_escape "${SECKIT_RUNTIME_PYTHON}")",
   "updated_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 EOF_JSON
@@ -495,8 +622,8 @@ Options:
   --yes                  Non-interactive init overwrite confirmations
   --no-init              Skip seckit init
   --no-verify            Skip doctor --install-check
-  --ref TAG              Install from different git ref
-  --repo-url URL         Install from different git repository
+  --ref TAG              Install from git at TAG (not release wheel)
+  --repo-url URL         Git remote when using --ref
   --dry-run              Print planned actions only
   --json                 Emit machine-readable result
   --verbose              Verbose decision + subprocess output
@@ -517,7 +644,7 @@ preflight_install() {
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --ref) SECKIT_REF="${2:?--ref requires a value}"; shift 2 ;;
+      --ref) SECKIT_REF="${2:?--ref requires a value}"; SECKIT_REF_EXPLICIT=1; shift 2 ;;
       --repo-url) SECKIT_REPO_URL="${2:?--repo-url requires a value}"; shift 2 ;;
       --upgrade) UPGRADE=1; shift ;;
       --repair) REPAIR=1; UPGRADE=1; NO_INIT=1; shift ;;
@@ -532,10 +659,6 @@ parse_args() {
       --no-uv-download) NO_UV_DOWNLOAD=1; shift ;;
       --no-shell-profile) NO_SHELL_PROFILE=1; shift ;;
       --shell-profile-force) SHELL_PROFILE_FORCE=1; shift ;;
-      --allow-uv-download)
-        install_warn "--allow-uv-download is deprecated (default install bootstraps automatically)"
-        shift
-        ;;
       -h|--help) usage; exit 0 ;;
       *) install_die "unknown option: $1" ;;
     esac
@@ -557,7 +680,7 @@ main() {
     if [[ "${DEV_MODE}" -eq 1 ]]; then
       SECKIT_REF="dev"
     else
-      SECKIT_REF="${SECKIT_REF_BAKED}"
+      resolve_latest_release_tag
     fi
   fi
 
@@ -574,12 +697,11 @@ main() {
   resolve_uv
   step_done 1
 
+  PREVIOUS_RUNTIME="$(read_runtime_path || true)"
+  resolve_package_spec
+
   step 2 "Creating isolated runtime..."
-  install_log "Locating Python 3.9+ interpreter..."
-  PYTHON="$(find_python_candidate || true)"
-  [[ -n "${PYTHON}" ]] || install_die "no Python 3.9+ interpreter found"
-  install_log "Using interpreter: ${PYTHON}"
-  verbose_log "interpreter method: ${INSTALL_METHOD:-unknown}"
+  ensure_uv_runtime_python
   install_log "Creating isolated environment (may take a minute)..."
   create_runtime
   install_log "Isolated environment ready."
@@ -596,6 +718,7 @@ main() {
   write_runtime_state
   write_launcher
   write_install_state
+  prune_old_runtimes
   install_log "Package installed."
   step_done 3
 
@@ -628,7 +751,7 @@ main() {
   clear_shell_profile_backup
 
   if [[ "${JSON_OUT}" -eq 1 ]]; then
-    emit_json "{\"ok\":true,\"ref\":\"${SECKIT_REF}\",\"runtime\":\"${TARGET_RUNTIME}\",\"uv\":\"${UV_BIN}\"}"
+    emit_json "{\"ok\":true,\"ref\":\"${SECKIT_REF}\",\"runtime\":\"${TARGET_RUNTIME}\",\"python\":\"${RUNTIME_PYTHON_VERSION}\",\"package_source\":\"${PACKAGE_SOURCE}\",\"uv\":\"${UV_BIN}\"}"
   else
     printf '\nSecrets-Kit installed successfully.\n' >&2
     install_log "Version: $(${TARGET_RUNTIME}/bin/seckit --version 2>/dev/null | awk 'NF {print $2; exit}')"

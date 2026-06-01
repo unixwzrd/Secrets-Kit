@@ -13,7 +13,7 @@ env:
 
 jobs:
   validate:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -33,21 +33,18 @@ jobs:
 
   wheel:
     needs: [validate]
-    runs-on: macos-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
-      - name: Build wheel
+          python-version: "3.12"
+      - name: Build universal wheel
         run: |
           python -m pip install -U pip setuptools wheel build
           python -m build -w -n
-      - name: Smoke test wheel install (same interpreter as matrix)
+          test "$(find dist -maxdepth 1 -name 'seckit-*-py3-none-any.whl' | wc -l | tr -d ' ')" = "1"
+      - name: Smoke test wheel install
         run: |
           rm -rf .wheel-smoke
           python -m venv .wheel-smoke
@@ -58,8 +55,8 @@ jobs:
           .wheel-smoke/bin/seckit doctor --install-check | python -m json.tool > /dev/null
       - uses: actions/upload-artifact@v4
         with:
-          name: wheel-py${{ matrix.python-version }}
-          path: dist/*.whl
+          name: wheel
+          path: dist/*-py3-none-any.whl
 
   sdist:
     needs: validate
@@ -85,23 +82,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: wheel-py3.9
-          path: dist
-      - uses: actions/download-artifact@v4
-        with:
-          name: wheel-py3.10
-          path: dist
-      - uses: actions/download-artifact@v4
-        with:
-          name: wheel-py3.11
-          path: dist
-      - uses: actions/download-artifact@v4
-        with:
-          name: wheel-py3.12
-          path: dist
-      - uses: actions/download-artifact@v4
-        with:
-          name: wheel-py3.13
+          name: wheel
           path: dist
       - uses: actions/download-artifact@v4
         with:
@@ -113,3 +94,20 @@ jobs:
         with:
           name: seckit-dist
           path: dist/*
+
+  publish-github-release:
+    needs: [collect-dist]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: seckit-dist
+          path: dist
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la dist
+          gh release upload "${GITHUB_REF_NAME}" dist/* --clobber

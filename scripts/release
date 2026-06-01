@@ -1,0 +1,305 @@
+#!/usr/bin/env bash
+#
+# release.sh
+#
+# Sync sterile repo, validate version, tag, push, and create/update
+# GitHub releases.
+#
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "${ROOT}"
+
+###############################################################################
+# Defaults
+###############################################################################
+
+PUSH=1
+FORCE=0
+DRY_RUN=0
+PRERELEASE=-1
+RELEASE_TITLE=""
+
+###############################################################################
+# Helpers
+###############################################################################
+
+usage() {
+    cat <<EOF
+Usage:
+
+    release.sh [options]
+
+Options:
+
+    --release       Force full release
+    --prerelease    Force prerelease
+    --no-push       Do not push commits/tags
+    --force         Replace existing tag/release
+    --dry-run       Show actions only
+    --title TITLE   Override release title
+    -h, --help      Show help
+
+Notes:
+
+    Version is always read from pyproject.toml.
+
+Examples:
+
+    release.sh
+
+    release.sh --force
+
+    release.sh --release
+
+    release.sh --dry-run
+EOF
+}
+
+run() {
+    echo "+ $*"
+    (( DRY_RUN )) || "$@"
+}
+
+get_pyproject_version() {
+    awk -F'"' '
+        /^\[project\]/ { in_project=1; next }
+        /^\[/ && in_project { exit }
+        in_project && /^[[:space:]]*version[[:space:]]*=/ {
+            print $2
+            exit
+        }
+    ' pyproject.toml
+}
+
+version_gt() {
+    local a="$1"
+    local b="$2"
+
+    [[ "$(printf '%s\n%s\n' "$a" "$b" | sort -V | tail -1)" == "$a" ]]
+}
+
+is_prerelease_version() {
+    [[ "$1" =~ (a|b|rc)[0-9]+$ ]]
+}
+
+###############################################################################
+# Parse args
+###############################################################################
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --release)
+            PRERELEASE=0
+            shift
+            ;;
+        --prerelease)
+            PRERELEASE=1
+            shift
+            ;;
+        --no-push)
+            PUSH=0
+            shift
+            ;;
+        --force)
+            FORCE=1
+            shift
+            ;;
+        --dry-run)
+            DRY_RUN=1
+            shift
+            ;;
+        --title)
+            RELEASE_TITLE="$2"
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1" >&2
+            exit 1
+            ;;
+    esac
+done
+
+###############################################################################
+# Sync development repo -> sterile repo
+###############################################################################
+
+echo "Syncing development repository..."
+
+run rsync -a --delete \
+    --exclude .git \
+    --exclude tmp \
+    ../secrets-kit/ ./
+
+###############################################################################
+# Version
+###############################################################################
+
+VERSION="$(get_pyproject_version)"
+
+if [[ -z "${VERSION}" ]]; then
+    echo "ERROR: Unable to determine version from pyproject.toml" >&2
+    exit 1
+fi
+
+TAG="v${VERSION}"
+
+if [[ -z "${RELEASE_TITLE}" ]]; then
+    RELEASE_TITLE="Secrets Kit ${VERSION}"
+fi
+
+if [[ "${PRERELEASE}" -lt 0 ]]; then
+    if is_prerelease_version "${VERSION}"; then
+        PRERELEASE=1
+    else
+        PRERELEASE=0
+    fi
+fi
+
+###############################################################################
+# Version sanity
+###############################################################################
+
+LATEST_TAG="$(
+    git tag -l 'v*' |
+    sort -V |
+    tail -1
+)"
+
+if [[ -n "${LATEST_TAG}" ]] && [[ "${FORCE}" -eq 0 ]]; then
+    if [[ "${TAG}" != "${LATEST_TAG}" ]]; then
+        if ! version_gt "${TAG}" "${LATEST_TAG}"; then
+            echo
+            echo "ERROR: ${TAG} is not newer than ${LATEST_TAG}"
+            echo
+            echo "Use --force if intentional."
+            exit 1
+        fi
+    fi
+fi
+
+###############################################################################
+# Changelog check
+###############################################################################
+
+if [[ -f CHANGELOG.md ]]; then
+    if ! grep -qF "${VERSION}" CHANGELOG.md; then
+        echo
+        echo "WARNING: CHANGELOG.md does not mention ${VERSION}"
+        echo
+    fi
+fi
+
+###############################################################################
+# Commit sync changes
+###############################################################################
+
+if ! git diff --quiet || ! git diff --cached --quiet; then
+
+    echo "Repository changed after sync."
+
+    run git add .
+
+    if ! (( DRY_RUN )); then
+        DEV_MSG=$(
+            git -C ../secrets-kit log -1 --pretty=%s
+        )
+        git commit -m "Release ${VERSION}: ${DEV_MSG}"
+    else
+        echo "+ git commit -m \"Release ${VERSION}\""
+    fi
+fi
+
+###############################################################################
+# Tag handling
+###############################################################################
+
+if git rev-parse "${TAG}" >/dev/null 2>&1; then
+
+    if [[ "${FORCE}" -eq 0 ]]; then
+        echo
+        echo "ERROR: tag already exists: ${TAG}"
+        echo "Use --force to replace it."
+        exit 1
+    fi
+
+    echo
+    echo "Replacing existing tag ${TAG}"
+    echo
+
+    run git tag -d "${TAG}"
+
+    if [[ "${PUSH}" -eq 1 ]]; then
+        run git push origin ":refs/tags/${TAG}"
+    fi
+fi
+
+run git tag -a "${TAG}" -m "Release ${TAG}"
+
+###############################################################################
+# Push
+###############################################################################
+
+if [[ "${PUSH}" -eq 1 ]]; then
+
+    run git push origin HEAD
+
+    run git push origin "${TAG}"
+fi
+
+###############################################################################
+# GitHub release
+###############################################################################
+
+if gh release view "${TAG}" >/dev/null 2>&1; then
+
+    echo "Updating existing GitHub release..."
+
+    if [[ "${PRERELEASE}" -eq 1 ]]; then
+        run gh release edit "${TAG}" \
+            --draft=false \
+            --prerelease
+    else
+        run gh release edit "${TAG}" \
+            --draft=false
+    fi
+
+else
+
+    echo "Creating GitHub release..."
+
+    if [[ "${PRERELEASE}" -eq 1 ]]; then
+        run gh release create "${TAG}" \
+            --title "${RELEASE_TITLE}" \
+            --generate-notes \
+            --draft=false \
+            --prerelease
+    else
+        run gh release create "${TAG}" \
+            --title "${RELEASE_TITLE}" \
+            --generate-notes \
+            --draft=false
+    fi
+
+fi
+
+###############################################################################
+# Summary
+###############################################################################
+
+echo
+echo "========================================="
+echo "Version     : ${VERSION}"
+echo "Tag         : ${TAG}"
+echo "Title       : ${RELEASE_TITLE}"
+echo "Prerelease  : ${PRERELEASE}"
+echo "Push        : ${PUSH}"
+echo "========================================="
+echo
+echo "Release complete."
+echo "CI will build wheels on tag push and upload assets to this release."

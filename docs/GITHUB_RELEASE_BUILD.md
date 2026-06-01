@@ -1,37 +1,73 @@
-# GitHub Actions release: macOS wheels (Python only)
+# GitHub Actions release: universal wheel and sdist
 
-**Created**: 2026-05-02  
-**Updated**: 2026-05-23
+**Updated**: 2026-05-31
 
-Secrets-Kit **wheels and sdist** ship **Python + package data** only (no bundled native app or helper). For **`--backend keychain`**, the CLI uses the macOS **`security`** binary.
+Secrets-Kit ships Python package code and JSON package data only. It does not bundle native extensions or platform binaries. For `--backend keychain`, the CLI uses the host macOS `security` binary at runtime.
 
-## Universal2 vs many macOS runners
+## Release artifacts
 
-- **Use** a **single wheel platform tag** per Python: `macosx_13_0_universal2` (see [setup.cfg](../setup.cfg)). Match your lowest supported macOS for the interpreter wheels you publish.
-- **Do** build **one wheel per Python version** you support (e.g. 3.9–3.13) so each wheel’s `cp*` tag matches the installer’s interpreter.
+The release workflow publishes:
+
+- `seckit-<version>-py3-none-any.whl`
+- `seckit-<version>.tar.gz`
+
+The installer prefers the universal wheel on macOS and Linux, and falls back to the sdist only when no wheel asset is available.
 
 ## What runs in CI
 
-The [release workflow](../.github/workflows/release.yml):
+Branch CI (`.github/workflows/ci.yml`) runs local validation on:
 
-1. **validate** — **release preflight** (on tag `v*`, tag vs `pyproject.toml` `version`; optional `CHANGELOG.md` warning), then tests on **Python 3.12**. **Branch/PR CI** (`.github/workflows/ci.yml`) runs **3.9–3.13** × several macOS images.
-2. **wheel** — matrix **3.9–3.13**; `python -m build -w`; per Python smoke: `seckit --version`, `seckit info --json`.
-3. **sdist** — source distribution on Ubuntu.
-4. **collect-dist** — merges wheels + sdist into **`seckit-dist`**.
+- macOS 15
+- Ubuntu
+- Python 3.11
+- Python 3.12
 
-### Preflight (tag releases)
+The [release workflow](../.github/workflows/release.yml) on tag push `v*`:
 
-`scripts/release_preflight.sh` runs at the start of **validate** when `GITHUB_REF` is `refs/tags/v*`. Manual `workflow_dispatch` uses a branch ref, so the tag check is skipped.
+1. **validate** — `release_preflight.sh`, then `run_local_validation.sh` on macOS 15 and Ubuntu.
+2. **wheel** — build one universal wheel with Python 3.12.
+3. **smoke** — install the wheel and run:
+   - `seckit --version`
+   - `seckit info --json`
+   - `seckit doctor --install-check`
+4. **sdist** — build one source distribution.
+5. **collect-dist** — merge wheel and sdist artifacts.
+6. **publish-github-release** — upload `dist/*` to the GitHub release.
 
-## Local release (your Mac)
+## Maintainer release script
 
-\```bash
-bash scripts/package_release_wheels.sh
-# optional: PY_VERSIONS='3.9,3.10,3.11,3.12,3.13'
-\```
+From the sterile public repo:
 
-Then tag `vX.Y.Z`, push, or upload `dist/*` to PyPI / GitHub Release.
+```bash
+bash scripts/release
+```
+
+Bump `pyproject.toml` in the dev repo first. The script rsyncs, commits, tags, pushes, and creates the GitHub release. CI attaches the wheel and sdist when the tag lands.
+
+## Local artifact check
+
+```bash
+python -m pip install -U build
+python -m build -w -s -n
+python - <<'PY'
+from pathlib import Path
+from zipfile import ZipFile
+
+wheel = next(Path("dist").glob("seckit-*-py3-none-any.whl"))
+with ZipFile(wheel) as zf:
+    wheel_meta = next(name for name in zf.namelist() if name.endswith("/WHEEL"))
+    print(zf.read(wheel_meta).decode())
+PY
+```
+
+Expected metadata:
+
+```text
+Root-Is-Purelib: true
+Tag: py3-none-any
+```
 
 ## References
 
 - [Security model](SECURITY_MODEL.md)
+- [Maintainer release guide](MAINTAINER_RELEASE.md)

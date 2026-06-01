@@ -1,10 +1,14 @@
 # Secrets-Kit Changelog
 
 **Created**: 2026-03-10  
-**Updated**: 2026-05-28
+**Updated**: 2026-05-30
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+### 2026-05-30 — Pre-release `2.0.0a3`
+
+- **What changed:** Phase 2 installer on `dev-local`: uv-managed Python 3.12, universal wheel/sdist release install (latest GitHub prerelease), runtime retention, dynamic release resolution (no baked tag in `install.sh`). Operator account init prefers `$HOME` over inherited `USER=root`. CI targets Linux and macOS with Python 3.11–3.12; release builds one `py3-none-any` wheel and one sdist. Removed obsolete `sync_repos.sh`, `package_release_wheels.sh`, `install_lib.sh`. Maintainer release via `scripts/release`.
 
 ### 2026-05-30 — Fix silent default install exit (`set -e` + `verbose_log`)
 

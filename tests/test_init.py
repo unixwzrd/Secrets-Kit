@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest import mock
 
 from secrets_kit.cli.commands.init_cmd import cmd_init, cmd_init_operator, cmd_init_sqlite
-from secrets_kit.cli.operator_defaults import initial_operator_defaults
+from secrets_kit.cli.operator_defaults import initial_operator_defaults, resolve_operator_account
 from secrets_kit.registry import (
     defaults_path,
     load_defaults,
@@ -20,6 +20,15 @@ from secrets_kit.registry import (
 
 
 class InitCommandTest(unittest.TestCase):
+    def test_resolve_operator_account_prefers_home_over_root_env(self) -> None:
+        env = {
+            "USER": "root",
+            "LOGNAME": "root",
+            "HOME": "/Users/seckit",
+        }
+        with mock.patch.dict("os.environ", env, clear=False):
+            self.assertEqual(resolve_operator_account(), "seckit")
+
     def test_initial_operator_defaults_shape(self) -> None:
         with mock.patch("secrets_kit.cli.operator_defaults.sys.platform", "darwin"):
             payload = initial_operator_defaults(account="tester")

@@ -4,14 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "seckit"
-version = "2.0.0a2"
+version = "2.0.0a3"
 description = "Local macOS CLI for handling secrets and PII without leaving them scattered in plain-text files"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = "MIT"
 authors = [{ name = "unixwzrd", email = "unixwzrd@unixwzrd.ai" }]
 dependencies = [
   "cryptography>=42.0.0",
+  "tomli>=2.0.0",
 ]
 
 [project.optional-dependencies]
@@ -36,7 +37,7 @@ where = ["src"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py39"
+target-version = "py310"
 src = ["src"]
 
 [tool.ruff.lint]
@@ -49,7 +50,7 @@ ignore = ["E501", "B008"]
 [tool.basedpyright]
 include = ["src", "tests"]
 extraPaths = ["src"]
-pythonVersion = "3.9"
+pythonVersion = "3.10"
 typeCheckingMode = "off"
 reportMissingImports = true
 reportMissingModuleSource = true
