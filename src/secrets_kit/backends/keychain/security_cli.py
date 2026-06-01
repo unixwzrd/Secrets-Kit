@@ -189,7 +189,19 @@ def resolve_secret_store(
 
 
 def keychain_path(*, path: Optional[str] = None) -> str:
-    return os.path.expanduser(path or DEFAULT_KEYCHAIN_PATH)
+    if path is not None:
+        return os.path.expanduser(path)
+    proc = subprocess.run(
+        ["security", "default-keychain", "-d", "user"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode == 0:
+        candidate = proc.stdout.strip().strip('"')
+        if candidate:
+            return os.path.expanduser(candidate)
+    return DEFAULT_KEYCHAIN_PATH
 
 
 def keychain_accessible(*, path: Optional[str] = None) -> bool:

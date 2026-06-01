@@ -12,6 +12,7 @@ from secrets_kit.backends.common import (
 )
 from secrets_kit.backends.keychain import (
     get_secret,
+    keychain_path,
     set_secret,
 )
 
@@ -75,6 +76,14 @@ class BackendResolutionTest(unittest.TestCase):
                 name="SECKIT_TEST_ALPHA",
                 backend="sqlite",
             )
+
+    def test_keychain_path_prefers_security_default_keychain(self) -> None:
+        proc = mock.MagicMock(returncode=0, stdout='    "/Users/test/Library/Keychains/login.keychain-db"\n')
+        with mock.patch(
+            "secrets_kit.backends.keychain.security_cli.subprocess.run",
+            return_value=proc,
+        ):
+            self.assertEqual(keychain_path(), "/Users/test/Library/Keychains/login.keychain-db")
 
 
 if __name__ == "__main__":

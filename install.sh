@@ -407,7 +407,7 @@ uv_install_secrets_kit() {
 }
 
 prune_old_runtimes() {
-  local dir keep_a keep_b path name
+  local keep_a keep_b path
   keep_a="${TARGET_RUNTIME}"
   keep_b="${PREVIOUS_RUNTIME:-}"
   [[ -d "${SECKIT_RUNTIME_DIR}" ]] || return 0
@@ -424,8 +424,19 @@ prune_old_runtimes() {
   shopt -u nullglob
 }
 
+cleanup_install_cache() {
+  [[ -d "${SECKIT_CACHE_DIR}" ]] || return 0
+  shopt -s dotglob nullglob
+  local entries=("${SECKIT_CACHE_DIR}"/*)
+  if [[ "${#entries[@]}" -gt 0 ]]; then
+    verbose_log "cleaning installer cache: ${SECKIT_CACHE_DIR}"
+    rm -rf "${entries[@]}"
+  fi
+  shopt -u dotglob nullglob
+}
+
 write_runtime_state() {
-  local runtime_json current_link_tmp
+  local runtime_json current_link_tmp previous_link_tmp
   runtime_json="$(mktemp -t seckit-runtime-json.XXXXXX)"
   cat >"${runtime_json}" <<EOF_JSON
 {
@@ -449,6 +460,14 @@ EOF_JSON
   current_link_tmp="${SECKIT_RUNTIME_DIR}/current.tmp.$$"
   ln -sfn "${TARGET_RUNTIME}" "${current_link_tmp}"
   mv -f "${current_link_tmp}" "${SECKIT_RUNTIME_DIR}/current"
+
+  if [[ -n "${PREVIOUS_RUNTIME:-}" && "${PREVIOUS_RUNTIME}" != "${TARGET_RUNTIME}" && -d "${PREVIOUS_RUNTIME}" ]]; then
+    previous_link_tmp="${SECKIT_RUNTIME_DIR}/previous.tmp.$$"
+    ln -sfn "${PREVIOUS_RUNTIME}" "${previous_link_tmp}"
+    mv -f "${previous_link_tmp}" "${SECKIT_RUNTIME_DIR}/previous"
+  else
+    rm -f "${SECKIT_RUNTIME_DIR}/previous"
+  fi
 }
 
 write_install_state() {
@@ -742,6 +761,7 @@ main() {
     verbose_log "verification skipped"
   fi
   step_done 5
+  cleanup_install_cache
 
   clear_shell_profile_backup
 
