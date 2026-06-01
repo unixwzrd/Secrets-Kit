@@ -11,7 +11,12 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
-from secrets_kit.backends.common import BACKEND_KEYCHAIN, BackendError, normalize_backend
+from secrets_kit.backends.common import (
+    BACKEND_KEYCHAIN,
+    BACKEND_SQLITE,
+    BackendError,
+    normalize_backend,
+)
 from secrets_kit.backends.sqlite import (
     SQLiteBackendError,
     open_sqlite_backend,
@@ -90,22 +95,27 @@ def cmd_init_operator(*, args: argparse.Namespace) -> int:
         if not _require_init_confirmation(args=args, targets=targets, scope="operator"):
             print(msg("cli.common.aborted"))
             return 1
-        payload = initial_operator_defaults()
+        payload = initial_operator_defaults(backend=getattr(args, "backend", None))
+        backend = normalize_backend(str(payload.get("backend", BACKEND_KEYCHAIN)))
+        sqlite_dev_mode = bool(getattr(args, "sqlite_dev_mode", False))
+        if backend == BACKEND_SQLITE:
+            require_sqlite_developer_mode(sqlite_dev_mode=sqlite_dev_mode)
+            conn = open_sqlite_backend()
+            conn.close()
         save_defaults(payload=payload, home=home)
         save_registry(entries={}, home=home)
-        backend = normalize_backend(str(payload.get("backend", BACKEND_KEYCHAIN)))
         try:
             merge_seed_files_into_store(
                 backend=backend,
                 allow_replace=False,
-                sqlite_dev_mode=bool(payload.get("backend") == "sqlite"),
+                sqlite_dev_mode=sqlite_dev_mode,
             )
         except (BackendError, OSError) as exc:
             print(f"warning: metadata schema registry seed skipped ({exc})", file=sys.stderr)
         try:
             merge_seed_files_into_taxonomy_store(
                 backend=backend,
-                sqlite_dev_mode=bool(payload.get("backend") == "sqlite"),
+                sqlite_dev_mode=sqlite_dev_mode,
             )
         except (BackendError, OSError, ValidationError) as exc:
             print(f"warning: taxonomy registry seed skipped ({exc})", file=sys.stderr)
@@ -117,7 +127,7 @@ def cmd_init_operator(*, args: argparse.Namespace) -> int:
             )
         )
         return 0
-    except (RegistryError, ValidationError, OSError) as exc:
+    except (BackendError, SQLiteBackendError, RegistryError, ValidationError, OSError) as exc:
         return _fatal(message=str(exc), code=1)
 
 

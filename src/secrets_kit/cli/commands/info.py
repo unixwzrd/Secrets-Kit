@@ -10,7 +10,7 @@ import argparse
 import json
 import sqlite3
 import sys
-from typing import Dict, Optional
+from typing import Dict, Optional, cast
 
 from secrets_kit import __version__
 from secrets_kit.backends.common import BACKEND_KEYCHAIN, BACKEND_SQLITE, normalize_backend
@@ -24,6 +24,7 @@ from secrets_kit.backends.keychain import (
 from secrets_kit.backends.sqlite import is_sqlite_backend
 from secrets_kit.backends.sqlite.gate import (
     SQLITE_DEVELOPER_MODE_ENV,
+    SQLITE_DEVELOPER_MODE_WARNING,
     SQLITE_PATH_ENV,
     SQLITE_SUPPRESS_DEVELOPER_MODE_WARNING_ENV,
     sqlite_path,
@@ -67,6 +68,11 @@ def _keychain_status_dict(*, path: Optional[str] = None) -> Dict[str, object]:
             "available": True,
             "path": target,
             "accessible": False,
+            "encryption": {
+                "enabled": True,
+                "mode": "macOS Keychain",
+                "warning": None,
+            },
             "error": str(exc),
         }
     return {
@@ -74,6 +80,11 @@ def _keychain_status_dict(*, path: Optional[str] = None) -> Dict[str, object]:
         "available": True,
         "path": target,
         "accessible": keychain_accessible(path=target),
+        "encryption": {
+            "enabled": True,
+            "mode": "macOS Keychain",
+            "warning": None,
+        },
         "no_timeout": policy["no_timeout"],
         "lock_on_sleep": policy["lock_on_sleep"],
         "timeout_seconds": policy["timeout_seconds"],
@@ -91,6 +102,11 @@ def _sqlite_status_dict() -> Dict[str, object]:
         "developer_mode_env": SQLITE_DEVELOPER_MODE_ENV,
         "path_env": SQLITE_PATH_ENV,
         "suppress_warning_env": SQLITE_SUPPRESS_DEVELOPER_MODE_WARNING_ENV,
+        "encryption": {
+            "enabled": False,
+            "mode": "plaintext developer codec",
+            "warning": msg("cli.info.warning.encryption_disabled"),
+        },
     }
     if spath.exists():
         try:
@@ -166,6 +182,12 @@ def _print_keychain_warnings(*, keychain: Dict[str, object]) -> None:
         print(msg("cli.keychain_status.warning.relaxed_policy", target=target), file=sys.stderr)
 
 
+def _print_sqlite_warnings(*, sqlite: Dict[str, object]) -> None:
+    encryption = sqlite.get("encryption")
+    if isinstance(encryption, dict) and encryption.get("enabled") is False:
+        print(encryption.get("warning") or SQLITE_DEVELOPER_MODE_WARNING, file=sys.stderr)
+
+
 def _print_info_text(*, data: Dict[str, object]) -> None:
     lines = [
         f"version: {data['version']}",
@@ -177,18 +199,21 @@ def _print_info_text(*, data: Dict[str, object]) -> None:
     lines.append(f"defaults_path: {dp if dp else '(unknown)'}")
     rp = data.get("registry_path")
     lines.append(f"registry_path: {rp if rp else '(unknown)'}")
-    defaults = data.get("defaults") or {}
+    raw_defaults = data.get("defaults")
+    defaults = cast(Dict[str, object], raw_defaults) if isinstance(raw_defaults, dict) else {}
     if defaults:
         lines.append("defaults:")
         for k in sorted(defaults.keys(), key=str):
             lines.append(f"  {k}: {defaults[k]!r}")
     else:
         lines.append("defaults: (none)")
-    ba = data.get("backend_availability") or {}
+    raw_ba = data.get("backend_availability")
+    ba = cast(Dict[str, object], raw_ba) if isinstance(raw_ba, dict) else {}
     lines.append(
         "backend_availability: " + ", ".join(f"{k}={ba[k]}" for k in sorted(ba.keys(), key=str))
     )
-    kc = data.get("keychain") or {}
+    raw_kc = data.get("keychain")
+    kc = cast(Dict[str, object], raw_kc) if isinstance(raw_kc, dict) else {}
     lines.append("keychain:")
     if kc.get("supported") is False:
         lines.append(f"  note: {kc.get('reason')}")
@@ -197,10 +222,15 @@ def _print_info_text(*, data: Dict[str, object]) -> None:
     else:
         lines.append(f"  path: {kc.get('path')}")
         lines.append(f"  accessible: {kc.get('accessible')}")
+        encryption = kc.get("encryption")
+        if isinstance(encryption, dict):
+            lines.append(f"  encryption_enabled: {encryption.get('enabled')}")
+            lines.append(f"  encryption_mode: {encryption.get('mode')}")
         lines.append(f"  no_timeout: {kc.get('no_timeout')}")
         lines.append(f"  lock_on_sleep: {kc.get('lock_on_sleep')}")
         lines.append(f"  timeout_seconds: {kc.get('timeout_seconds')}")
-    sqlite = data.get("sqlite") or {}
+    raw_sqlite = data.get("sqlite")
+    sqlite = cast(Dict[str, object], raw_sqlite) if isinstance(raw_sqlite, dict) else {}
     lines.append("sqlite:")
     if sqlite.get("included") is False:
         lines.append(f"  note: {sqlite.get('reason')}")
@@ -210,6 +240,12 @@ def _print_info_text(*, data: Dict[str, object]) -> None:
         if "user_version" in sqlite:
             lines.append(f"  user_version: {sqlite.get('user_version')}")
         lines.append(f"  schema_version_expected: {sqlite.get('schema_version_expected')}")
+        encryption = sqlite.get("encryption")
+        if isinstance(encryption, dict):
+            lines.append(f"  encryption_enabled: {encryption.get('enabled')}")
+            lines.append(f"  encryption_mode: {encryption.get('mode')}")
+            if encryption.get("warning"):
+                lines.append(f"  warning: {encryption.get('warning')}")
     print("\n".join(lines))
 
 
@@ -222,6 +258,9 @@ def cmd_info(*, args: argparse.Namespace) -> int:
     kc = data.get("keychain")
     if isinstance(kc, dict):
         _print_keychain_warnings(keychain=kc)
+    sqlite = data.get("sqlite")
+    if isinstance(sqlite, dict):
+        _print_sqlite_warnings(sqlite=sqlite)
     return 0
 
 

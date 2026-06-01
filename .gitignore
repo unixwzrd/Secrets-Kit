@@ -440,6 +440,7 @@ poetry.toml
 
 # LSP config files
 pyrightconfig.json
+!pyrightconfig.json
 
 ### SSH ###
 **/.ssh/id_*

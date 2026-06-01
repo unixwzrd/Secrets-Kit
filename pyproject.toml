@@ -32,6 +32,7 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
+"secrets_kit" = ["py.typed"]
 "secrets_kit.schemas" = ["builtin/*.json"]
 "secrets_kit.taxonomy" = ["builtin/*.json"]
 
@@ -54,3 +55,4 @@ pythonVersion = "3.10"
 typeCheckingMode = "off"
 reportMissingImports = true
 reportMissingModuleSource = true
+reportMissingTypeStubs = false

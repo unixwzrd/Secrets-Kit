@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from secrets_kit.cli import build_parser
 from secrets_kit.cli.commands.init_cmd import cmd_init, cmd_init_operator, cmd_init_sqlite
 from secrets_kit.cli.operator_defaults import initial_operator_defaults, resolve_operator_account
 from secrets_kit.registry import (
@@ -38,6 +39,16 @@ class InitCommandTest(unittest.TestCase):
         self.assertEqual(payload["account"], "tester")
         self.assertEqual(payload["default_rotation_days"], 90)
 
+    def test_initial_operator_defaults_accept_backend_override(self) -> None:
+        payload = initial_operator_defaults(account="tester", backend="sqlite")
+        self.assertEqual(payload["backend"], "sqlite")
+
+    def test_init_parser_accepts_backend_and_dev_alias(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["init", "--backend", "sqlite", "--dev", "--yes"])
+        self.assertEqual(args.backend, "sqlite")
+        self.assertTrue(args.sqlite_dev_mode)
+
     def test_init_operator_writes_defaults_and_empty_registry(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
@@ -50,6 +61,38 @@ class InitCommandTest(unittest.TestCase):
             self.assertEqual(load_registry(home=home), {})
             self.assertTrue(defaults_path(home=home).exists())
             self.assertTrue(registry_path(home=home).exists())
+
+    def test_init_operator_sqlite_backend_requires_dev_ack(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "seckit.sqlite"
+            args = argparse.Namespace(
+                yes=True,
+                home=str(Path(tmp) / "home"),
+                init_target=None,
+                backend="sqlite",
+                sqlite_dev_mode=False,
+            )
+            with mock.patch.dict("os.environ", {"SECKIT_SQLITE_PATH": str(db_path)}, clear=False):
+                code = cmd_init_operator(args=args)
+            self.assertEqual(code, 1)
+
+    def test_init_operator_sqlite_backend_creates_database_with_dev_ack(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            db_path = Path(tmp) / "seckit.sqlite"
+            args = argparse.Namespace(
+                yes=True,
+                home=str(home),
+                init_target=None,
+                backend="sqlite",
+                sqlite_dev_mode=True,
+            )
+            with mock.patch.dict("os.environ", {"SECKIT_SQLITE_PATH": str(db_path)}, clear=False):
+                code = cmd_init_operator(args=args)
+            self.assertEqual(code, 0)
+            self.assertTrue(db_path.exists())
+            defaults = load_defaults(home=home)
+            self.assertEqual(defaults["backend"], "sqlite")
 
     def test_init_operator_requires_confirmation_without_yes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

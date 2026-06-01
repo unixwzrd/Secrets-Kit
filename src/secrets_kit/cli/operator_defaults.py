@@ -12,7 +12,7 @@ import pwd
 import sys
 from typing import Dict, Optional
 
-from secrets_kit.backends.common import BACKEND_KEYCHAIN, BACKEND_SQLITE
+from secrets_kit.backends.common import BACKEND_KEYCHAIN, BACKEND_SQLITE, normalize_backend
 
 
 def resolve_operator_account() -> str:
@@ -42,12 +42,20 @@ def resolve_operator_account() -> str:
     return getpass.getuser() or "default"
 
 
-def initial_operator_defaults(*, account: Optional[str] = None) -> Dict[str, object]:
+def initial_operator_defaults(
+    *, account: Optional[str] = None, backend: Optional[str] = None
+) -> Dict[str, object]:
     """Return the standard defaults.json payload for a fresh install."""
     resolved_account = account or resolve_operator_account()
-    backend = BACKEND_KEYCHAIN if sys.platform == "darwin" else BACKEND_SQLITE
+    selected_backend = (
+        normalize_backend(backend)
+        if backend is not None
+        else BACKEND_KEYCHAIN
+        if sys.platform == "darwin"
+        else BACKEND_SQLITE
+    )
     return {
-        "backend": backend,
+        "backend": selected_backend,
         "type": "secret",
         "kind": "api_key",
         "account": resolved_account,
