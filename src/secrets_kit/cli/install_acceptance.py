@@ -16,11 +16,6 @@ from secrets_kit.backends.common import (
     BackendError,
     normalize_backend,
 )
-from secrets_kit.backends.sqlite import (
-    SQLiteBackendError,
-    is_sqlite_backend,
-    require_sqlite_developer_mode,
-)
 from secrets_kit.backends.dispatch import (
     delete_secret_entry,
     list_secret_metadata,
@@ -29,6 +24,11 @@ from secrets_kit.backends.dispatch import (
     write_secret,
 )
 from secrets_kit.backends.keychain import check_security_cli
+from secrets_kit.backends.sqlite import (
+    SQLiteBackendError,
+    is_sqlite_backend,
+    require_sqlite_developer_mode,
+)
 from secrets_kit.cli.defaults import _load_defaults
 from secrets_kit.models import EntryMetadata
 from secrets_kit.registry import delete_metadata, upsert_metadata
