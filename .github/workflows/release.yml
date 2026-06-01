@@ -28,8 +28,9 @@ jobs:
       - name: Validate
         run: |
           export PYTHON="$(command -v python)"
-          "$PYTHON" -m ruff --version
-          bash ./scripts/run_local_validation.sh --without-localhost-transport
+          make lint PYTHON="$PYTHON"
+          make test-fast PYTHON="$PYTHON"
+          make test-sqlite-unit PYTHON="$PYTHON"
 
   wheel:
     needs: [validate]

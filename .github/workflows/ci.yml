@@ -36,7 +36,9 @@ jobs:
         run: |
           python -m pip install -U pip setuptools wheel
           python -m pip install -e ".[dev]"
-      - name: Run local validation
+      - name: Run validation
         run: |
           export PYTHON="$(command -v python)"
-          bash ./scripts/run_local_validation.sh
+          make lint PYTHON="$PYTHON"
+          make test-fast PYTHON="$PYTHON"
+          make test-sqlite-unit PYTHON="$PYTHON"
