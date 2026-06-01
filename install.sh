@@ -214,26 +214,15 @@ artifact_url_exists() {
 }
 
 pick_release_asset_url() {
-  local base version wheel_url sdist_url source_url
+  local base version wheel_url
   base="$(release_download_base)"
   version="$(ref_to_version "${SECKIT_REF}")"
   wheel_url="${base}/seckit-${version}-py3-none-any.whl"
-  sdist_url="${base}/seckit-${version}.tar.gz"
-  source_url="https://github.com/${SECKIT_GITHUB_REPO}/archive/refs/tags/${SECKIT_REF}.tar.gz"
   if artifact_url_exists "${wheel_url}"; then
     printf '%s' "${wheel_url}"
     return 0
   fi
-  if artifact_url_exists "${sdist_url}"; then
-    printf '%s' "${sdist_url}"
-    return 0
-  fi
-  if artifact_url_exists "${source_url}"; then
-    install_warn "release assets missing for ${SECKIT_REF}; installing tagged source archive"
-    printf '%s' "${source_url}"
-    return 0
-  fi
-  install_die "no compatible release artifact found in ${SECKIT_REF} (expected seckit-${version}-py3-none-any.whl, seckit-${version}.tar.gz, or tag source archive)"
+  install_die "release wheel not found for ${SECKIT_REF} (expected seckit-${version}-py3-none-any.whl; publish release assets or use --ref for explicit git install)"
 }
 
 resolve_release_artifact_url() {
