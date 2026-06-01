@@ -50,7 +50,10 @@ Preflight:
 
 ```bash
 SECKIT_RELEASE_TAG=v2.0.0a3 bash ./scripts/release_preflight.sh
+bash ./scripts/verify-release-artifacts.sh --github-tag v2.0.0a3
 ```
+
+Cross-platform install sign-off: [RELEASE_VALIDATION.md](RELEASE_VALIDATION.md).
 
 Pushing branch `dev` does not move an existing tag. Create or move tags deliberately only on the commit being shipped.
 

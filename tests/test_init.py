@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import io
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -53,7 +55,10 @@ class InitCommandTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
             args = argparse.Namespace(yes=True, home=str(home), init_target=None)
-            with mock.patch("secrets_kit.cli.operator_defaults.sys.platform", "darwin"):
+            with (
+                mock.patch("secrets_kit.cli.operator_defaults.sys.platform", "darwin"),
+                redirect_stdout(io.StringIO()),
+            ):
                 code = cmd_init_operator(args=args)
             self.assertEqual(code, 0)
             defaults = load_defaults(home=home)
@@ -72,7 +77,10 @@ class InitCommandTest(unittest.TestCase):
                 backend="sqlite",
                 sqlite_dev_mode=False,
             )
-            with mock.patch.dict("os.environ", {"SECKIT_SQLITE_PATH": str(db_path)}, clear=False):
+            with (
+                mock.patch.dict("os.environ", {"SECKIT_SQLITE_PATH": str(db_path)}, clear=False),
+                redirect_stderr(io.StringIO()),
+            ):
                 code = cmd_init_operator(args=args)
             self.assertEqual(code, 1)
 
@@ -87,7 +95,11 @@ class InitCommandTest(unittest.TestCase):
                 backend="sqlite",
                 sqlite_dev_mode=True,
             )
-            with mock.patch.dict("os.environ", {"SECKIT_SQLITE_PATH": str(db_path)}, clear=False):
+            with (
+                mock.patch.dict("os.environ", {"SECKIT_SQLITE_PATH": str(db_path)}, clear=False),
+                redirect_stdout(io.StringIO()),
+                redirect_stderr(io.StringIO()),
+            ):
                 code = cmd_init_operator(args=args)
             self.assertEqual(code, 0)
             self.assertTrue(db_path.exists())
@@ -99,7 +111,11 @@ class InitCommandTest(unittest.TestCase):
             home = Path(tmp)
             save_defaults(payload={"backend": "keychain"}, home=home)
             args = argparse.Namespace(yes=False, home=str(home), init_target=None)
-            with mock.patch("secrets_kit.cli.commands.init_cmd._confirm", return_value=False):
+            with (
+                mock.patch("secrets_kit.cli.commands.init_cmd._confirm", return_value=False),
+                redirect_stdout(io.StringIO()),
+                redirect_stderr(io.StringIO()),
+            ):
                 code = cmd_init_operator(args=args)
             self.assertEqual(code, 1)
 
@@ -113,7 +129,8 @@ class InitCommandTest(unittest.TestCase):
             ):
                 db_path.write_text("stale", encoding="utf-8")
                 args = argparse.Namespace(yes=True, sqlite_dev_mode=False, init_target="sqlite")
-                code = cmd_init_sqlite(args=args)
+                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    code = cmd_init_sqlite(args=args)
             self.assertEqual(code, 0)
             self.assertTrue(db_path.exists())
             self.assertGreater(db_path.stat().st_size, 0)

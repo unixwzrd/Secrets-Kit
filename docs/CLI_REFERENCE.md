@@ -39,7 +39,7 @@ Exhaustive command list in **taxonomy order** (same as `seckit --help` epilog). 
 
 | Command | Purpose |
 |---------|---------|
-| `doctor` | Backend posture, registry checks, metadata drift (JSON). `--install-check` fast post-install gate only (no roundtrips). |
+| `doctor` | Backend posture, registry checks, metadata drift (JSON). `--install-check` fast post-install gate (no roundtrips). `--acceptance-test` ephemeral CRUD in `__seckit_test__`. |
 | `backend-index` | **Decrypt-safe** index lines from backend-specific safe index support — **not** authority, **not** materialization. |
 | `rebuild-index` | Rebuild decrypt-free index from authority (SQLite-oriented repair path). |
 | `recover` | Rebuild slim `registry.json` from live store (`migrate recover-registry` is an **alias**). |

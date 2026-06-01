@@ -45,6 +45,8 @@ jobs:
           python -m pip install -U pip setuptools wheel build
           python -m build -w -n
           test "$(find dist -maxdepth 1 -name 'seckit-*-py3-none-any.whl' | wc -l | tr -d ' ')" = "1"
+      - name: Verify release artifact naming (installer contract)
+        run: bash ./scripts/verify-release-artifacts.sh --local
       - name: Smoke test wheel install
         run: |
           rm -rf .wheel-smoke

@@ -42,6 +42,13 @@ class BackendResolutionTest(unittest.TestCase):
                     normalize_backend(bad)
 
     def test_keychain_backend_with_path_uses_security(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        keychain = Path(temp_dir.name) / "test.keychain-db"
+        keychain.write_text("", encoding="utf-8")
         with mock.patch(
             "secrets_kit.backends.keychain.security_cli.run_security", return_value="secret"
         ) as run_security_mock:
@@ -49,14 +56,19 @@ class BackendResolutionTest(unittest.TestCase):
                 service="sync-test",
                 account="local",
                 name="SECKIT_TEST_ALPHA",
-                path="/tmp/test.keychain-db",
+                path=str(keychain),
                 backend="keychain",
             )
         self.assertEqual(value, "secret")
         run_security_mock.assert_called_once()
+        self.assertEqual(run_security_mock.call_args.kwargs["args"][-1], str(keychain))
 
     def test_keychain_set_uses_security_only(self) -> None:
         with (
+            mock.patch(
+                "secrets_kit.backends.keychain.security_cli.keychain_path",
+                return_value=__file__,
+            ),
             mock.patch(
                 "secrets_kit.backends.keychain.security_cli.security_exists", return_value=False
             ),
@@ -72,6 +84,20 @@ class BackendResolutionTest(unittest.TestCase):
                 backend="keychain",
             )
         run_security_mock.assert_called_once()
+
+    def test_keychain_set_fails_before_security_when_target_missing(self) -> None:
+        with mock.patch(
+            "secrets_kit.backends.keychain.security_cli.keychain_path",
+            return_value="/tmp/seckit-missing-test.keychain-db",
+        ):
+            with self.assertRaisesRegex(BackendError, "keychain not found"):
+                set_secret(
+                    service="sync-test",
+                    account="local",
+                    name="SECKIT_TEST_ALPHA",
+                    value="alpha-1",
+                    backend="keychain",
+                )
 
     def test_sqlite_backend_does_not_route_through_keychain_store(self) -> None:
         with self.assertRaisesRegex(BackendError, "not the keychain backend"):

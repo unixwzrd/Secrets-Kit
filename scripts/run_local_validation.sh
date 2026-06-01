@@ -64,6 +64,9 @@ bash -n \
   scripts/lib/seckit_env.sh \
   scripts/release \
   scripts/release_preflight.sh \
+  scripts/verify-release-artifacts.sh \
+  scripts/install-validation.sh \
+  scripts/upgrade-validation.sh \
   scripts/seckit_cross_host_prepare.sh \
   scripts/seckit_cross_host_verify.sh \
   scripts/seckit_cross_host_transport_localhost.sh \

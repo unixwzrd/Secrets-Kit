@@ -74,7 +74,8 @@ class DisposableKeychainFlowTest(unittest.TestCase):
                         meta=None,
                         keychain=src["path"],
                     )
-                    self.assertEqual(cmd_set(args=set_args), 0)
+                    with redirect_stdout(io.StringIO()):
+                        self.assertEqual(cmd_set(args=set_args), 0)
 
                     export_args = argparse.Namespace(
                         service="sync-test",
@@ -111,7 +112,8 @@ class DisposableKeychainFlowTest(unittest.TestCase):
                         allow_empty=False,
                         yes=True,
                     )
-                    self.assertEqual(cmd_import_env(args=import_args), 0)
+                    with redirect_stdout(io.StringIO()):
+                        self.assertEqual(cmd_import_env(args=import_args), 0)
 
                     get_args = argparse.Namespace(
                         name="SECKIT_TEST_ALPHA",
@@ -163,7 +165,8 @@ class DisposableKeychainFlowTest(unittest.TestCase):
                         meta=None,
                         keychain=src["path"],
                     )
-                    self.assertEqual(cmd_set(args=set_args), 0)
+                    with redirect_stdout(io.StringIO()):
+                        self.assertEqual(cmd_set(args=set_args), 0)
 
                     export_args = argparse.Namespace(
                         service="sync-test",
@@ -201,7 +204,8 @@ class DisposableKeychainFlowTest(unittest.TestCase):
                         allow_empty=False,
                         yes=True,
                     )
-                    self.assertEqual(cmd_import_env(args=import_args), 1)
+                    with redirect_stdout(io.StringIO()):
+                        self.assertEqual(cmd_import_env(args=import_args), 1)
         finally:
             for fixture in (src, dst):
                 try:
@@ -237,7 +241,8 @@ class DisposableKeychainFlowTest(unittest.TestCase):
                         keychain=fixture["path"],
                         backend="keychain",
                     )
-                    self.assertEqual(cmd_set(args=set_args), 0)
+                    with redirect_stdout(io.StringIO()):
+                        self.assertEqual(cmd_set(args=set_args), 0)
 
                 out_file = home / "child-env.txt"
                 child_code = (

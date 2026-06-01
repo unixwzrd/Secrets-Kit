@@ -28,6 +28,10 @@ _TAXONOMY_SEEDS = (
 
 _SECKIT_SHARE_DIR = Path(os.environ.get("SECKIT_SHARE_DIR", Path.home() / ".local" / "share" / "seckit"))
 _SECKIT_STATE_DIR = Path(os.environ.get("SECKIT_STATE_DIR", _SECKIT_SHARE_DIR / "state"))
+_SECKIT_RUNTIME_DIR = Path(os.environ.get("SECKIT_RUNTIME_DIR", _SECKIT_SHARE_DIR / "runtime"))
+_SECKIT_RUNTIME_CURRENT = Path(
+    os.environ.get("SECKIT_RUNTIME_CURRENT", _SECKIT_RUNTIME_DIR / "current")
+)
 _SECKIT_RUNTIME_PATH_FILE = Path(
     os.environ.get("SECKIT_RUNTIME_PATH_FILE", _SECKIT_STATE_DIR / "runtime-path")
 )
@@ -78,6 +82,17 @@ def _read_runtime_root_from_file(path: Path) -> str:
     return line
 
 
+def _resolve_runtime_root() -> tuple[Path | None, str]:
+    """Return canonical runtime root, with legacy runtime-path as fallback."""
+    if _SECKIT_RUNTIME_CURRENT.exists():
+        return _SECKIT_RUNTIME_CURRENT.resolve(), "current"
+    if _SECKIT_RUNTIME_PATH_FILE.is_file():
+        runtime_root = _read_runtime_root_from_file(_SECKIT_RUNTIME_PATH_FILE)
+        if runtime_root:
+            return Path(runtime_root), "runtime-path"
+    return None, "missing"
+
+
 def _check_config_writable(*, issues: list[str]) -> bool:
     config_dir = registry_dir()
     try:
@@ -96,16 +111,15 @@ def _check_launcher_runtime(*, issues: list[str]) -> bool:
     if not _SECKIT_LAUNCHER_PATH.is_file():
         issues.append(f"launcher not found: {_SECKIT_LAUNCHER_PATH}")
         ok = False
-    if not _SECKIT_RUNTIME_PATH_FILE.is_file():
-        issues.append(f"runtime path file not found: {_SECKIT_RUNTIME_PATH_FILE}")
+    runtime_root, source = _resolve_runtime_root()
+    if runtime_root is None:
+        issues.append(
+            f"runtime current link not found: {_SECKIT_RUNTIME_CURRENT}; legacy runtime path file not found: {_SECKIT_RUNTIME_PATH_FILE}"
+        )
         return False
-    runtime_root = _read_runtime_root_from_file(_SECKIT_RUNTIME_PATH_FILE)
-    if not runtime_root:
-        issues.append(f"runtime path file is empty: {_SECKIT_RUNTIME_PATH_FILE}")
-        return False
-    runtime_bin = Path(runtime_root) / "bin" / "seckit"
+    runtime_bin = runtime_root / "bin" / "seckit"
     if not runtime_bin.is_file():
-        issues.append(f"runtime seckit binary not found: {runtime_bin}")
+        issues.append(f"runtime seckit binary not found via {source}: {runtime_bin}")
         ok = False
     return ok
 
@@ -154,7 +168,8 @@ def run_install_check() -> dict[str, Any]:
         "config_dir": str(registry_dir()),
         "interpreter": sys.executable,
         "launcher": str(_SECKIT_LAUNCHER_PATH),
-        "runtime_path_file": str(_SECKIT_RUNTIME_PATH_FILE),
+        "runtime_current": str(_SECKIT_RUNTIME_CURRENT),
+        "runtime_path_file_legacy": str(_SECKIT_RUNTIME_PATH_FILE),
     }
     return result
 

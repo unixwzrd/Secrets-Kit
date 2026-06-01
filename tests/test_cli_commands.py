@@ -118,7 +118,10 @@ class CliCommandsTest(unittest.TestCase):
     def test_config_set_writes_defaults_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            with mock.patch.object(Path, "home", return_value=home):
+            with (
+                mock.patch.object(Path, "home", return_value=home),
+                redirect_stdout(io.StringIO()),
+            ):
                 code = cmd_config_set(args=argparse.Namespace(key="backend", value="keychain"))
                 self.assertEqual(code, 0)
                 dpath = home / ".config" / "seckit" / "defaults.json"
@@ -130,13 +133,19 @@ class CliCommandsTest(unittest.TestCase):
             with mock.patch.object(Path, "home", return_value=Path(tmp)):
                 for bad in ("nosuch", "i" + "cloud"):
                     with self.subTest(bad=bad):
-                        code = cmd_config_set(args=argparse.Namespace(key="backend", value=bad))
+                        with redirect_stderr(io.StringIO()):
+                            code = cmd_config_set(
+                                args=argparse.Namespace(key="backend", value=bad)
+                            )
                         self.assertEqual(code, 1)
 
     def test_config_unset_removes_key(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            with mock.patch.object(Path, "home", return_value=home):
+            with (
+                mock.patch.object(Path, "home", return_value=home),
+                redirect_stdout(io.StringIO()),
+            ):
                 self.assertEqual(
                     cmd_config_set(args=argparse.Namespace(key="service", value="my-svc")), 0
                 )
@@ -419,6 +428,7 @@ class CliCommandsTest(unittest.TestCase):
             mock.patch("secrets_kit.cli.commands.set.build_metadata", return_value=fake_meta),
             mock.patch("secrets_kit.cli.commands.set.write_secret") as set_secret_mock,
             mock.patch("secrets_kit.cli.commands.set.upsert_metadata"),
+            redirect_stdout(io.StringIO()),
         ):
             code = cmd_set(args=args)
         self.assertEqual(code, 0)

@@ -37,6 +37,11 @@ def register_keychain_commands(
         action="store_true",
         help=msg("cli.doctor.install_check_help"),
     )
+    p_doctor.add_argument(
+        "--acceptance-test",
+        action="store_true",
+        help=msg("cli.doctor.acceptance_test_help"),
+    )
     add_sqlite_dev_mode(parser=p_doctor)
     p_doctor.set_defaults(func=cmd_doctor)
 

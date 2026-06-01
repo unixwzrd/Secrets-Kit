@@ -11,6 +11,7 @@ against the login keychain (or ``--keychain`` path). Canonical backend id is
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -86,7 +87,12 @@ class SecurityCliStore(SecretStore):
         self.path = path
 
     def _target(self) -> Optional[str]:
-        return keychain_path(path=self.path) if self.path else None
+        target = keychain_path(path=self.path)
+        if not Path(target).exists():
+            raise BackendError(
+                f"keychain not found: {target}; unlock/select an existing keychain or pass --keychain PATH"
+            )
+        return target
 
     def _append_target(self, args: list[str]) -> list[str]:
         target = self._target()
@@ -191,6 +197,8 @@ def resolve_secret_store(
 def keychain_path(*, path: Optional[str] = None) -> str:
     if path is not None:
         return os.path.expanduser(path)
+    if shutil.which("security") is None:
+        return DEFAULT_KEYCHAIN_PATH
     proc = subprocess.run(
         ["security", "default-keychain", "-d", "user"],
         capture_output=True,

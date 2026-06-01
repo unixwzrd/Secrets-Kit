@@ -12,6 +12,7 @@ import json
 from secrets_kit.backends.dispatch import secret_exists_for_backend, sqlite_store
 from secrets_kit.backends.keychain import BackendError, check_security_cli, doctor_roundtrip
 from secrets_kit.backends.sqlite import SQLiteBackendError, is_sqlite_backend
+from secrets_kit.cli.install_acceptance import run_acceptance_test
 from secrets_kit.cli.install_check import run_install_check
 from secrets_kit.cli.io import _fatal
 from secrets_kit.cli.selection import _backend_arg, _keychain_arg
@@ -32,6 +33,13 @@ def cmd_doctor(*, args: argparse.Namespace) -> int:
         print(json.dumps(result, indent=2, sort_keys=True))
         if not result.get("ok"):
             return _fatal(message=msg("errors.install_check_failed"), code=1)
+        return 0
+
+    if getattr(args, "acceptance_test", False):
+        result = run_acceptance_test()
+        print(json.dumps(result, indent=2, sort_keys=True))
+        if not result.get("ok"):
+            return _fatal(message=msg("errors.acceptance_test_failed"), code=1)
         return 0
 
     status = {

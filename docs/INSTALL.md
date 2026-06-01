@@ -31,7 +31,7 @@ Default install:
 1. Bootstraps uv when needed
 2. Provisions Python 3.12 and creates an isolated runtime
 3. Resolves the latest GitHub release and installs the universal wheel (`py3-none-any`) when available, falling back to sdist
-4. Runs `seckit init` and `seckit doctor --install-check`
+4. Runs `seckit init`, `seckit doctor --install-check`, and `seckit doctor --acceptance-test`
 
 ## Upgrade
 
@@ -53,7 +53,8 @@ Upgrade refreshes runtime/package, keeps the previous runtime generation as fall
 |------|---------|
 | `~/.local/bin/seckit` | Launcher shim |
 | `~/.local/share/seckit/runtime/` | Isolated uv venv generations |
-| `~/.local/share/seckit/state/runtime-path` | Active runtime pointer |
+| `~/.local/share/seckit/runtime/current` | Canonical runtime symlink (launcher target) |
+| `~/.local/share/seckit/state/runtime-path` | Legacy pointer kept for older `doctor --install-check` builds |
 | `~/.local/share/seckit/state/runtime.json` | Python version, release ref, package source |
 | `~/.config/seckit/install.json` | Installed version and update metadata |
 | `~/.config/seckit/defaults.json` | Operator defaults |
@@ -64,9 +65,10 @@ Upgrade refreshes runtime/package, keeps the previous runtime generation as fall
 seckit --version
 seckit info
 seckit doctor --install-check
+seckit doctor --acceptance-test
 ```
 
-Fast check only (no keychain roundtrip, no registry drift scan).
+`--install-check` is fast (launcher, seeds, writable config; no backend roundtrip). `--acceptance-test` runs ephemeral CRUD in the `__seckit_test__` namespace and always cleans up.
 
 ## Remote install
 
@@ -123,7 +125,7 @@ Uses editable install from the local checkout. Pin a git ref with `./install.sh 
 - `--ref TAG` install from **git** at TAG instead of release wheel
 - `--yes` non-interactive mode when init would prompt
 - `--no-init` install package only; skip `seckit init`
-- `--no-verify` skip post-install `seckit doctor --install-check`
+- `--no-verify` skip post-install `seckit doctor --install-check` and `--acceptance-test`
 - `--verbose`, `--repair`, `--safe`, `--no-uv-download`, `--no-shell-profile`, `--shell-profile-force`
 
 Environment overrides:

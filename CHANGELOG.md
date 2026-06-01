@@ -1,10 +1,18 @@
 # Secrets-Kit Changelog
 
 **Created**: 2026-03-10  
-**Updated**: 2026-05-30
+**Updated**: 2026-06-01
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+### 2026-06-01 — Release validation tooling
+
+- **What changed:** Added [RELEASE_VALIDATION.md](docs/RELEASE_VALIDATION.md), `scripts/install-validation.sh`, `scripts/upgrade-validation.sh`, and `scripts/verify-release-artifacts.sh`. Release CI verifies wheel naming matches `install.sh` expectations.
+
+### 2026-06-01 — Installer hardening (downloader, acceptance test, uv cache)
+
+- **What changed:** `install.sh` uses a single downloader layer (`curl` / `wget` / `python3` urllib) with connect/transfer timeouts and retries for GitHub API, release assets, and uv bootstrap. GitHub release tags resolve via `python3` + `json` (release/prerelease channels; drafts ignored). Installer no longer sets `UV_CACHE_DIR` or a private uv cache. `state/runtime-path` remains as a legacy compatibility file; `runtime/current` is canonical for the launcher. Post-install runs `seckit doctor --install-check` and `seckit doctor --acceptance-test` (ephemeral `__seckit_test__` CRUD with guaranteed cleanup).
 
 ### 2026-05-30 — Pre-release `2.0.0a3`
 

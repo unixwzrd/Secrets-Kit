@@ -79,10 +79,10 @@ done
 
 if [[ "$backend" == "keychain" ]]; then
   remote_import_cmd=$(cat <<EOF
-cd "$SECKIT_REPO_ROOT" && security unlock-keychain -p "$password" "$dest_keychain" && if command -v seckit >/dev/null 2>&1; then \
+cd "$SECKIT_REPO_ROOT" && security unlock-keychain -p "$password" "$dest_keychain" && if [[ "${SECKIT_USE_PATH_CLI:-0}" == "1" ]] && command -v seckit >/dev/null 2>&1; then \
   seckit import env --keychain "$dest_keychain" --dotenv /dev/stdin --service "$service" --account "$account" --allow-overwrite --yes; \
 else \
-  PYTHONPATH="$SECKIT_REPO_ROOT/src" python3 -m secrets_kit.cli import env --keychain "$dest_keychain" --dotenv /dev/stdin --service "$service" --account "$account" --allow-overwrite --yes; \
+  PYTHONPATH="$SECKIT_REPO_ROOT/src" "$SECKIT_PYTHON_BIN" -m secrets_kit.cli import env --keychain "$dest_keychain" --dotenv /dev/stdin --service "$service" --account "$account" --allow-overwrite --yes; \
 fi
 EOF
 )
@@ -107,7 +107,7 @@ EOF
 else
   mkdir -p "$sqlite_home" "$(dirname "$source_db")" "$(dirname "$dest_db")"
   remote_import_cmd=$(cat <<EOF
-cd "$SECKIT_REPO_ROOT" && HOME="$sqlite_home" SECKIT_SQLITE_PATH="$dest_db" SECKIT_SQLITE_SUPPRESS_DEV_WARNING=1 PYTHONPATH="$SECKIT_REPO_ROOT/src" python3 -m secrets_kit.cli import env --backend sqlite --sqlite-dev-mode --dotenv /dev/stdin --service "$service" --account "$account" --allow-overwrite --yes
+cd "$SECKIT_REPO_ROOT" && HOME="$sqlite_home" SECKIT_SQLITE_PATH="$dest_db" SECKIT_SQLITE_SUPPRESS_DEV_WARNING=1 PYTHONPATH="$SECKIT_REPO_ROOT/src" "$SECKIT_PYTHON_BIN" -m secrets_kit.cli import env --backend sqlite --sqlite-dev-mode --dotenv /dev/stdin --service "$service" --account "$account" --allow-overwrite --yes
 EOF
 )
 

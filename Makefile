@@ -1,6 +1,7 @@
 PYTHONPATH=src
 PYTHON ?= python
 TEST_JOBS ?= 1
+UNITTEST_FLAGS ?= -b
 .DEFAULT_GOAL := help
 
 TEST_FAST := \
@@ -25,6 +26,7 @@ TEST_FAST := \
 	tests.test_taxonomy_store \
 	tests.test_package_data \
 	tests.test_install_check \
+	tests.test_install_acceptance \
 	tests.test_cli_install
 
 TEST_IMPORT_EXPORT := \
@@ -42,7 +44,7 @@ TEST_PARALLEL_SAFE := \
 	$(TEST_FAST) \
 	$(TEST_IMPORT_EXPORT)
 
-UNITTEST_DISCOVER := $(PYTHON) -m unittest discover -s tests
+UNITTEST_DISCOVER := $(PYTHON) -m unittest discover $(UNITTEST_FLAGS) -s tests
 
 .PHONY: help
 help:
@@ -109,15 +111,15 @@ fmt-ruff-check:
 
 .PHONY: test-fast
 test-fast:
-	PYTHONPATH=$(PYTHONPATH) $(PYTHON) -m unittest $(TEST_FAST)
+	PYTHONPATH=$(PYTHONPATH) $(PYTHON) -m unittest $(UNITTEST_FLAGS) $(TEST_FAST)
 
 .PHONY: test-import-export
 test-import-export:
-	PYTHONPATH=$(PYTHONPATH) $(PYTHON) -m unittest $(TEST_IMPORT_EXPORT)
+	PYTHONPATH=$(PYTHONPATH) $(PYTHON) -m unittest $(UNITTEST_FLAGS) $(TEST_IMPORT_EXPORT)
 
 .PHONY: test-sqlite-unit
 test-sqlite-unit:
-	PYTHONPATH=$(PYTHONPATH) $(PYTHON) -m unittest $(TEST_SQLITE_UNIT)
+	PYTHONPATH=$(PYTHONPATH) $(PYTHON) -m unittest $(UNITTEST_FLAGS) $(TEST_SQLITE_UNIT)
 
 .PHONY: test-unit
 test-unit: test-fast test-import-export
@@ -136,7 +138,7 @@ test-unit-parallel:
 		logs="$$logs $$log"; \
 		( \
 			echo "== $$module =="; \
-			PYTHONPATH=$(PYTHONPATH) $(PYTHON) -m unittest "$$module" \
+			PYTHONPATH=$(PYTHONPATH) $(PYTHON) -m unittest $(UNITTEST_FLAGS) "$$module" \
 		) >"$$log" 2>&1 & \
 		pids="$$pids $$!"; \
 	done; \
@@ -179,7 +181,7 @@ test-sqlite:
 
 .PHONY: test-launchd
 test-launchd:
-	PYTHONPATH=$(PYTHONPATH) $(PYTHON) -m unittest discover -s tests -p 'test_launchd_run_flow.py'
+	PYTHONPATH=$(PYTHONPATH) $(PYTHON) -m unittest discover $(UNITTEST_FLAGS) -s tests -p 'test_launchd_run_flow.py'
 
 .PHONY: install install-dev install-upgrade install-check
 install:

@@ -46,7 +46,7 @@ class InstallCheckTest(unittest.TestCase):
     def test_doctor_install_check_flag(self) -> None:
         import argparse
         import io
-        from contextlib import redirect_stdout
+        from contextlib import redirect_stderr, redirect_stdout
 
         args = argparse.Namespace(
             install_check=True,
@@ -55,7 +55,7 @@ class InstallCheckTest(unittest.TestCase):
             sqlite_dev_mode=False,
         )
         stdout = io.StringIO()
-        with redirect_stdout(stdout):
+        with redirect_stdout(stdout), redirect_stderr(io.StringIO()):
             code = cmd_doctor(args=args)
         payload = json.loads(stdout.getvalue())
         self.assertIn("ok", payload)
