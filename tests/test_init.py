@@ -42,7 +42,8 @@ class InitCommandTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
             args = argparse.Namespace(yes=True, home=str(home), init_target=None)
-            code = cmd_init_operator(args=args)
+            with mock.patch("secrets_kit.cli.operator_defaults.sys.platform", "darwin"):
+                code = cmd_init_operator(args=args)
             self.assertEqual(code, 0)
             defaults = load_defaults(home=home)
             self.assertEqual(defaults["backend"], "keychain")

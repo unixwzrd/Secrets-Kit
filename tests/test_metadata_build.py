@@ -40,6 +40,7 @@ class MetadataBuildKeychainTest(unittest.TestCase):
             mock.patch("secrets_kit.cli.metadata_build.load_registry", return_value={}),
             mock.patch("secrets_kit.cli.metadata_build.read_metadata", return_value=None),
             mock.patch("secrets_kit.cli.metadata_build._load_defaults", return_value={}),
+            mock.patch("secrets_kit.cli.metadata_build.sys.platform", "darwin"),
             mock.patch(
                 "secrets_kit.cli.metadata_build.load_schema_registry",
                 return_value=schema_doc,

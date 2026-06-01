@@ -56,9 +56,14 @@ class BackendResolutionTest(unittest.TestCase):
         run_security_mock.assert_called_once()
 
     def test_keychain_set_uses_security_only(self) -> None:
-        with mock.patch(
-            "secrets_kit.backends.keychain.security_cli.run_security", return_value=""
-        ) as run_security_mock:
+        with (
+            mock.patch(
+                "secrets_kit.backends.keychain.security_cli.security_exists", return_value=False
+            ),
+            mock.patch(
+                "secrets_kit.backends.keychain.security_cli.run_security", return_value=""
+            ) as run_security_mock,
+        ):
             set_secret(
                 service="sync-test",
                 account="local",

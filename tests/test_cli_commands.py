@@ -244,7 +244,11 @@ class CliCommandsTest(unittest.TestCase):
             redirect_stdout(out),
             redirect_stderr(err),
         ):
-            code = cmd_lock(args=argparse.Namespace(keychain=None, dry_run=True, yes=False))
+            code = cmd_lock(
+                args=argparse.Namespace(
+                    keychain="/tmp/login.keychain-db", dry_run=True, yes=False
+                )
+            )
 
         self.assertEqual(code, 0)
         self.assertIn("security lock-keychain", out.getvalue())
