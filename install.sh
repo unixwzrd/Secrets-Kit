@@ -21,6 +21,8 @@ SECKIT_INSTALL_LOG="${SECKIT_INSTALL_LOG:-$SECKIT_STATE_DIR/install.log}"
 SECKIT_LAUNCHER_BIN_DIR="${SECKIT_LAUNCHER_BIN_DIR:-$HOME/.local/bin}"
 SECKIT_LAUNCHER_PATH="${SECKIT_LAUNCHER_PATH:-$SECKIT_LAUNCHER_BIN_DIR/seckit}"
 SECKIT_UV_INSTALL_URL="${SECKIT_UV_INSTALL_URL:-https://astral.sh/uv/install.sh}"
+SECKIT_UV_RELEASE_BASE="${SECKIT_UV_RELEASE_BASE:-https://github.com/astral-sh/uv/releases/latest/download}"
+SECKIT_UV_RELEASE_URL="${SECKIT_UV_RELEASE_URL:-}"
 SECKIT_CONNECT_TIMEOUT="${SECKIT_CONNECT_TIMEOUT:-15}"
 SECKIT_TRANSFER_TIMEOUT="${SECKIT_TRANSFER_TIMEOUT:-60}"
 SECKIT_UV_TRANSFER_TIMEOUT="${SECKIT_UV_TRANSFER_TIMEOUT:-600}"
@@ -90,6 +92,130 @@ install_supported_os() {
     Darwin|Linux) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+# Non-login SSH often ships a minimal PATH; standard sbin/bin dirs hold tar, etc.
+ensure_operator_path() {
+  local std="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+  local dir merged="${PATH}"
+  local IFS=':'
+  for dir in ${std}; do
+    case ":${merged}:" in
+      *":${dir}:"*) ;;
+      *) merged="${dir}:${merged}" ;;
+    esac
+  done
+  PATH="${merged}"
+  export PATH
+}
+
+has_command() {
+  local name="$1"
+  command -v "${name}" >/dev/null 2>&1 && return 0
+  local d
+  for d in /usr/local/sbin /usr/local/bin /usr/sbin /usr/bin /sbin /bin; do
+    [[ -x "${d}/${name}" ]] && return 0
+  done
+  return 1
+}
+
+uv_release_triple() {
+  local os arch
+  os="$(uname -s)"
+  arch="$(uname -m)"
+  case "${os}" in
+    Darwin)
+      case "${arch}" in
+        arm64|aarch64) printf '%s' 'aarch64-apple-darwin' ;;
+        x86_64|amd64) printf '%s' 'x86_64-apple-darwin' ;;
+      esac
+      ;;
+    Linux)
+      case "${arch}" in
+        x86_64|amd64) printf '%s' 'x86_64-unknown-linux-gnu' ;;
+        aarch64|arm64) printf '%s' 'aarch64-unknown-linux-gnu' ;;
+        armv7l) printf '%s' 'armv7-unknown-linux-gnueabihf' ;;
+      esac
+      ;;
+  esac
+}
+
+extract_archive_gz() {
+  local archive="$1" dest="$2"
+  if has_command tar; then
+    tar -xzf "${archive}" -C "${dest}"
+    return 0
+  fi
+  if has_command python3; then
+    python3 -c 'import sys, tarfile; tarfile.open(sys.argv[1], "r:gz").extractall(sys.argv[2])' \
+      "${archive}" "${dest}"
+    return 0
+  fi
+  install_die "need tar or python3 to unpack uv release (install tar, or ensure python3 is on PATH)"
+}
+
+find_uv_bin() {
+  ensure_operator_path
+  if command -v uv >/dev/null 2>&1; then
+    command -v uv
+    return 0
+  fi
+  if [[ -x "${SECKIT_LAUNCHER_BIN_DIR}/uv" ]]; then
+    printf '%s' "${SECKIT_LAUNCHER_BIN_DIR}/uv"
+    return 0
+  fi
+  if [[ -x "${HOME}/.local/bin/uv" ]]; then
+    printf '%s' "${HOME}/.local/bin/uv"
+    return 0
+  fi
+  return 1
+}
+
+bootstrap_uv_via_install_script() {
+  local bootstrap_file rc=0
+  bootstrap_file="$(mktemp -t seckit-uv-install.XXXXXX)"
+  download_file "${SECKIT_UV_INSTALL_URL}" "${bootstrap_file}" "" "${SECKIT_UV_TRANSFER_TIMEOUT}" \
+    || { rm -f "${bootstrap_file}"; return 1; }
+  if [[ "${VERBOSE}" -eq 1 ]]; then
+    append_log "RUN sh ${bootstrap_file}"
+    sh "${bootstrap_file}" || rc=1
+  else
+    run_capture sh "${bootstrap_file}" || rc=1
+  fi
+  rm -f "${bootstrap_file}"
+  return "${rc}"
+}
+
+bootstrap_uv_via_release() {
+  local triple archive tmpdir url uv_path uvx_path
+  triple="$(uv_release_triple)" || {
+    install_die "unsupported platform for uv bootstrap: $(uname -s)/$(uname -m)"
+  }
+  if [[ -n "${SECKIT_UV_RELEASE_URL}" ]]; then
+    url="${SECKIT_UV_RELEASE_URL}"
+  else
+    url="${SECKIT_UV_RELEASE_BASE}/uv-${triple}.tar.gz"
+  fi
+  archive="$(mktemp -t seckit-uv-archive.XXXXXX).tar.gz"
+  tmpdir="$(mktemp -d -t seckit-uv-extract.XXXXXX)"
+  verbose_log "uv release archive: ${url}"
+  download_file "${url}" "${archive}" "" "${SECKIT_UV_TRANSFER_TIMEOUT}" \
+    || { rm -rf "${tmpdir}"; rm -f "${archive}"; return 1; }
+  extract_archive_gz "${archive}" "${tmpdir}" \
+    || { rm -rf "${tmpdir}"; rm -f "${archive}"; return 1; }
+  rm -f "${archive}"
+  uv_path="$(find "${tmpdir}" -type f -name uv -perm -111 2>/dev/null | head -1)"
+  [[ -n "${uv_path}" && -f "${uv_path}" ]] \
+    || { rm -rf "${tmpdir}"; install_die "uv binary not found in release archive"; }
+  mkdir -p "${SECKIT_LAUNCHER_BIN_DIR}"
+  install -m 755 "${uv_path}" "${SECKIT_LAUNCHER_BIN_DIR}/uv"
+  uvx_path="$(find "${tmpdir}" -type f -name uvx -perm -111 2>/dev/null | head -1)"
+  if [[ -n "${uvx_path}" && -f "${uvx_path}" ]]; then
+    install -m 755 "${uvx_path}" "${SECKIT_LAUNCHER_BIN_DIR}/uvx"
+  fi
+  rm -rf "${tmpdir}"
+  export PATH="${SECKIT_LAUNCHER_BIN_DIR}:${PATH}"
+  return 0
 }
 
 _json_escape() {
@@ -443,14 +569,8 @@ uv_bootstrap_blocked() {
 }
 
 resolve_uv() {
-  if command -v uv >/dev/null 2>&1; then
-    UV_BIN="$(command -v uv)"
-    verbose_log "using existing runtime tool: ${UV_BIN}"
-    install_log "Runtime tools ready."
-    return 0
-  fi
-  if [[ -x "${HOME}/.local/bin/uv" ]]; then
-    UV_BIN="${HOME}/.local/bin/uv"
+  ensure_operator_path
+  if UV_BIN="$(find_uv_bin)"; then
     verbose_log "using existing runtime tool: ${UV_BIN}"
     install_log "Runtime tools ready."
     return 0
@@ -477,26 +597,22 @@ resolve_uv() {
   fi
 
   install_log "Downloading runtime components (may take a few minutes)..."
-  local bootstrap_file
-  bootstrap_file="$(mktemp -t seckit-uv-install.XXXXXX)"
-  download_file "${SECKIT_UV_INSTALL_URL}" "${bootstrap_file}" "" "${SECKIT_UV_TRANSFER_TIMEOUT}" \
-    || install_die "failed downloading uv installer"
-  if [[ "${VERBOSE}" -eq 1 ]]; then
-    append_log "RUN sh ${bootstrap_file}"
-    sh "${bootstrap_file}" || install_die "failed preparing isolated runtime environment"
+  local boot_ok=0
+  if has_command tar; then
+    if bootstrap_uv_via_install_script; then
+      boot_ok=1
+    else
+      install_warn "astral uv install script failed; trying direct release install"
+    fi
   else
-    run_capture sh "${bootstrap_file}" \
+    verbose_log "tar not on PATH; using direct uv release install"
+  fi
+  if [[ "${boot_ok}" -eq 0 ]]; then
+    bootstrap_uv_via_release \
       || install_die "failed preparing isolated runtime environment (see ${SECKIT_INSTALL_LOG})"
   fi
-  rm -f "${bootstrap_file}"
   install_log "Runtime components ready."
-  if command -v uv >/dev/null 2>&1; then
-    UV_BIN="$(command -v uv)"
-    verbose_log "bootstrapped runtime tool: ${UV_BIN}"
-    return 0
-  fi
-  if [[ -x "${HOME}/.local/bin/uv" ]]; then
-    UV_BIN="${HOME}/.local/bin/uv"
+  if UV_BIN="$(find_uv_bin)"; then
     verbose_log "bootstrapped runtime tool: ${UV_BIN}"
     return 0
   fi
@@ -877,6 +993,7 @@ EOF
 }
 
 preflight_install() {
+  ensure_operator_path
   install_supported_os || install_die "unsupported OS (macOS and Linux only)"
   ensure_dirs
   append_log "--- installer start pid=$$ ---"

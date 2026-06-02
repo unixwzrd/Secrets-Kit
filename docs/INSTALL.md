@@ -149,6 +149,8 @@ Uses editable install from the local checkout. Pin a git ref with `./install.sh 
 - `no GitHub release found`: no prerelease exists for the dev channel, or no stable release for the release channel.
 - `no compatible release artifact found`: release assets missing; maintainer must publish the universal wheel and sdist.
 - `runtime bootstrap unavailable` with `--safe` or `--no-uv-download`: remove those flags, or preinstall uv and `uv python install 3.12`.
+- `need 'tar' (command not found)` during runtime bootstrap on minimal Linux: current installer falls back to a direct GitHub `uv` release when `tar` is missing (uses `python3` to unpack if needed). If both fail, install `tar` (`dnf install -y tar` on Rocky) or ensure `python3` is on `PATH`.
+- Remote install over SSH with a bare `PATH`: the installer prepends standard system bin directories; you can also `export PATH="/usr/local/bin:/usr/bin:/bin:${PATH}"` before running.
 - `seckit: command not found`: add `~/.local/bin` to PATH (installer prints the line when it cannot edit your shell profile).
 - `defaults.account` shows `root` after a sudo install: rerun `seckit init --yes` as the operator user.
 - `acceptance test failed` on macOS with a service account: login keychain may be absent; current builds use a temp keychain for acceptance only.
@@ -173,5 +175,7 @@ Environment overrides:
 - `SECKIT_RUNTIME_PYTHON=3.12` pin uv-managed Python series
 - `SECKIT_REF=vX.Y.Z` pin a specific release tag
 - `SECKIT_WHEEL_URL=URL` force a specific wheel or sdist URL (testing)
+- `SECKIT_UV_RELEASE_BASE=URL` base URL for direct `uv` tarball bootstrap (default: Astral GitHub latest)
+- `SECKIT_UV_RELEASE_URL=URL` full tarball URL override (skips arch detection)
 
 See also: [QUICKSTART.md](QUICKSTART.md) (operator workflow), [CLI_REFERENCE.md](CLI_REFERENCE.md), [MAINTAINER_RELEASE.md](MAINTAINER_RELEASE.md).
