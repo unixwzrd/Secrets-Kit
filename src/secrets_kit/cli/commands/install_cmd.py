@@ -12,13 +12,24 @@ import shlex
 import subprocess
 from pathlib import Path
 
+from secrets_kit import __version__
 from secrets_kit.cli.install_check import run_install_check
 from secrets_kit.cli.install_constants import DEFAULT_INSTALL_URL
-from secrets_kit.cli.io import _fatal
 
 
 def _flag(args: argparse.Namespace, name: str) -> bool:
     return bool(getattr(args, name, False))
+
+def _current_ref() -> str:
+    return f"v{__version__}"
+
+def _effective_ref(*, args: argparse.Namespace, for_remote: bool = False) -> str | None:
+    explicit = getattr(args, "ref", None)
+    if explicit:
+        return explicit
+    if for_remote:
+        return _current_ref()
+    return None
 
 
 def _repo_install_sh() -> Path | None:
@@ -43,7 +54,7 @@ def _build_install_sh_argv(*, args: argparse.Namespace) -> list[str]:
     if not script.is_file():
         raise FileNotFoundError(f"install.sh not found: {script}")
     argv = [str(script)]
-    ref = getattr(args, "ref", None)
+    ref = _effective_ref(args=args, for_remote=False)
     repo_url = getattr(args, "repo_url", None)
     if ref:
         argv.extend(["--ref", ref])
@@ -59,6 +70,8 @@ def _build_install_sh_argv(*, args: argparse.Namespace) -> list[str]:
         argv.append("--no-init")
     if _flag(args, "no_verify"):
         argv.append("--no-verify")
+    if _flag(args, "skip_verify_if_unchanged"):
+        argv.append("--skip-verify-if-unchanged")
     if _flag(args, "dry_run"):
         argv.append("--dry-run")
     if _flag(args, "json"):
@@ -81,7 +94,7 @@ def _build_install_sh_argv(*, args: argparse.Namespace) -> list[str]:
 def _remote_ssh_command(*, host: str, args: argparse.Namespace) -> list[str]:
     install_url = getattr(args, "install_url", None) or DEFAULT_INSTALL_URL
     remote_args: list[str] = []
-    ref = getattr(args, "ref", None)
+    ref = _effective_ref(args=args, for_remote=True)
     if ref:
         remote_args.extend(["--ref", ref])
     if _flag(args, "upgrade"):
@@ -94,6 +107,8 @@ def _remote_ssh_command(*, host: str, args: argparse.Namespace) -> list[str]:
         remote_args.append("--no-init")
     if _flag(args, "no_verify"):
         remote_args.append("--no-verify")
+    if _flag(args, "skip_verify_if_unchanged"):
+        remote_args.append("--skip-verify-if-unchanged")
     if _flag(args, "dry_run"):
         remote_args.append("--dry-run")
     if _flag(args, "verbose"):
@@ -121,6 +136,46 @@ def _remote_ssh_command(*, host: str, args: argparse.Namespace) -> list[str]:
         remote_cmd,
     ]
 
+def _local_install_url_command(*, args: argparse.Namespace) -> str:
+    install_url = getattr(args, "install_url", None) or DEFAULT_INSTALL_URL
+    install_args: list[str] = []
+    ref = _effective_ref(args=args, for_remote=False)
+    repo_url = getattr(args, "repo_url", None)
+    if ref:
+        install_args.extend(["--ref", ref])
+    if repo_url:
+        install_args.extend(["--repo-url", repo_url])
+    if _flag(args, "upgrade"):
+        install_args.append("--upgrade")
+    if _flag(args, "repair"):
+        install_args.append("--repair")
+    if _flag(args, "yes"):
+        install_args.append("--yes")
+    if _flag(args, "no_init"):
+        install_args.append("--no-init")
+    if _flag(args, "no_verify"):
+        install_args.append("--no-verify")
+    if _flag(args, "skip_verify_if_unchanged"):
+        install_args.append("--skip-verify-if-unchanged")
+    if _flag(args, "dry_run"):
+        install_args.append("--dry-run")
+    if _flag(args, "verbose"):
+        install_args.append("--verbose")
+    if _flag(args, "safe"):
+        install_args.append("--safe")
+    if _flag(args, "no_shell_profile"):
+        install_args.append("--no-shell-profile")
+    if _flag(args, "shell_profile_force"):
+        install_args.append("--shell-profile-force")
+    if _flag(args, "no_uv_download"):
+        install_args.append("--no-uv-download")
+    if _flag(args, "dev"):
+        install_args.append("--dev")
+    cmd = f"curl -fsSL {shlex.quote(install_url)} | bash -s --"
+    if install_args:
+        cmd += " " + " ".join(shlex.quote(part) for part in install_args)
+    return cmd
+
 
 def cmd_install(*, args: argparse.Namespace) -> int:
     remote_host = getattr(args, "remote_host", None)
@@ -141,6 +196,7 @@ def cmd_install(*, args: argparse.Namespace) -> int:
         or _flag(args, "yes")
         or _flag(args, "no_init")
         or _flag(args, "no_verify")
+        or _flag(args, "skip_verify_if_unchanged")
         or _flag(args, "dry_run")
         or _flag(args, "json")
         or _flag(args, "verbose")
@@ -151,8 +207,13 @@ def cmd_install(*, args: argparse.Namespace) -> int:
     ):
         try:
             argv = _build_install_sh_argv(args=args)
-        except FileNotFoundError as exc:
-            return _fatal(message=str(exc), code=1)
+        except FileNotFoundError:
+            fallback = _local_install_url_command(args=args)
+            if _flag(args, "dry_run"):
+                print(fallback)
+                return 0
+            completed = subprocess.run(["bash", "-lc", fallback], check=False)
+            return completed.returncode
         if _flag(args, "dry_run"):
             print(" ".join(shlex.quote(part) for part in argv))
             return 0

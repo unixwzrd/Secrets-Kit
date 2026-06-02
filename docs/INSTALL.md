@@ -1,6 +1,6 @@
 # Install Secrets-Kit
 
-**Updated**: 2026-05-30
+**Updated**: 2026-06-02
 
 Canonical operator install for macOS and Linux.
 
@@ -31,7 +31,7 @@ Default install:
 1. Bootstraps uv when needed
 2. Provisions Python 3.12 and creates an isolated runtime
 3. Resolves the latest GitHub release and installs the universal wheel (`py3-none-any`) when available, falling back to sdist
-4. Runs `seckit init`, `seckit doctor --install-check`, and `seckit doctor --acceptance-test`
+4. Runs `seckit init` (Linux: with `--sqlite-dev-mode`), then `seckit doctor --install-check` and `seckit doctor --acceptance-test`
 
 ## Upgrade
 
@@ -45,7 +45,7 @@ Or, after install:
 seckit install --upgrade
 ```
 
-Upgrade refreshes runtime/package, keeps the previous runtime generation as fallback, removes older generations, and skips `seckit init`.
+Upgrade refreshes runtime/package, keeps the previous runtime generation as fallback, removes older generations, and skips `seckit init`. When the running `seckit` was installed from a release wheel (no local `install.sh` in the package), `seckit install --upgrade` falls back to the same `curl | bash` flow as the operator installer.
 
 ## Runtime layout
 
@@ -56,7 +56,7 @@ Upgrade refreshes runtime/package, keeps the previous runtime generation as fall
 | `~/.local/share/seckit/runtime/current` | Canonical runtime symlink (launcher target) |
 | `~/.local/share/seckit/state/runtime-path` | Legacy pointer kept for older `doctor --install-check` builds |
 | `~/.local/share/seckit/state/runtime.json` | Python version, release ref, package source |
-| `~/.config/seckit/install.json` | Installed version and update metadata |
+| `~/.config/seckit/install.json` | Installed version, release ref, package source, and `verified` flag (set after successful post-install checks) |
 | `~/.config/seckit/defaults.json` | Operator defaults |
 
 ## Verify
@@ -68,7 +68,25 @@ seckit doctor --install-check
 seckit doctor --acceptance-test
 ```
 
-`--install-check` is fast (launcher, seeds, writable config; no backend roundtrip). `--acceptance-test` runs ephemeral CRUD in the `__seckit_test__` namespace and always cleans up.
+`--install-check` is fast (launcher, seeds, writable config; no backend roundtrip).
+
+`--acceptance-test` runs ephemeral CRUD in the `__seckit_test__` namespace and always cleans up:
+
+| Platform | Backends exercised |
+|----------|-------------------|
+| macOS | `keychain`, then `sqlite` |
+| Linux | `sqlite` only |
+
+Each backend runs three inline test fixtures (`ACCEPTANCE_PROBE`, `ACCEPTANCE_TOKEN`, `ACCEPTANCE_CONFIG`) through create, read, update, list, delete, and verify-delete. On macOS, if the login keychain file is missing, acceptance creates a **temporary keychain** and removes it afterward. Acceptance does not modify operator secrets outside `__seckit_test__`.
+
+Helper scripts (from a clone):
+
+```bash
+bash scripts/install-validation.sh      # post-install checks only
+bash scripts/upgrade-validation.sh      # upgrade + secret survival + checks
+```
+
+See [RELEASE_VALIDATION.md](RELEASE_VALIDATION.md) for the full cross-platform matrix.
 
 ## Remote install
 
@@ -82,6 +100,8 @@ Convenience wrapper:
 ```bash
 seckit install user@host --yes
 ```
+
+Remote install pins the release ref to the **caller’s installed version** (`v` + `seckit --version`) unless you pass `--ref` explicitly. Example: `seckit 2.0.0a3` on your laptop installs `v2.0.0a3` on the remote host.
 
 ## Local development (checkout only)
 
@@ -117,6 +137,9 @@ Uses editable install from the local checkout. Pin a git ref with `./install.sh 
 - `runtime bootstrap unavailable` with `--safe` or `--no-uv-download`: remove those flags, or preinstall uv and `uv python install 3.12`.
 - `seckit: command not found`: add `~/.local/bin` to PATH (installer prints the line when it cannot edit your shell profile).
 - `defaults.account` shows `root` after a sudo install: rerun `seckit init --yes` as the operator user.
+- `acceptance test failed` on macOS with a service account: login keychain may be absent; current builds use a temp keychain for acceptance only.
+- Linux `seckit set` fails after install: export `SECKIT_SQLITE_DEVELOPER_MODE=1` or pass `--sqlite-dev-mode` (acceptance enables this internally; normal CLI does not).
+- Large `~/.cache/uv` after install: expected; the installer does not use a separate Secrets-Kit cache directory.
 
 ## Advanced flags (appendix)
 
@@ -126,6 +149,7 @@ Uses editable install from the local checkout. Pin a git ref with `./install.sh 
 - `--yes` non-interactive mode when init would prompt
 - `--no-init` install package only; skip `seckit init`
 - `--no-verify` skip post-install `seckit doctor --install-check` and `--acceptance-test`
+- `--skip-verify-if-unchanged` skip verification when `install.json` already records this ref and package source as verified (speeds repeat installs of the same wheel)
 - `--verbose`, `--repair`, `--safe`, `--no-uv-download`, `--no-shell-profile`, `--shell-profile-force`
 
 Environment overrides:

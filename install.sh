@@ -35,6 +35,7 @@ DEV_MODE=0
 YES=0
 NO_INIT=0
 NO_VERIFY=0
+SKIP_VERIFY_IF_UNCHANGED=0
 DRY_RUN=0
 JSON_OUT=0
 VERBOSE=0
@@ -57,6 +58,9 @@ IS_INTERACTIVE=0
 PROFILE_CHANGED=0
 PROFILE_CHANGED_FILE=""
 PROFILE_BACKUP_FILE=""
+PREVIOUS_INSTALL_REF=""
+PREVIOUS_INSTALL_PACKAGE_SOURCE=""
+PREVIOUS_INSTALL_VERIFIED="false"
 
 if [[ -t 0 && -t 1 ]]; then
   IS_INTERACTIVE=1
@@ -638,11 +642,65 @@ write_install_state() {
   "method": "uv",
   "package_source": "$(_json_escape "${PACKAGE_SOURCE}")",
   "runtime_python": "$(_json_escape "${SECKIT_RUNTIME_PYTHON}")",
+  "verified": false,
   "updated_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 EOF_JSON
   atomic_write_file_from "${SECKIT_INSTALL_STATE}" "${install_json}"
   rm -f "${install_json}"
+}
+
+load_previous_install_state() {
+  [[ -f "${SECKIT_INSTALL_STATE}" ]] || return 0
+  local parsed
+  parsed="$(python3 - <<'PY' "${SECKIT_INSTALL_STATE}" 2>/dev/null || true
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+try:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+except Exception:
+    print("||false")
+    raise SystemExit(0)
+print(
+    f"{payload.get('ref','')}|{payload.get('package_source','')}|{str(bool(payload.get('verified', False))).lower()}"
+)
+PY
+)"
+  PREVIOUS_INSTALL_REF="${parsed%%|*}"
+  parsed="${parsed#*|}"
+  PREVIOUS_INSTALL_PACKAGE_SOURCE="${parsed%%|*}"
+  PREVIOUS_INSTALL_VERIFIED="${parsed##*|}"
+}
+
+mark_install_verified() {
+  [[ -f "${SECKIT_INSTALL_STATE}" ]] || return 0
+  local tmp
+  tmp="$(mktemp -t seckit-install-verified.XXXXXX)"
+  python3 - <<'PY' "${SECKIT_INSTALL_STATE}" "${tmp}" >/dev/null 2>&1 || { rm -f "${tmp}"; return 0; }
+import json
+import sys
+from pathlib import Path
+
+src = Path(sys.argv[1])
+dst = Path(sys.argv[2])
+payload = json.loads(src.read_text(encoding="utf-8"))
+payload["verified"] = True
+dst.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+PY
+  atomic_write_file_from "${SECKIT_INSTALL_STATE}" "${tmp}"
+  rm -f "${tmp}"
+}
+
+should_skip_verification() {
+  [[ "${NO_VERIFY}" -eq 0 ]] || return 1
+  [[ "${SKIP_VERIFY_IF_UNCHANGED}" -eq 1 ]] || return 1
+  [[ "${PREVIOUS_INSTALL_VERIFIED}" == "true" ]] || return 1
+  [[ -n "${PREVIOUS_INSTALL_REF}" && "${PREVIOUS_INSTALL_REF}" == "${SECKIT_REF}" ]] || return 1
+  [[ -n "${PREVIOUS_INSTALL_PACKAGE_SOURCE}" && "${PREVIOUS_INSTALL_PACKAGE_SOURCE}" == "${PACKAGE_SOURCE}" ]] || return 1
+  return 0
 }
 
 write_launcher() {
@@ -803,6 +861,8 @@ Options:
   --yes                  Non-interactive init overwrite confirmations
   --no-init              Skip seckit init
   --no-verify            Skip doctor --install-check and --acceptance-test
+  --skip-verify-if-unchanged
+                         Skip verification if ref/package_source already verified
   --ref TAG              Install from git at TAG (not release wheel)
   --repo-url URL         Git remote when using --ref
   --dry-run              Print planned actions only
@@ -833,6 +893,7 @@ parse_args() {
       --yes) YES=1; shift ;;
       --no-init) NO_INIT=1; shift ;;
       --no-verify) NO_VERIFY=1; shift ;;
+      --skip-verify-if-unchanged) SKIP_VERIFY_IF_UNCHANGED=1; shift ;;
       --dry-run) DRY_RUN=1; shift ;;
       --json) JSON_OUT=1; shift ;;
       --verbose) VERBOSE=1; shift ;;
@@ -853,6 +914,7 @@ main() {
 
   parse_args "$@"
   preflight_install
+  load_previous_install_state
 
   if [[ "${YES}" -eq 0 && ! -t 0 ]]; then
     YES=1
@@ -909,6 +971,9 @@ main() {
     if [[ "${YES}" -eq 1 ]]; then
       init_args+=(--yes)
     fi
+    if [[ "$(uname -s)" == "Linux" ]]; then
+      init_args+=(--sqlite-dev-mode)
+    fi
     run_capture "${TARGET_RUNTIME}/bin/seckit" "${init_args[@]}" || install_die "seckit init failed"
     install_log "Configuration initialized."
   else
@@ -919,11 +984,14 @@ main() {
   step_done 4
 
   step 5 "Verifying install..."
-  if [[ "${NO_VERIFY}" -eq 0 ]]; then
+  if should_skip_verification; then
+    install_log "Verification skipped (already verified ref=${SECKIT_REF}, source=${PACKAGE_SOURCE})."
+  elif [[ "${NO_VERIFY}" -eq 0 ]]; then
     install_log "Running install verification..."
     run_install_check || install_die "install verification failed"
     install_log "Running acceptance test..."
     run_acceptance_check || install_die "acceptance test failed"
+    mark_install_verified
   else
     install_log "Install verification skipped."
     verbose_log "verification skipped"

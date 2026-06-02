@@ -1,21 +1,21 @@
 """
 secrets_kit.cli.install_acceptance
 
-Post-install acceptance test: ephemeral secret CRUD in a dedicated namespace.
+Post-install acceptance test: ephemeral secret CRUD per platform backends.
+
+- macOS: keychain + sqlite
+- Linux: sqlite only
 """
 
 from __future__ import annotations
 
-import platform
+import platform as platform_mod
+import shutil
 import sys
-from typing import Any
+from pathlib import Path
+from typing import Any, Optional
 
-from secrets_kit.backends.common import (
-    BACKEND_KEYCHAIN,
-    BACKEND_SQLITE,
-    BackendError,
-    normalize_backend,
-)
+from secrets_kit.backends.common import BACKEND_KEYCHAIN, BACKEND_SQLITE, BackendError
 from secrets_kit.backends.dispatch import (
     delete_secret_entry,
     list_secret_metadata,
@@ -23,106 +23,31 @@ from secrets_kit.backends.dispatch import (
     secret_exists_for_backend,
     write_secret,
 )
-from secrets_kit.backends.keychain import check_security_cli
-from secrets_kit.backends.sqlite import (
-    SQLiteBackendError,
-    is_sqlite_backend,
-    require_sqlite_developer_mode,
+from secrets_kit.backends.keychain import (
+    check_security_cli,
+    delete_keychain,
+    keychain_accessible,
+    keychain_path as resolve_keychain_path,
+    make_temp_keychain,
 )
-from secrets_kit.cli.defaults import _load_defaults
+from secrets_kit.backends.sqlite import SQLiteBackendError, require_sqlite_developer_mode
 from secrets_kit.models import EntryMetadata
 from secrets_kit.registry import delete_metadata, upsert_metadata
 
 ACCEPTANCE_SERVICE = "__seckit_test__"
 ACCEPTANCE_ACCOUNT = "__seckit_test__"
 ACCEPTANCE_NAME = "ACCEPTANCE_PROBE"
-_INITIAL_VALUE = "seckit_acceptance_v1"
-_UPDATED_VALUE = "seckit_acceptance_v2"
+_ACCEPTANCE_KEYCHAIN_PASSWORD = "seckit-acceptance-test"
+_SQLITE_DEV_MODE = True
+_ACCEPTANCE_FIXTURES = """
+ACCEPTANCE_PROBE|seckit_acceptance_v1|seckit_acceptance_v2
+ACCEPTANCE_TOKEN|token_v1_123|token_v2_456
+ACCEPTANCE_CONFIG|config_v1_enabled|config_v2_enabled
+"""
 
 
-def _resolve_backend() -> tuple[str, bool, list[str]]:
-    issues: list[str] = []
-    defaults = _load_defaults()
-    raw = defaults.get("backend")
-    backend = normalize_backend(str(raw)) if raw else (
-        BACKEND_KEYCHAIN if sys.platform == "darwin" else BACKEND_SQLITE
-    )
-    sqlite_dev_mode = False
-    if is_sqlite_backend(backend=backend):
-        sqlite_dev_mode = True
-        try:
-            require_sqlite_developer_mode(sqlite_dev_mode=sqlite_dev_mode)
-        except BackendError as exc:
-            issues.append(str(exc))
-    elif platform.system().lower() == "darwin" and not check_security_cli():
-        issues.append("macOS keychain backend requires the security CLI")
-    return backend, sqlite_dev_mode, issues
-
-
-def _cleanup_test_secret(
-    *,
-    backend: str,
-    sqlite_dev_mode: bool,
-) -> None:
-    meta = EntryMetadata(
-        name=ACCEPTANCE_NAME,
-        service=ACCEPTANCE_SERVICE,
-        account=ACCEPTANCE_ACCOUNT,
-        source="acceptance-test",
-    )
-    try:
-        if secret_exists_for_backend(
-            service=ACCEPTANCE_SERVICE,
-            account=ACCEPTANCE_ACCOUNT,
-            name=ACCEPTANCE_NAME,
-            backend=backend,
-            sqlite_dev_mode=sqlite_dev_mode,
-        ):
-            delete_secret_entry(
-                service=ACCEPTANCE_SERVICE,
-                account=ACCEPTANCE_ACCOUNT,
-                name=ACCEPTANCE_NAME,
-                metadata=meta,
-                backend=backend,
-                sqlite_dev_mode=sqlite_dev_mode,
-            )
-    except (BackendError, SQLiteBackendError):
-        pass
-    try:
-        delete_metadata(
-            service=ACCEPTANCE_SERVICE,
-            account=ACCEPTANCE_ACCOUNT,
-            name=ACCEPTANCE_NAME,
-        )
-    except Exception:
-        pass
-
-
-def run_acceptance_test() -> dict[str, Any]:
-    """
-    Run ephemeral secret CRUD in ``__seckit_test__``; always removes test artifacts.
-
-    Returns:
-        Dict with ok, steps, issues, backend, and namespace fields.
-    """
-    steps: list[str] = []
-    issues: list[str] = []
-    backend, sqlite_dev_mode, preflight_issues = _resolve_backend()
-    issues.extend(preflight_issues)
-    if issues:
-        return {
-            "ok": False,
-            "steps": steps,
-            "issues": issues,
-            "backend": backend,
-            "namespace": {
-                "service": ACCEPTANCE_SERVICE,
-                "account": ACCEPTANCE_ACCOUNT,
-                "name": ACCEPTANCE_NAME,
-            },
-        }
-
-    meta = EntryMetadata(
+def _acceptance_meta() -> EntryMetadata:
+    return EntryMetadata(
         name=ACCEPTANCE_NAME,
         service=ACCEPTANCE_SERVICE,
         account=ACCEPTANCE_ACCOUNT,
@@ -131,103 +56,291 @@ def run_acceptance_test() -> dict[str, Any]:
         source="acceptance-test",
     )
 
+def _fixture_rows() -> list[tuple[str, str, str]]:
+    rows: list[tuple[str, str, str]] = []
+    for raw in _ACCEPTANCE_FIXTURES.strip().splitlines():
+        name, initial, updated = (part.strip() for part in raw.split("|", 2))
+        rows.append((name, initial, updated))
+    return rows
+
+
+def _platform_backends() -> list[str]:
+    if sys.platform == "darwin":
+        return [BACKEND_KEYCHAIN, BACKEND_SQLITE]
+    return [BACKEND_SQLITE]
+
+
+def _preflight_issues() -> list[str]:
+    issues: list[str] = []
+    backends = _platform_backends()
+    if BACKEND_SQLITE in backends:
+        try:
+            require_sqlite_developer_mode(sqlite_dev_mode=_SQLITE_DEV_MODE)
+        except BackendError as exc:
+            issues.append(f"sqlite: {exc}")
+    if BACKEND_KEYCHAIN in backends:
+        if not check_security_cli():
+            issues.append("keychain: macOS keychain backend requires the security CLI")
+    return issues
+
+
+def _ensure_keychain_for_acceptance() -> tuple[Optional[str], Optional[dict[str, str]]]:
+    """Use login/default keychain when usable; else create an isolated temp keychain."""
+    target = resolve_keychain_path()
+    if Path(target).is_file() and keychain_accessible(path=target):
+        return None, None
+    fixture = make_temp_keychain(password=_ACCEPTANCE_KEYCHAIN_PASSWORD)
+    return fixture["path"], fixture
+
+
+def _cleanup_temp_keychain(fixture: Optional[dict[str, str]]) -> None:
+    if not fixture:
+        return
     try:
-        _cleanup_test_secret(backend=backend, sqlite_dev_mode=sqlite_dev_mode)
+        delete_keychain(path=fixture["path"])
+    except BackendError:
+        pass
+    try:
+        shutil.rmtree(fixture["directory"], ignore_errors=True)
+    except OSError:
+        pass
 
-        write_secret(
-            service=ACCEPTANCE_SERVICE,
-            account=ACCEPTANCE_ACCOUNT,
-            name=ACCEPTANCE_NAME,
-            value=_INITIAL_VALUE,
-            metadata=meta,
-            backend=backend,
-            sqlite_dev_mode=sqlite_dev_mode,
-        )
-        upsert_metadata(metadata=meta)
-        steps.append("create")
 
-        value = read_secret_value(
-            service=ACCEPTANCE_SERVICE,
-            account=ACCEPTANCE_ACCOUNT,
-            name=ACCEPTANCE_NAME,
-            backend=backend,
-            sqlite_dev_mode=sqlite_dev_mode,
-        )
-        if value != _INITIAL_VALUE:
-            issues.append("read after create: value mismatch")
-        else:
-            steps.append("read")
-
-        write_secret(
-            service=ACCEPTANCE_SERVICE,
-            account=ACCEPTANCE_ACCOUNT,
-            name=ACCEPTANCE_NAME,
-            value=_UPDATED_VALUE,
-            metadata=meta,
-            backend=backend,
-            sqlite_dev_mode=sqlite_dev_mode,
-        )
-        upsert_metadata(metadata=meta)
-        steps.append("update")
-
-        value = read_secret_value(
-            service=ACCEPTANCE_SERVICE,
-            account=ACCEPTANCE_ACCOUNT,
-            name=ACCEPTANCE_NAME,
-            backend=backend,
-            sqlite_dev_mode=sqlite_dev_mode,
-        )
-        if value != _UPDATED_VALUE:
-            issues.append("read after update: value mismatch")
-        else:
-            steps.append("verify_update")
-
-        listed = list_secret_metadata(
-            backend=backend,
-            service=ACCEPTANCE_SERVICE,
-            account=ACCEPTANCE_ACCOUNT,
-            sqlite_dev_mode=sqlite_dev_mode,
-        )
-        if not any(item.name == ACCEPTANCE_NAME for item in listed):
-            issues.append("list: test secret not found")
-        else:
-            steps.append("list")
-
-        delete_secret_entry(
-            service=ACCEPTANCE_SERVICE,
-            account=ACCEPTANCE_ACCOUNT,
-            name=ACCEPTANCE_NAME,
-            metadata=meta,
-            backend=backend,
-            sqlite_dev_mode=sqlite_dev_mode,
-        )
-        delete_metadata(
-            service=ACCEPTANCE_SERVICE,
-            account=ACCEPTANCE_ACCOUNT,
-            name=ACCEPTANCE_NAME,
-        )
-        steps.append("delete")
-
+def _cleanup_test_secret(
+    *,
+    backend: str,
+    name: str = ACCEPTANCE_NAME,
+    keychain_path: Optional[str] = None,
+) -> None:
+    meta = _acceptance_meta()
+    meta.name = name
+    sqlite_dev_mode = backend == BACKEND_SQLITE
+    try:
         if secret_exists_for_backend(
             service=ACCEPTANCE_SERVICE,
             account=ACCEPTANCE_ACCOUNT,
-            name=ACCEPTANCE_NAME,
+            name=name,
             backend=backend,
+            keychain_path=keychain_path,
             sqlite_dev_mode=sqlite_dev_mode,
         ):
-            issues.append("verify_delete: secret still present")
-        else:
-            steps.append("verify_delete")
-    except (BackendError, SQLiteBackendError) as exc:
-        issues.append(str(exc))
-    finally:
-        _cleanup_test_secret(backend=backend, sqlite_dev_mode=sqlite_dev_mode)
+            delete_secret_entry(
+                service=ACCEPTANCE_SERVICE,
+                account=ACCEPTANCE_ACCOUNT,
+                name=name,
+                metadata=meta,
+                backend=backend,
+                keychain_path=keychain_path,
+                sqlite_dev_mode=sqlite_dev_mode,
+            )
+    except (BackendError, SQLiteBackendError):
+        pass
+    try:
+        delete_metadata(
+            service=ACCEPTANCE_SERVICE,
+            account=ACCEPTANCE_ACCOUNT,
+            name=name,
+        )
+    except Exception:
+        pass
 
-    return {
+
+def _run_backend_crud_acceptance(
+    *,
+    backend: str,
+    keychain_path: Optional[str] = None,
+) -> dict[str, Any]:
+    """Run CRUD acceptance for one backend; always cleanup test artifacts."""
+    label = backend
+    steps: list[str] = []
+    issues: list[str] = []
+    sqlite_dev_mode = backend == BACKEND_SQLITE
+    meta = _acceptance_meta()
+
+    def step(name: str) -> None:
+        steps.append(f"{label}:{name}")
+
+    def issue(message: str) -> None:
+        issues.append(f"{label}: {message}")
+
+    try:
+        for fixture_name, initial_value, updated_value in _fixture_rows():
+            meta.name = fixture_name
+            _cleanup_test_secret(
+                backend=backend,
+                name=fixture_name,
+                keychain_path=keychain_path,
+            )
+
+            write_secret(
+                service=ACCEPTANCE_SERVICE,
+                account=ACCEPTANCE_ACCOUNT,
+                name=fixture_name,
+                value=initial_value,
+                metadata=meta,
+                backend=backend,
+                keychain_path=keychain_path,
+                sqlite_dev_mode=sqlite_dev_mode,
+            )
+            upsert_metadata(metadata=meta)
+            step(f"{fixture_name}:create")
+
+            value = read_secret_value(
+                service=ACCEPTANCE_SERVICE,
+                account=ACCEPTANCE_ACCOUNT,
+                name=fixture_name,
+                backend=backend,
+                keychain_path=keychain_path,
+                sqlite_dev_mode=sqlite_dev_mode,
+            )
+            if value != initial_value:
+                issue(f"{fixture_name}: read after create mismatch")
+            else:
+                step(f"{fixture_name}:read")
+
+            write_secret(
+                service=ACCEPTANCE_SERVICE,
+                account=ACCEPTANCE_ACCOUNT,
+                name=fixture_name,
+                value=updated_value,
+                metadata=meta,
+                backend=backend,
+                keychain_path=keychain_path,
+                sqlite_dev_mode=sqlite_dev_mode,
+            )
+            upsert_metadata(metadata=meta)
+            step(f"{fixture_name}:update")
+
+            value = read_secret_value(
+                service=ACCEPTANCE_SERVICE,
+                account=ACCEPTANCE_ACCOUNT,
+                name=fixture_name,
+                backend=backend,
+                keychain_path=keychain_path,
+                sqlite_dev_mode=sqlite_dev_mode,
+            )
+            if value != updated_value:
+                issue(f"{fixture_name}: read after update mismatch")
+            else:
+                step(f"{fixture_name}:verify_update")
+
+            listed = list_secret_metadata(
+                backend=backend,
+                service=ACCEPTANCE_SERVICE,
+                account=ACCEPTANCE_ACCOUNT,
+                keychain_path=keychain_path,
+                sqlite_dev_mode=sqlite_dev_mode,
+            )
+            if not any(item.name == fixture_name for item in listed):
+                issue(f"{fixture_name}: list did not include secret")
+            else:
+                step(f"{fixture_name}:list")
+
+            delete_secret_entry(
+                service=ACCEPTANCE_SERVICE,
+                account=ACCEPTANCE_ACCOUNT,
+                name=fixture_name,
+                metadata=meta,
+                backend=backend,
+                keychain_path=keychain_path,
+                sqlite_dev_mode=sqlite_dev_mode,
+            )
+            delete_metadata(
+                service=ACCEPTANCE_SERVICE,
+                account=ACCEPTANCE_ACCOUNT,
+                name=fixture_name,
+            )
+            step(f"{fixture_name}:delete")
+
+            if secret_exists_for_backend(
+                service=ACCEPTANCE_SERVICE,
+                account=ACCEPTANCE_ACCOUNT,
+                name=fixture_name,
+                backend=backend,
+                keychain_path=keychain_path,
+                sqlite_dev_mode=sqlite_dev_mode,
+            ):
+                issue(f"{fixture_name}: verify_delete failed")
+            else:
+                step(f"{fixture_name}:verify_delete")
+    except (BackendError, SQLiteBackendError) as exc:
+        issue(str(exc))
+    finally:
+        for fixture_name, _, _ in _fixture_rows():
+            _cleanup_test_secret(
+                backend=backend,
+                name=fixture_name,
+                keychain_path=keychain_path,
+            )
+
+    result: dict[str, Any] = {
         "ok": not issues,
         "steps": steps,
         "issues": issues,
-        "backend": backend,
+    }
+    if backend == BACKEND_KEYCHAIN and keychain_path:
+        result["keychain_path"] = keychain_path
+    return result
+
+
+def run_acceptance_test() -> dict[str, Any]:
+    """
+    Run platform acceptance suites (keychain on macOS, sqlite everywhere).
+
+    Returns:
+        Aggregate JSON result with per-backend outcomes.
+    """
+    platform_name = platform_mod.system().lower()
+    backends = _platform_backends()
+    steps: list[str] = []
+    issues: list[str] = []
+    backend_results: dict[str, Any] = {}
+
+    preflight = _preflight_issues()
+    if preflight:
+        return {
+            "ok": False,
+            "platform": platform_name,
+            "backends": backends,
+            "steps": steps,
+            "issues": preflight,
+            "backend_results": backend_results,
+            "namespace": {
+                "service": ACCEPTANCE_SERVICE,
+                "account": ACCEPTANCE_ACCOUNT,
+                "name": ACCEPTANCE_NAME,
+            },
+        }
+
+    for backend in backends:
+        keychain_path: Optional[str] = None
+        temp_keychain_fixture: Optional[dict[str, str]] = None
+        try:
+            if backend == BACKEND_KEYCHAIN:
+                keychain_path, temp_keychain_fixture = _ensure_keychain_for_acceptance()
+                if temp_keychain_fixture is not None:
+                    steps.append("keychain:fixture")
+            suite = _run_backend_crud_acceptance(
+                backend=backend,
+                keychain_path=keychain_path,
+            )
+            backend_results[backend] = suite
+            steps.extend(suite.get("steps", []))
+            issues.extend(suite.get("issues", []))
+        except BackendError as exc:
+            issues.append(f"{backend}: {exc}")
+            backend_results[backend] = {"ok": False, "steps": [], "issues": [str(exc)]}
+        finally:
+            if backend == BACKEND_KEYCHAIN:
+                _cleanup_temp_keychain(temp_keychain_fixture)
+
+    return {
+        "ok": not issues,
+        "platform": platform_name,
+        "backends": backends,
+        "steps": steps,
+        "issues": issues,
+        "backend_results": backend_results,
         "namespace": {
             "service": ACCEPTANCE_SERVICE,
             "account": ACCEPTANCE_ACCOUNT,

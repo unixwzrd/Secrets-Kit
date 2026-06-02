@@ -1,7 +1,7 @@
 # Maintainer release guide
 
 **Created**: 2026-05-27  
-**Updated**: 2026-05-31
+**Updated**: 2026-06-02
 
 Operator install docs: [INSTALL.md](INSTALL.md). CI artifact detail: [GITHUB_RELEASE_BUILD.md](GITHUB_RELEASE_BUILD.md).
 

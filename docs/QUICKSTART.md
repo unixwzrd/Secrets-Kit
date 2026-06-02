@@ -1,7 +1,7 @@
 # Quickstart
 
 **Created**: 2026-04-12  
-**Updated**: 2026-05-26
+**Updated**: 2026-06-02
 
 Next steps after this page: [CONCEPTS.md](CONCEPTS.md) (mental model), [CLI_REFERENCE.md](CLI_REFERENCE.md) (all commands), [WORKFLOWS.md](WORKFLOWS.md) (recipes).
 
@@ -26,8 +26,11 @@ After install, verify:
 
 ```bash
 seckit doctor --install-check
+seckit doctor --acceptance-test
 seckit --version
 ```
+
+On Linux, use `export SECKIT_SQLITE_DEVELOPER_MODE=1` (or `--sqlite-dev-mode`) for manual `set`/`get` after install; the installer and acceptance test handle developer mode during install.
 
 **Development checkout** (editable, from a clone):
 

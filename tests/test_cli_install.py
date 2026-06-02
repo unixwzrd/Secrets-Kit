@@ -10,6 +10,7 @@ from contextlib import redirect_stdout
 from secrets_kit.cli import build_parser
 from secrets_kit.cli.commands.install_cmd import (
     _build_install_sh_argv,
+    _current_ref,
     _remote_ssh_command,
     cmd_install,
 )
@@ -33,6 +34,7 @@ class CliInstallTest(unittest.TestCase):
             yes=True,
             no_init=False,
             no_verify=False,
+            skip_verify_if_unchanged=False,
             dry_run=False,
             json=False,
         )
@@ -44,6 +46,8 @@ class CliInstallTest(unittest.TestCase):
         self.assertIn("curl -fsSL", joined)
         self.assertIn(DEFAULT_INSTALL_URL, joined)
         self.assertIn("--yes", joined)
+        self.assertIn("--ref", joined)
+        self.assertIn("v2.0.0a3", joined)
 
     def test_build_install_sh_argv_upgrade(self) -> None:
         args = argparse.Namespace(
@@ -56,6 +60,7 @@ class CliInstallTest(unittest.TestCase):
             yes=False,
             no_init=False,
             no_verify=False,
+            skip_verify_if_unchanged=False,
             dry_run=False,
             json=False,
         )
@@ -75,6 +80,7 @@ class CliInstallTest(unittest.TestCase):
             yes=False,
             no_init=False,
             no_verify=False,
+            skip_verify_if_unchanged=False,
             dry_run=False,
             json=False,
         )
@@ -96,6 +102,7 @@ class CliInstallTest(unittest.TestCase):
             yes=False,
             no_init=False,
             no_verify=False,
+            skip_verify_if_unchanged=False,
             dry_run=True,
             json=False,
         )
@@ -117,6 +124,7 @@ class CliInstallTest(unittest.TestCase):
             yes=False,
             no_init=False,
             no_verify=False,
+            skip_verify_if_unchanged=False,
             dry_run=True,
             json=False,
         )
@@ -126,6 +134,7 @@ class CliInstallTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("ssh", stdout.getvalue())
         self.assertIn("curl -fsSL", stdout.getvalue())
+        self.assertIn(_current_ref(), stdout.getvalue())
 
 
 if __name__ == "__main__":

@@ -1,18 +1,18 @@
 # Secrets-Kit Changelog
 
 **Created**: 2026-03-10  
-**Updated**: 2026-06-01
+**Updated**: 2026-06-02
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-### 2026-06-01 — Release validation tooling
+### 2026-06-02 — Installer acceptance, validation tooling, and install UX
 
-- **What changed:** Added [RELEASE_VALIDATION.md](docs/RELEASE_VALIDATION.md), `scripts/install-validation.sh`, `scripts/upgrade-validation.sh`, and `scripts/verify-release-artifacts.sh`. Release CI verifies wheel naming matches `install.sh` expectations.
+- **What changed:** Post-install acceptance now exercises a small inline fixture set (`ACCEPTANCE_PROBE`, `ACCEPTANCE_TOKEN`, `ACCEPTANCE_CONFIG`) through create/read/update/list/delete on **keychain + sqlite (macOS)** and **sqlite (Linux)** in the `__seckit_test__` namespace, with cleanup on success and failure. macOS uses a temporary keychain when the login keychain is missing. Installer adds `--skip-verify-if-unchanged` (skips verification when `install.json` records the same ref/source as already verified). Linux fresh install runs `seckit init --sqlite-dev-mode`. `seckit install user@host` pins remote install to the caller’s version (`--ref v<version>`) unless overridden. `seckit install --upgrade` falls back to `curl | bash` when local `install.sh` is unavailable. Added [RELEASE_VALIDATION.md](docs/RELEASE_VALIDATION.md), `scripts/install-validation.sh`, `scripts/upgrade-validation.sh`, and `scripts/verify-release-artifacts.sh` (also run in release CI).
 
-### 2026-06-01 — Installer hardening (downloader, acceptance test, uv cache)
+### 2026-06-01 — Installer hardening (downloader, uv cache, release resolution)
 
-- **What changed:** `install.sh` uses a single downloader layer (`curl` / `wget` / `python3` urllib) with connect/transfer timeouts and retries for GitHub API, release assets, and uv bootstrap. GitHub release tags resolve via `python3` + `json` (release/prerelease channels; drafts ignored). Installer no longer sets `UV_CACHE_DIR` or a private uv cache. `state/runtime-path` remains as a legacy compatibility file; `runtime/current` is canonical for the launcher. Post-install runs `seckit doctor --install-check` and `seckit doctor --acceptance-test` (ephemeral `__seckit_test__` CRUD with guaranteed cleanup).
+- **What changed:** `install.sh` uses a single downloader layer (`curl` / `wget` / `python3` urllib) with connect/transfer timeouts and retries for GitHub API, release assets, and uv bootstrap. GitHub release tags resolve via `python3` + `json` (release/prerelease channels; drafts ignored). Installer no longer sets `UV_CACHE_DIR` or a private uv cache; uv uses `~/.cache/uv` normally. `runtime/current` is canonical for the launcher; `state/runtime-path` remains for legacy consumers. Post-install runs `seckit doctor --install-check` and `seckit doctor --acceptance-test`.
 
 ### 2026-05-30 — Pre-release `2.0.0a3`
 

@@ -1,7 +1,7 @@
 # Release validation checklist
 
 **Created**: 2026-06-01  
-**Updated**: 2026-06-01
+**Updated**: 2026-06-02
 
 Executable operator checklist for cross-platform release candidate validation.  
 Architecture, installer layout, and backend behavior are frozen for this pass â€” only validate and report.
@@ -16,11 +16,7 @@ Architecture, installer layout, and backend behavior are frozen for this pass â€
 | `bash` | 4.x+ |
 | `~/.local/bin` on `PATH` | Or use full path `~/.local/bin/seckit` in commands below |
 
-**Linux (SQLite backend):** export before manual `seckit set` / `get` / `delete` (acceptance test sets dev mode internally):
-
-```bash
-export SECKIT_SQLITE_DEVELOPER_MODE=1
-```
+**Linux (SQLite backend):** `install.sh` passes `--sqlite-dev-mode` to `seckit init`. For manual `seckit set` / `get` after install, use `--sqlite-dev-mode` or `export SECKIT_SQLITE_DEVELOPER_MODE=1` (acceptance test enables dev mode internally).
 
 **Channels:**
 
@@ -131,7 +127,10 @@ seckit doctor --install-check | python3 -m json.tool
 # Expected: "ok": true
 
 seckit doctor --acceptance-test | python3 -m json.tool
-# Expected: "ok": true, steps include verify_delete
+# Expected: "ok": true
+# macOS: backends ["keychain","sqlite"]; steps include keychain:ACCEPTANCE_PROBE:verify_delete and sqlite:ACCEPTANCE_CONFIG:verify_delete
+# Linux: backends ["sqlite"]; steps include sqlite:ACCEPTANCE_PROBE:verify_delete
+# Fixtures exercised: ACCEPTANCE_PROBE, ACCEPTANCE_TOKEN, ACCEPTANCE_CONFIG (namespace __seckit_test__)
 ```
 
 ---
@@ -211,14 +210,10 @@ Test on Rocky 8/9 or RHEL-equivalent with `curl`, `python3`, and user-writable `
 ### Install
 
 ```bash
-export SECKIT_SQLITE_DEVELOPER_MODE=1   # required for post-install manual CLI if needed
-
 curl -fsSL https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/dev/install.sh | bash -s -- --yes
 ```
 
-**Expected:** same success criteria as macOS; `seckit info` should show `backend: sqlite`.
-
-**Known risk:** `seckit init` during install does not pass `--sqlite-dev-mode`. If init fails, document failure and treat as release blocker (see [Remaining blockers](#remaining-release-blockers)).
+**Expected:** same success criteria as macOS; `seckit info` should show `backend: sqlite`; acceptance runs **sqlite only**.
 
 ### Validation
 
@@ -327,8 +322,7 @@ Track before declaring RC:
 
 | ID | Blocker | Impact |
 |----|---------|--------|
-| B1 | Linux `seckit init` without `--sqlite-dev-mode` / env | Fresh Linux install may fail at step 4 |
-| B2 | Normal Linux CLI requires `SECKIT_SQLITE_DEVELOPER_MODE=1` or `--sqlite-dev-mode` | Operator docs must be explicit; not installer-only |
+| B2 | Normal Linux CLI requires `SECKIT_SQLITE_DEVELOPER_MODE=1` or `--sqlite-dev-mode` for ad-hoc commands | Operator docs must be explicit |
 | B3 | Cross-platform matrix not yet executed on physical Rocky/Debian/macOS hosts | RC requires human sign-off per table above |
 | B4 | `docs/GITHUB_RELEASE_BUILD.md` mentions macOS release validate job; current `release.yml` validate job is Ubuntu-only | Doc drift only |
 | B5 | Acceptance test leaves SQLite transaction history (tombstones); not a functional leak | Documented behavior |

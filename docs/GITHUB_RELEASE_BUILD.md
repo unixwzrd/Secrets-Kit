@@ -1,6 +1,6 @@
 # GitHub Actions release: universal wheel and sdist
 
-**Updated**: 2026-05-31
+**Updated**: 2026-06-02
 
 Secrets-Kit ships Python package code and JSON package data only. It does not bundle native extensions or platform binaries. For `--backend keychain`, the CLI uses the host macOS `security` binary at runtime.
 
@@ -24,8 +24,8 @@ Branch CI (`.github/workflows/ci.yml`) runs local validation on:
 
 The [release workflow](../.github/workflows/release.yml) on tag push `v*`:
 
-1. **validate** — `release_preflight.sh`, then `run_local_validation.sh` on macOS 15 and Ubuntu.
-2. **wheel** — build one universal wheel with Python 3.12.
+1. **validate** — `release_preflight.sh`, lint, and fast unit tests on Ubuntu.
+2. **wheel** — build one universal wheel with Python 3.12; `verify-release-artifacts.sh --local` checks naming against `install.sh`.
 3. **smoke** — install the wheel and run:
    - `seckit --version`
    - `seckit info --json`
@@ -33,6 +33,8 @@ The [release workflow](../.github/workflows/release.yml) on tag push `v*`:
 4. **sdist** — build one source distribution.
 5. **collect-dist** — merge wheel and sdist artifacts.
 6. **publish-github-release** — upload `dist/*` to the GitHub release.
+
+Post-install acceptance (`doctor --acceptance-test`) is exercised by the operator installer on target hosts; see [RELEASE_VALIDATION.md](RELEASE_VALIDATION.md).
 
 ## Maintainer release script
 

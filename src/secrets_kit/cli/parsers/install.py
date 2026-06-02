@@ -45,6 +45,11 @@ def register_install_commands(
         action="store_true",
         help=msg("cli.install.no_verify_help"),
     )
+    p_install.add_argument(
+        "--skip-verify-if-unchanged",
+        action="store_true",
+        help=msg("cli.install.skip_verify_if_unchanged_help"),
+    )
     p_install.add_argument("--dry-run", action="store_true", help=msg("cli.common.dry_run_help"))
     p_install.add_argument("--json", action="store_true", help=msg("cli.install.json_help"))
     p_install.add_argument("--verbose", action="store_true", help=msg("cli.install.verbose_help"))

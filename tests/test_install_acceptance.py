@@ -3,29 +3,65 @@
 from __future__ import annotations
 
 import json
+import sys
 import unittest
 from unittest import mock
 
+from secrets_kit.backends.common import BACKEND_KEYCHAIN, BACKEND_SQLITE
 from secrets_kit.cli.commands.doctor import cmd_doctor
 from secrets_kit.cli.install_acceptance import (
+    ACCEPTANCE_ACCOUNT,
     ACCEPTANCE_NAME,
     ACCEPTANCE_SERVICE,
+    _platform_backends,
+    _run_backend_crud_acceptance,
     run_acceptance_test,
 )
 
 
 class InstallAcceptanceTest(unittest.TestCase):
-    def test_run_acceptance_test_structure(self) -> None:
+    def test_platform_backends_linux(self) -> None:
+        with mock.patch.object(sys, "platform", "linux"):
+            self.assertEqual(_platform_backends(), [BACKEND_SQLITE])
+
+    def test_platform_backends_darwin(self) -> None:
+        with mock.patch.object(sys, "platform", "darwin"):
+            self.assertEqual(_platform_backends(), [BACKEND_KEYCHAIN, BACKEND_SQLITE])
+
+    def test_run_acceptance_test_preflight_failure(self) -> None:
         with mock.patch(
-            "secrets_kit.cli.install_acceptance._resolve_backend",
-            return_value=("sqlite", True, ["blocked for unit test"]),
+            "secrets_kit.cli.install_acceptance._preflight_issues",
+            return_value=["sqlite: blocked"],
         ):
             result = run_acceptance_test()
         self.assertFalse(result["ok"])
-        self.assertEqual(result["namespace"]["service"], ACCEPTANCE_SERVICE)
-        self.assertEqual(result["namespace"]["name"], ACCEPTANCE_NAME)
+        self.assertIn("sqlite: blocked", result["issues"])
 
-    def test_run_acceptance_test_happy_path(self) -> None:
+    def test_run_acceptance_test_runs_all_platform_backends(self) -> None:
+        suite_ok = {"ok": True, "steps": ["sqlite:create"], "issues": []}
+        with (
+            mock.patch(
+                "secrets_kit.cli.install_acceptance._platform_backends",
+                return_value=[BACKEND_KEYCHAIN, BACKEND_SQLITE],
+            ),
+            mock.patch("secrets_kit.cli.install_acceptance._preflight_issues", return_value=[]),
+            mock.patch(
+                "secrets_kit.cli.install_acceptance._ensure_keychain_for_acceptance",
+                return_value=(None, None),
+            ),
+            mock.patch(
+                "secrets_kit.cli.install_acceptance._run_backend_crud_acceptance",
+                return_value=suite_ok,
+            ) as run_suite,
+            mock.patch("secrets_kit.cli.install_acceptance._cleanup_temp_keychain"),
+        ):
+            result = run_acceptance_test()
+        self.assertTrue(result["ok"])
+        self.assertEqual(run_suite.call_count, 2)
+        self.assertIn(BACKEND_KEYCHAIN, result["backend_results"])
+        self.assertIn(BACKEND_SQLITE, result["backend_results"])
+
+    def test_run_backend_crud_acceptance_happy_path(self) -> None:
         state = {"value": "", "exists": False}
 
         def fake_write_secret(*, value: str, **kwargs: object) -> None:
@@ -44,7 +80,7 @@ class InstallAcceptanceTest(unittest.TestCase):
                 EntryMetadata(
                     name=ACCEPTANCE_NAME,
                     service=ACCEPTANCE_SERVICE,
-                    account=ACCEPTANCE_SERVICE,
+                    account=ACCEPTANCE_ACCOUNT,
                 )
             ]
 
@@ -56,8 +92,8 @@ class InstallAcceptanceTest(unittest.TestCase):
 
         with (
             mock.patch(
-                "secrets_kit.cli.install_acceptance._resolve_backend",
-                return_value=("sqlite", True, []),
+                "secrets_kit.cli.install_acceptance._fixture_rows",
+                return_value=[(ACCEPTANCE_NAME, "v1", "v2")],
             ),
             mock.patch(
                 "secrets_kit.cli.install_acceptance.write_secret",
@@ -83,10 +119,10 @@ class InstallAcceptanceTest(unittest.TestCase):
             mock.patch("secrets_kit.cli.install_acceptance.delete_metadata"),
             mock.patch("secrets_kit.cli.install_acceptance._cleanup_test_secret"),
         ):
-            result = run_acceptance_test()
+            result = _run_backend_crud_acceptance(backend=BACKEND_SQLITE)
 
         self.assertTrue(result["ok"])
-        self.assertIn("verify_delete", result["steps"])
+        self.assertTrue(any(step.endswith(":verify_delete") for step in result["steps"]))
 
     def test_doctor_acceptance_test_flag(self) -> None:
         import argparse
@@ -104,7 +140,7 @@ class InstallAcceptanceTest(unittest.TestCase):
         with (
             mock.patch(
                 "secrets_kit.cli.commands.doctor.run_acceptance_test",
-                return_value={"ok": True, "steps": ["create"], "issues": []},
+                return_value={"ok": True, "steps": ["sqlite:create"], "issues": []},
             ),
             redirect_stdout(stdout),
             redirect_stderr(io.StringIO()),

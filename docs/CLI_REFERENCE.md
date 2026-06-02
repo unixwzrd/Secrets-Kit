@@ -32,14 +32,14 @@ Exhaustive command list in **taxonomy order** (same as `seckit --help` epilog). 
 | `unlock` | Unlock configured **macOS Keychain** backend. |
 | `lock` | Lock configured **macOS Keychain** backend. |
 | `init` | Reset `defaults.json` + empty `registry.json` (`-y` to skip confirm). `--backend keychain\|sqlite` chooses the initialized backend; SQLite requires `--dev` / `--sqlite-dev-mode` because plaintext developer storage is a footgun. Subcommand `sqlite` recreates developer DB. |
-| `install` | Show `curl \| bash` instructions; supports `--upgrade`, `--repair`, `--safe`, `--verbose`, `--no-uv-download`, and `user@host` remote SSH install. See [INSTALL.md](INSTALL.md). |
+| `install` | Show `curl \| bash` instructions; supports `--upgrade`, `--repair`, `--safe`, `--verbose`, `--no-uv-download`, `--skip-verify-if-unchanged`, and `user@host` remote SSH install (remote defaults to caller version ref). See [INSTALL.md](INSTALL.md). |
 | `info` | Environment status: version, defaults, backend encryption posture, Keychain policy (**macOS** only), SQLite when active or on non-macOS. `--json` for automation. |
 
 ## Inventory / diagnostics
 
 | Command | Purpose |
 |---------|---------|
-| `doctor` | Backend posture, registry checks, metadata drift (JSON). `--install-check` fast post-install gate (no roundtrips). `--acceptance-test` ephemeral CRUD in `__seckit_test__`. |
+| `doctor` | Backend posture, registry checks, metadata drift (JSON). `--install-check` fast post-install gate (no roundtrips). `--acceptance-test` ephemeral CRUD in `__seckit_test__` (keychain + sqlite on macOS; sqlite on Linux). |
 | `backend-index` | **Decrypt-safe** index lines from backend-specific safe index support — **not** authority, **not** materialization. |
 | `rebuild-index` | Rebuild decrypt-free index from authority (SQLite-oriented repair path). |
 | `recover` | Rebuild slim `registry.json` from live store (`migrate recover-registry` is an **alias**). |
