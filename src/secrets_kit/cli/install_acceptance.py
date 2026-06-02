@@ -27,8 +27,10 @@ from secrets_kit.backends.keychain import (
     check_security_cli,
     delete_keychain,
     keychain_accessible,
-    keychain_path as resolve_keychain_path,
     make_temp_keychain,
+)
+from secrets_kit.backends.keychain import (
+    keychain_path as resolve_keychain_path,
 )
 from secrets_kit.backends.sqlite import SQLiteBackendError, require_sqlite_developer_mode
 from secrets_kit.models import EntryMetadata
