@@ -70,9 +70,9 @@ def _prepare_remote_install(*, args: argparse.Namespace) -> str | None:
         host = _normalize_ssh_target(raw)
     except InstallTargetError as exc:
         raise SystemExit(f"seckit install: error: {exc}") from exc
-    setattr(args, "remote_host", host)
+    args.remote_host = host
     if not _flag(args, "yes"):
-        setattr(args, "yes", True)
+        args.yes = True
     return host
 
 
