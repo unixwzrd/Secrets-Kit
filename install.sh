@@ -533,7 +533,7 @@ resolve_package_spec() {
   if [[ "${DEV_MODE}" -eq 1 ]]; then
     [[ -f "${SECKIT_INSTALL_ROOT}/pyproject.toml" ]] || install_die "--dev requires local checkout containing pyproject.toml"
     PACKAGE_SOURCE="editable"
-    PACKAGE_SPEC="-e .[dev]"
+    PACKAGE_SPEC="-e ."
     return 0
   fi
   if [[ "${SECKIT_REF_EXPLICIT}" -eq 1 ]]; then

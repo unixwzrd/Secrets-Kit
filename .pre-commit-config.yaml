@@ -1,5 +1,7 @@
-# Install: pip install pre-commit && pre-commit install
-# Dev types: pip install -e ".[dev]"  (basedpyright; ruff comes from ruff-pre-commit env)
+# Maintainer host setup (not operator curl|bash runtime):
+#   pip install -e ".[dev]"
+#   pre-commit install
+# Ruff runs from ruff-pre-commit; basedpyright uses your host Python.
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.11.13

@@ -78,7 +78,6 @@ Issues and PRs welcome (CLI UX, backends, docs, import/export edge cases). Local
 
 ```bash
 pip install -e ".[dev]"
-pip install pre-commit
 pre-commit install
 make lint
 make test-fast

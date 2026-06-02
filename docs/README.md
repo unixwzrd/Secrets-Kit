@@ -52,7 +52,7 @@ Use this page as the public documentation map. The root [README](../README.md) s
 
 ## Testing And CI
 
-GitHub Actions runs `scripts/run_local_validation.sh` on macOS. For local work, install dev dependencies once (`pip install -e ".[dev]"` in your active Python environment — see [README Contributing](../README.md#contributing)), then use `make` / `make help` for validation targets. Start with `make validate-fast`; use `make validate-full` or `make make-all` when you also want integration and launchd layers. `make lint` requires **basedpyright** from the `[dev]` extra. `make test-keychain` runs the Keychain integration path, `make test-sqlite` runs the SQLite developer-mode integration path, and `make test-integration` runs both. Some tests require interactive Keychain access or PyNaCl; others use SQLite-only harnesses.
+GitHub Actions runs `scripts/run_local_validation.sh` on macOS. For local work, install dev dependencies once (`pip install -e ".[dev]"` in your active Python environment — see [README Contributing](../README.md#contributing)), then use `make` / `make help` for validation targets. Start with `make validate-fast`; use `make validate-full` or `make make-all` when you also want integration and launchd layers. `make lint` requires **ruff** and **basedpyright** from the `dev` optional dependency group in `pyproject.toml`. `make test-keychain` runs the Keychain integration path, `make test-sqlite` runs the SQLite developer-mode integration path, and `make test-integration` runs both. Some tests require interactive Keychain access or PyNaCl; others use SQLite-only harnesses.
 
 ## Packaging And Maintainers
 
