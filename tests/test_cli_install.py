@@ -6,11 +6,14 @@ import argparse
 import io
 import unittest
 from contextlib import redirect_stdout
+from unittest import mock
 
 from secrets_kit.cli import build_parser
 from secrets_kit.cli.commands.install_cmd import (
     _build_install_sh_argv,
     _current_ref,
+    _normalize_ssh_target,
+    _prepare_remote_install,
     _remote_ssh_command,
     cmd_install,
 )
@@ -22,7 +25,7 @@ class CliInstallTest(unittest.TestCase):
         commands = parser._subparsers._group_actions[0].choices.keys()  # type: ignore[attr-defined]
         self.assertIn("install", commands)
 
-    def test_remote_ssh_command_uses_batch_mode_and_bash_stdin(self) -> None:
+    def test_remote_ssh_command_explicit_ref_uses_cli_flag(self) -> None:
         args = argparse.Namespace(
             remote_host="user@host.example",
             ref="v2.0.0a3",
@@ -46,6 +49,45 @@ class CliInstallTest(unittest.TestCase):
         self.assertIn("--yes", joined)
         self.assertIn("--ref", joined)
         self.assertIn("v2.0.0a3", joined)
+
+    def test_normalize_ssh_target_at_host_defaults_user(self) -> None:
+        with mock.patch.dict("os.environ", {"USER": "alice"}, clear=False):
+            self.assertEqual(_normalize_ssh_target("@rocky"), "alice@rocky")
+        self.assertEqual(_normalize_ssh_target("bob@rocky"), "bob@rocky")
+
+    def test_normalize_ssh_target_rejects_bare_host(self) -> None:
+        from secrets_kit.cli.commands.install_cmd import InstallTargetError
+
+        with self.assertRaises(InstallTargetError):
+            _normalize_ssh_target("rocky")
+
+    def test_prepare_remote_install_sets_yes(self) -> None:
+        args = argparse.Namespace(remote_host="@host", yes=False)
+        host = _prepare_remote_install(args=args)
+        self.assertTrue(args.yes)
+        self.assertTrue(host and host.endswith("@host"))
+
+    def test_remote_ssh_command_default_pin_uses_env_not_ref_flag(self) -> None:
+        args = argparse.Namespace(
+            remote_host="user@host.example",
+            ref=None,
+            repo_url=None,
+            install_url=None,
+            upgrade=False,
+            dev=False,
+            yes=False,
+            no_init=False,
+            no_verify=False,
+            skip_verify_if_unchanged=False,
+            dry_run=False,
+            json=False,
+        )
+        _prepare_remote_install(args=args)
+        argv = _remote_ssh_command(host=args.remote_host, args=args)
+        joined = " ".join(argv)
+        self.assertIn(f"SECKIT_REF={_current_ref()}", joined)
+        self.assertNotIn("--ref", joined)
+        self.assertIn("--yes", joined)
 
     def test_build_install_sh_argv_upgrade(self) -> None:
         args = argparse.Namespace(
@@ -113,7 +155,7 @@ class CliInstallTest(unittest.TestCase):
 
     def test_install_remote_dry_run(self) -> None:
         args = argparse.Namespace(
-            remote_host="user@host",
+            remote_host="@host",
             ref=None,
             repo_url=None,
             install_url=None,
@@ -130,9 +172,13 @@ class CliInstallTest(unittest.TestCase):
         with redirect_stdout(stdout):
             code = cmd_install(args=args)
         self.assertEqual(code, 0)
-        self.assertIn("ssh", stdout.getvalue())
-        self.assertIn("bash -s --", stdout.getvalue())
-        self.assertIn(_current_ref(), stdout.getvalue())
+        out = stdout.getvalue()
+        self.assertIn("ssh", out)
+        self.assertIn("bash -s --", out)
+        self.assertIn(f"@{args.remote_host.split('@', 1)[-1]}", out)
+        self.assertIn(f"SECKIT_REF={_current_ref()}", out)
+        self.assertNotIn("--ref", out)
+        self.assertIn("--yes", out)
 
 
 if __name__ == "__main__":

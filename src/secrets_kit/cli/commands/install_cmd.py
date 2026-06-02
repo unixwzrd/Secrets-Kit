@@ -7,7 +7,9 @@ Operator install, upgrade, and remote SSH wrapper.
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
+import os
 import shlex
 import subprocess
 from pathlib import Path
@@ -20,6 +22,60 @@ from secrets_kit.cli.install_constants import DEFAULT_INSTALL_URL
 def _flag(args: argparse.Namespace, name: str) -> bool:
     return bool(getattr(args, name, False))
 
+
+def _local_ssh_username() -> str:
+    for key in ("USER", "LOGNAME"):
+        value = os.environ.get(key, "").strip()
+        if value:
+            return value
+    return getpass.getuser()
+
+
+class InstallTargetError(ValueError):
+    """Invalid remote install SSH target."""
+
+
+def _normalize_ssh_target(target: str) -> str:
+    """Return user@host for SSH.
+
+    ``@host`` uses the local ``$USER``; ``user@host`` keeps an explicit user.
+    A bare hostname is rejected so ``@`` always marks a remote install.
+    """
+    trimmed = target.strip()
+    if not trimmed:
+        return trimmed
+    if trimmed.startswith("@"):
+        host_part = trimmed[1:].strip()
+        if not host_part:
+            raise InstallTargetError("remote target is empty after '@'")
+        if "@" in host_part:
+            raise InstallTargetError("use user@host or @host (not @user@host)")
+        return f"{_local_ssh_username()}@{host_part}"
+    if "@" in trimmed:
+        user, _, host = trimmed.partition("@")
+        if not user or not host:
+            raise InstallTargetError("use user@host or @host")
+        return trimmed
+    raise InstallTargetError(
+        f"remote install requires '@' in the target (try @{trimmed} or user@{trimmed})"
+    )
+
+
+def _prepare_remote_install(*, args: argparse.Namespace) -> str | None:
+    """Normalize SSH target and default to non-interactive remote install."""
+    raw = getattr(args, "remote_host", None)
+    if not raw:
+        return None
+    try:
+        host = _normalize_ssh_target(raw)
+    except InstallTargetError as exc:
+        raise SystemExit(f"seckit install: error: {exc}") from exc
+    setattr(args, "remote_host", host)
+    if not _flag(args, "yes"):
+        setattr(args, "yes", True)
+    return host
+
+
 def _current_ref() -> str:
     return f"v{__version__}"
 
@@ -30,6 +86,16 @@ def _effective_ref(*, args: argparse.Namespace, for_remote: bool = False) -> str
     if for_remote:
         return _current_ref()
     return None
+
+
+def _remote_version_pin_env(*, args: argparse.Namespace) -> str:
+    """Pin remote install to caller version without --ref (release wheel, not git)."""
+    if getattr(args, "ref", None):
+        return ""
+    pin = _effective_ref(args=args, for_remote=True)
+    if not pin:
+        return ""
+    return f"SECKIT_REF={shlex.quote(pin)} "
 
 def _remote_install_script_path() -> Path | None:
     """Return local install.sh path for SSH streaming when available."""
@@ -99,17 +165,16 @@ def _build_install_sh_argv(*, args: argparse.Namespace) -> list[str]:
     return argv
 
 
-def _remote_ssh_command(*, host: str, args: argparse.Namespace) -> list[str]:
-    remote_args: list[str] = []
-    ref = _effective_ref(args=args, for_remote=True)
-    if ref:
-        remote_args.extend(["--ref", ref])
+def _remote_installer_argv(*, args: argparse.Namespace) -> list[str]:
+    """Flags forwarded to install.sh on the remote host (--yes is always included)."""
+    remote_args: list[str] = ["--yes"]
+    explicit_ref = getattr(args, "ref", None)
+    if explicit_ref:
+        remote_args.extend(["--ref", explicit_ref])
     if _flag(args, "upgrade"):
         remote_args.append("--upgrade")
     if _flag(args, "repair"):
         remote_args.append("--repair")
-    if _flag(args, "yes"):
-        remote_args.append("--yes")
     if _flag(args, "no_init"):
         remote_args.append("--no-init")
     if _flag(args, "no_verify"):
@@ -128,8 +193,13 @@ def _remote_ssh_command(*, host: str, args: argparse.Namespace) -> list[str]:
         remote_args.append("--shell-profile-force")
     if _flag(args, "no_uv_download"):
         remote_args.append("--no-uv-download")
+    return remote_args
 
-    remote_cmd = "bash -s --"
+
+def _remote_ssh_command(*, host: str, args: argparse.Namespace) -> list[str]:
+    remote_args = _remote_installer_argv(args=args)
+
+    remote_cmd = f"{_remote_version_pin_env(args=args)}bash -s --"
     if remote_args:
         remote_cmd += " " + " ".join(shlex.quote(part) for part in remote_args)
 
@@ -146,34 +216,7 @@ def _remote_ssh_command(*, host: str, args: argparse.Namespace) -> list[str]:
 def _remote_ssh_command_fetch(*, host: str, args: argparse.Namespace) -> list[str]:
     """Fallback SSH command that fetches install.sh remotely."""
     install_url = getattr(args, "install_url", None) or DEFAULT_INSTALL_URL
-    remote_args: list[str] = []
-    ref = _effective_ref(args=args, for_remote=True)
-    if ref:
-        remote_args.extend(["--ref", ref])
-    if _flag(args, "upgrade"):
-        remote_args.append("--upgrade")
-    if _flag(args, "repair"):
-        remote_args.append("--repair")
-    if _flag(args, "yes"):
-        remote_args.append("--yes")
-    if _flag(args, "no_init"):
-        remote_args.append("--no-init")
-    if _flag(args, "no_verify"):
-        remote_args.append("--no-verify")
-    if _flag(args, "skip_verify_if_unchanged"):
-        remote_args.append("--skip-verify-if-unchanged")
-    if _flag(args, "dry_run"):
-        remote_args.append("--dry-run")
-    if _flag(args, "verbose"):
-        remote_args.append("--verbose")
-    if _flag(args, "safe"):
-        remote_args.append("--safe")
-    if _flag(args, "no_shell_profile"):
-        remote_args.append("--no-shell-profile")
-    if _flag(args, "shell_profile_force"):
-        remote_args.append("--shell-profile-force")
-    if _flag(args, "no_uv_download"):
-        remote_args.append("--no-uv-download")
+    remote_args = _remote_installer_argv(args=args)
     fetch = (
         "if command -v curl >/dev/null 2>&1; then "
         f"curl -fsSL {shlex.quote(install_url)}; "
@@ -183,7 +226,8 @@ def _remote_ssh_command_fetch(*, host: str, args: argparse.Namespace) -> list[st
         f"python3 -c \"import sys, urllib.request; sys.stdout.buffer.write(urllib.request.urlopen('{install_url}').read())\"; "
         "else echo 'seckit install: need curl, wget, or python3 on remote host' >&2; exit 1; fi"
     )
-    remote_cmd = f"{fetch} | bash -s --"
+    pin_env = _remote_version_pin_env(args=args)
+    remote_cmd = f"{fetch} | {pin_env}bash -s --"
     if remote_args:
         remote_cmd += " " + " ".join(shlex.quote(part) for part in remote_args)
     return [
@@ -247,7 +291,7 @@ def _local_install_url_command(*, args: argparse.Namespace) -> str:
 
 
 def cmd_install(*, args: argparse.Namespace) -> int:
-    remote_host = getattr(args, "remote_host", None)
+    remote_host = _prepare_remote_install(args=args)
     if remote_host:
         local_script = _remote_install_script_path()
         ssh_argv = _remote_ssh_command(host=remote_host, args=args)
@@ -311,8 +355,14 @@ def cmd_install(*, args: argparse.Namespace) -> int:
     print(f"  wget -qO- {install_url} | bash -s -- --upgrade")
     print()
     print("Remote:")
+    print("  seckit install @host")
     print("  seckit install user@host")
     return 0 if check.get("ok") else 1
 
 
-__all__ = ["cmd_install"]
+__all__ = [
+    "InstallTargetError",
+    "cmd_install",
+    "_normalize_ssh_target",
+    "_prepare_remote_install",
+]

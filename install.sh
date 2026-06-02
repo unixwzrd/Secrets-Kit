@@ -498,8 +498,9 @@ release_download_base() {
   printf '%s' "https://github.com/${SECKIT_GITHUB_REPO}/releases/download/${SECKIT_REF}"
 }
 
-pick_release_asset_url() {
+try_release_wheel_url() {
   local base version wheel_url
+  [[ -n "${SECKIT_REF}" ]] || return 1
   base="$(release_download_base)"
   version="$(ref_to_version "${SECKIT_REF}")"
   wheel_url="${base}/seckit-${version}-py3-none-any.whl"
@@ -507,7 +508,17 @@ pick_release_asset_url() {
     printf '%s' "${wheel_url}"
     return 0
   fi
-  install_die "release wheel not found for ${SECKIT_REF} (expected seckit-${version}-py3-none-any.whl; publish release assets or use --ref for explicit git install)"
+  return 1
+}
+
+pick_release_asset_url() {
+  local wheel_url
+  wheel_url="$(try_release_wheel_url || true)"
+  if [[ -n "${wheel_url}" ]]; then
+    printf '%s' "${wheel_url}"
+    return 0
+  fi
+  install_die "release wheel not found for ${SECKIT_REF} (expected seckit-$(ref_to_version "${SECKIT_REF}")-py3-none-any.whl; publish release assets or install git for --ref git install)"
 }
 
 resolve_release_artifact_url() {
@@ -526,6 +537,17 @@ resolve_package_spec() {
     return 0
   fi
   if [[ "${SECKIT_REF_EXPLICIT}" -eq 1 ]]; then
+    local wheel_url=""
+    wheel_url="$(try_release_wheel_url || true)"
+    if [[ -n "${wheel_url}" ]]; then
+      PACKAGE_SOURCE="release"
+      PACKAGE_SPEC="${wheel_url}"
+      verbose_log "explicit --ref resolved to release wheel (no git required)"
+      return 0
+    fi
+    if ! has_command git; then
+      install_die "cannot install ${SECKIT_REF} from git (git not found). Publish a release wheel for this tag, or install git."
+    fi
     PACKAGE_SOURCE="git"
     PACKAGE_SPEC="git+${SECKIT_REPO_URL}@${SECKIT_REF}"
     return 0

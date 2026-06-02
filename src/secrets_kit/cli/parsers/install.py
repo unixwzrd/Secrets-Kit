@@ -21,7 +21,7 @@ def register_install_commands(
     p_install.add_argument(
         "remote_host",
         nargs="?",
-        metavar="user@host",
+        metavar="@host|user@host",
         help=msg("cli.install.remote_help"),
     )
     p_install.add_argument(

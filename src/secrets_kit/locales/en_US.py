@@ -44,7 +44,7 @@ STRINGS = {
     "cli.install.skip_verify_if_unchanged_help": "Skip install verification when this ref/source was already verified",
     "cli.install.ref_help": "Git ref override (default: latest GitHub release for channel)",
     "cli.install.repair_help": "Rebuild runtime/launcher while preserving config/state",
-    "cli.install.remote_help": "Remote install via ssh host 'curl -fsSL URL | bash'",
+    "cli.install.remote_help": "Remote install via SSH (@host uses $USER; or user@host)",
     "cli.install.repo_url_help": "Override Git repository URL for package install",
     "cli.install.safe_help": "CI/SSH mode: no shell profile edits, no runtime bootstrap download",
     "cli.install.shell_profile_force_help": "Allow shell profile edits in non-interactive mode",

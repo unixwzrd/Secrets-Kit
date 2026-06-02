@@ -112,10 +112,13 @@ ssh -o BatchMode=yes -o ConnectTimeout=10 user@host \
 Convenience wrapper:
 
 ```bash
-seckit install user@host --yes
+seckit install @seckit-rocky
+seckit install seckit@other-host
 ```
 
-Remote install pins the release ref to the **caller’s installed version** (`v` + `seckit --version`) unless you pass `--ref` explicitly. Example: `seckit 2.0.0a3` on your laptop installs `v2.0.0a3` on the remote host.
+Remote targets must include `@` (`@host` uses your local `$USER`; `user@host` sets the SSH user). Remote install implies `--yes` (non-interactive).
+
+Remote install pins the **release wheel** for the caller’s version (`v` + `seckit --version`) via `SECKIT_REF` on the remote host (no `git` required). Override with `--ref TAG` (wheel for released tags; git only if the wheel is missing).
 
 ## Local development (checkout only)
 
@@ -151,6 +154,7 @@ Uses editable install from the local checkout. Pin a git ref with `./install.sh 
 - `runtime bootstrap unavailable` with `--safe` or `--no-uv-download`: remove those flags, or preinstall uv and `uv python install 3.12`.
 - `need 'tar' (command not found)` during runtime bootstrap on minimal Linux: current installer falls back to a direct GitHub `uv` release when `tar` is missing (uses `python3` to unpack if needed). If both fail, install `tar` (`dnf install -y tar` on Rocky) or ensure `python3` is on `PATH`.
 - Remote install over SSH with a bare `PATH`: the installer prepends standard system bin directories; you can also `export PATH="/usr/local/bin:/usr/bin:/bin:${PATH}"` before running.
+- `git` / `git clone` errors on minimal Debian: default install uses the **release wheel** (no git). Git is only needed for non-tag refs (e.g. `--ref dev`) when no wheel exists. `seckit install user@host` pins the remote version via `SECKIT_REF` and the wheel, not `git+https://…`.
 - `seckit: command not found`: add `~/.local/bin` to PATH (installer prints the line when it cannot edit your shell profile).
 - `defaults.account` shows `root` after a sudo install: rerun `seckit init --yes` as the operator user.
 - `acceptance test failed` on macOS with a service account: login keychain may be absent; current builds use a temp keychain for acceptance only.
