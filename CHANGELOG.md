@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 2026-06-02 — Installer acceptance, validation tooling, and install UX
 
+- **What changed:** `.pre-commit-config.yaml` runs **ruff check** (via `ruff-pre-commit`) and **basedpyright** on `src/` and `tests/` before unit tests; install with `pip install pre-commit && pre-commit install` after `pip install -e ".[dev]"`.
 - **What changed:** `seckit install @host` (local `$USER`) or `user@host`; `@` marks remote install. Remote runs imply `--yes` (non-interactive).
 - **What changed:** Explicit `--ref vX.Y.Z` and `seckit install user@host` (version pin via `SECKIT_REF`) prefer the published release wheel; git is only used when the wheel is missing or the ref is not a released tag. Clear error when git is required but not installed.
 - **What changed:** `install.sh` normalizes `PATH` for non-login SSH (prepends `/usr/local/bin`, `/usr/bin`, `/sbin`, etc.). When Astral’s `install.sh` cannot run (missing `tar` or script failure), the installer downloads the matching `uv` release tarball from GitHub and unpacks with `tar` or `python3`, installing `uv`/`uvx` into `~/.local/bin`.
