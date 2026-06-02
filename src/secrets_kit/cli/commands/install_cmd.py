@@ -31,6 +31,14 @@ def _effective_ref(*, args: argparse.Namespace, for_remote: bool = False) -> str
         return _current_ref()
     return None
 
+def _remote_install_script_path() -> Path | None:
+    """Return local install.sh path for SSH streaming when available."""
+    try:
+        script = _install_sh_path()
+    except Exception:
+        return None
+    return script if script.is_file() else None
+
 
 def _repo_install_sh() -> Path | None:
     """Return install.sh next to repo root when running from a checkout."""
@@ -92,7 +100,6 @@ def _build_install_sh_argv(*, args: argparse.Namespace) -> list[str]:
 
 
 def _remote_ssh_command(*, host: str, args: argparse.Namespace) -> list[str]:
-    install_url = getattr(args, "install_url", None) or DEFAULT_INSTALL_URL
     remote_args: list[str] = []
     ref = _effective_ref(args=args, for_remote=True)
     if ref:
@@ -122,10 +129,63 @@ def _remote_ssh_command(*, host: str, args: argparse.Namespace) -> list[str]:
     if _flag(args, "no_uv_download"):
         remote_args.append("--no-uv-download")
 
-    remote_cmd = f"curl -fsSL {shlex.quote(install_url)} | bash -s --"
+    remote_cmd = "bash -s --"
     if remote_args:
         remote_cmd += " " + " ".join(shlex.quote(part) for part in remote_args)
 
+    return [
+        "ssh",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=10",
+        host,
+        remote_cmd,
+    ]
+
+def _remote_ssh_command_fetch(*, host: str, args: argparse.Namespace) -> list[str]:
+    """Fallback SSH command that fetches install.sh remotely."""
+    install_url = getattr(args, "install_url", None) or DEFAULT_INSTALL_URL
+    remote_args: list[str] = []
+    ref = _effective_ref(args=args, for_remote=True)
+    if ref:
+        remote_args.extend(["--ref", ref])
+    if _flag(args, "upgrade"):
+        remote_args.append("--upgrade")
+    if _flag(args, "repair"):
+        remote_args.append("--repair")
+    if _flag(args, "yes"):
+        remote_args.append("--yes")
+    if _flag(args, "no_init"):
+        remote_args.append("--no-init")
+    if _flag(args, "no_verify"):
+        remote_args.append("--no-verify")
+    if _flag(args, "skip_verify_if_unchanged"):
+        remote_args.append("--skip-verify-if-unchanged")
+    if _flag(args, "dry_run"):
+        remote_args.append("--dry-run")
+    if _flag(args, "verbose"):
+        remote_args.append("--verbose")
+    if _flag(args, "safe"):
+        remote_args.append("--safe")
+    if _flag(args, "no_shell_profile"):
+        remote_args.append("--no-shell-profile")
+    if _flag(args, "shell_profile_force"):
+        remote_args.append("--shell-profile-force")
+    if _flag(args, "no_uv_download"):
+        remote_args.append("--no-uv-download")
+    fetch = (
+        "if command -v curl >/dev/null 2>&1; then "
+        f"curl -fsSL {shlex.quote(install_url)}; "
+        "elif command -v wget >/dev/null 2>&1; then "
+        f"wget -qO- {shlex.quote(install_url)}; "
+        "elif command -v python3 >/dev/null 2>&1; then "
+        f"python3 -c \"import sys, urllib.request; sys.stdout.buffer.write(urllib.request.urlopen('{install_url}').read())\"; "
+        "else echo 'seckit install: need curl, wget, or python3 on remote host' >&2; exit 1; fi"
+    )
+    remote_cmd = f"{fetch} | bash -s --"
+    if remote_args:
+        remote_cmd += " " + " ".join(shlex.quote(part) for part in remote_args)
     return [
         "ssh",
         "-o",
@@ -171,7 +231,16 @@ def _local_install_url_command(*, args: argparse.Namespace) -> str:
         install_args.append("--no-uv-download")
     if _flag(args, "dev"):
         install_args.append("--dev")
-    cmd = f"curl -fsSL {shlex.quote(install_url)} | bash -s --"
+    fetch = (
+        "if command -v curl >/dev/null 2>&1; then "
+        f"curl -fsSL {shlex.quote(install_url)}; "
+        "elif command -v wget >/dev/null 2>&1; then "
+        f"wget -qO- {shlex.quote(install_url)}; "
+        "elif command -v python3 >/dev/null 2>&1; then "
+        f"python3 -c \"import sys, urllib.request; sys.stdout.buffer.write(urllib.request.urlopen('{install_url}').read())\"; "
+        "else echo 'seckit install: need curl, wget, or python3 locally' >&2; exit 1; fi"
+    )
+    cmd = f"{fetch} | bash -s --"
     if install_args:
         cmd += " " + " ".join(shlex.quote(part) for part in install_args)
     return cmd
@@ -180,11 +249,20 @@ def _local_install_url_command(*, args: argparse.Namespace) -> str:
 def cmd_install(*, args: argparse.Namespace) -> int:
     remote_host = getattr(args, "remote_host", None)
     if remote_host:
+        local_script = _remote_install_script_path()
         ssh_argv = _remote_ssh_command(host=remote_host, args=args)
         if _flag(args, "dry_run"):
-            print(" ".join(shlex.quote(part) for part in ssh_argv))
+            rendered = " ".join(shlex.quote(part) for part in ssh_argv)
+            if local_script is not None:
+                print(f"{rendered} < {shlex.quote(str(local_script))}")
+            else:
+                print(" ".join(shlex.quote(part) for part in _remote_ssh_command_fetch(host=remote_host, args=args)))
             return 0
-        completed = subprocess.run(ssh_argv, check=False)
+        if local_script is not None:
+            payload = local_script.read_text(encoding="utf-8")
+            completed = subprocess.run(ssh_argv, input=payload, text=True, check=False)
+            return completed.returncode
+        completed = subprocess.run(_remote_ssh_command_fetch(host=remote_host, args=args), check=False)
         return completed.returncode
 
     if (
@@ -226,9 +304,11 @@ def cmd_install(*, args: argparse.Namespace) -> int:
     print()
     print("Install:")
     print(f"  curl -fsSL {install_url} | bash")
+    print(f"  wget -qO- {install_url} | bash")
     print()
     print("Upgrade:")
     print(f"  curl -fsSL {install_url} | bash -s -- --upgrade")
+    print(f"  wget -qO- {install_url} | bash -s -- --upgrade")
     print()
     print("Remote:")
     print("  seckit install user@host")

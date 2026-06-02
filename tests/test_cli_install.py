@@ -14,7 +14,6 @@ from secrets_kit.cli.commands.install_cmd import (
     _remote_ssh_command,
     cmd_install,
 )
-from secrets_kit.cli.install_constants import DEFAULT_INSTALL_URL
 
 
 class CliInstallTest(unittest.TestCase):
@@ -23,7 +22,7 @@ class CliInstallTest(unittest.TestCase):
         commands = parser._subparsers._group_actions[0].choices.keys()  # type: ignore[attr-defined]
         self.assertIn("install", commands)
 
-    def test_remote_ssh_command_uses_batch_mode_and_curl(self) -> None:
+    def test_remote_ssh_command_uses_batch_mode_and_bash_stdin(self) -> None:
         args = argparse.Namespace(
             remote_host="user@host.example",
             ref="v2.0.0a3",
@@ -43,8 +42,7 @@ class CliInstallTest(unittest.TestCase):
         self.assertIn("BatchMode=yes", argv)
         self.assertIn("ConnectTimeout=10", argv)
         joined = " ".join(argv)
-        self.assertIn("curl -fsSL", joined)
-        self.assertIn(DEFAULT_INSTALL_URL, joined)
+        self.assertIn("bash -s --", joined)
         self.assertIn("--yes", joined)
         self.assertIn("--ref", joined)
         self.assertIn("v2.0.0a3", joined)
@@ -133,7 +131,7 @@ class CliInstallTest(unittest.TestCase):
             code = cmd_install(args=args)
         self.assertEqual(code, 0)
         self.assertIn("ssh", stdout.getvalue())
-        self.assertIn("curl -fsSL", stdout.getvalue())
+        self.assertIn("bash -s --", stdout.getvalue())
         self.assertIn(_current_ref(), stdout.getvalue())
 
 

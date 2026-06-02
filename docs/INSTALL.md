@@ -17,6 +17,8 @@ Development channel (default):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/dev/install.sh | bash
+# or
+wget -qO- https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/dev/install.sh | bash
 ```
 
 Stable channel:
@@ -24,6 +26,9 @@ Stable channel:
 ```bash
 SECKIT_RELEASE_CHANNEL=release \
   curl -fsSL https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/main/install.sh | bash
+# or
+SECKIT_RELEASE_CHANNEL=release \
+  wget -qO- https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/main/install.sh | bash
 ```
 
 Default install:
@@ -37,6 +42,8 @@ Default install:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/dev/install.sh | bash -s -- --upgrade
+# or
+wget -qO- https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/dev/install.sh | bash -s -- --upgrade
 ```
 
 Or, after install:
@@ -95,6 +102,13 @@ ssh -o BatchMode=yes -o ConnectTimeout=10 user@host \
   'curl -fsSL https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/dev/install.sh | bash -s -- --yes'
 ```
 
+Equivalent with `wget`:
+
+```bash
+ssh -o BatchMode=yes -o ConnectTimeout=10 user@host \
+  'wget -qO- https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/dev/install.sh | bash -s -- --yes'
+```
+
 Convenience wrapper:
 
 ```bash
@@ -105,7 +119,7 @@ Remote install pins the release ref to the **caller’s installed version** (`v`
 
 ## Local development (checkout only)
 
-From a git clone — not for operator `curl | bash`:
+From a git clone — not for operator `curl|bash`/`wget|bash`:
 
 ```bash
 make install-dev

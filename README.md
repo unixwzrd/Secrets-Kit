@@ -34,6 +34,8 @@ If any row above is unclear, do not use this tool for real secrets yet.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/dev/install.sh | bash
+# or
+wget -qO- https://raw.githubusercontent.com/unixwzrd/Secrets-Kit/dev/install.sh | bash
 ```
 
 Full install/upgrade docs: [INSTALL.md](docs/INSTALL.md). Development checkout: `make install-dev`. Lint: `make lint`. For day-to-day use, the supported backend is **Keychain** (`--backend keychain`). SQLite standalone CLI use is available for development with `--backend sqlite --sqlite-dev-mode` while encryption-at-rest is still pending. **Reliable host-to-host transfer:** use the integration scripts or explicit export/import flows.
