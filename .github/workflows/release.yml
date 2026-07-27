@@ -4,13 +4,6 @@ on:
   push:
     tags:
       - "v*"
-  workflow_dispatch:
-    inputs:
-      publish_pypi:
-        description: "Publish the built distributions to PyPI using trusted publishing"
-        required: false
-        default: false
-        type: boolean
 
 permissions:
   contents: read
@@ -118,18 +111,3 @@ jobs:
         with:
           name: seckit-dist
           path: dist/*
-
-  publish-pypi:
-    if: github.event_name == 'workflow_dispatch' && inputs.publish_pypi
-    needs: collect-dist
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-    environment: pypi
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: seckit-dist
-          path: dist
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
