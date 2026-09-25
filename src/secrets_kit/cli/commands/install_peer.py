@@ -168,6 +168,26 @@ def _status_command(*, host: str | None) -> dict[str, Any]:
     return value
 
 
+def _wait_route_command(*, host: str | None, peer_id: str) -> None:
+    """Wait for the daemon's authenticated route event, never poll status."""
+    if host is None:
+        launcher = Path.home() / ".local/bin/seckit"
+        executable = str(launcher) if launcher.is_file() else shutil.which("seckit")
+        if not executable:
+            raise ValueError("local Secrets Kit command is unavailable")
+        argv = [executable, "internal", "wait-route", peer_id]
+    else:
+        argv = [
+            "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host,
+            f'"$HOME/.local/bin/seckit" internal wait-route {shlex.quote(peer_id)}',
+        ]
+    completed = subprocess.run(argv, text=True, capture_output=True, check=False, timeout=45)
+    if completed.returncode:
+        raise ValueError(
+            f"authorized route not connected on {host or 'this machine'}; no repair attempted"
+        )
+
+
 def verify_authorized_route(*, host: str) -> None:
     """Fail closed unless each live daemon reports the authenticated peer route."""
     local = _peer_command(host=None, parts=["export-identity", "--backend", "sqlite", "--json"])
@@ -177,6 +197,7 @@ def verify_authorized_route(*, host: str) -> None:
     local_id = _identity_summary(local)[0]
     remote_id = _identity_summary(remote)[0]
     for side, other_id in ((None, remote_id), (host, local_id)):
+        _wait_route_command(host=side, peer_id=other_id)
         status = _status_command(host=side)
         daemon = status.get("daemon")
         routing = status.get("routing")

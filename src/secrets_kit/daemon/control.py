@@ -40,6 +40,24 @@ def control_message_bytes(*, operation: str) -> bytes:
     ).encode("utf-8")
 
 
+def route_wait_message_bytes(*, peer_id: str, timeout_seconds: int) -> bytes:
+    """Request one bounded, local-only wait for an authenticated route event."""
+    peer_id = validate_identifier(value=peer_id, expected_type="node", field="peer_id")
+    if type(timeout_seconds) is not int or not 1 <= timeout_seconds <= 30:
+        raise ControlMessageError("route wait timeout must be 1..30 seconds")
+    return json.dumps(
+        {
+            "version": CONTROL_VERSION,
+            "kind": CONTROL_KIND,
+            "operation": "route-wait",
+            "peer_id": peer_id,
+            "timeout_seconds": timeout_seconds,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
 def runtime_access_message_bytes(*, operation: str, arguments: dict[str, Any]) -> bytes:
     """Serialize an opaque local request for the runtime authority worker."""
     return json.dumps(
@@ -118,5 +136,6 @@ __all__ = [
     "parse_daemon_message",
     "parse_route_frame",
     "route_frame_bytes",
+    "route_wait_message_bytes",
     "runtime_access_message_bytes",
 ]

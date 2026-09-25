@@ -50,6 +50,7 @@ from secrets_kit.daemon.client import (
     stop_daemon,
     wait_until_running,
 )
+from secrets_kit.daemon.control import route_wait_message_bytes
 from secrets_kit.daemon.server import (
     _handle_connection,
     _handle_request,
@@ -489,6 +490,37 @@ class DaemonTest(unittest.TestCase):
         self.assertFalse(should_stop)
         self.assertEqual(json.loads(response)["error"], "control_forbidden")
         admission_wake.assert_not_called()
+
+    def test_route_wait_is_local_only_and_bounded(self) -> None:
+        node = "node:12345678-1234-4123-8123-123456789012"
+        request = route_wait_message_bytes(peer_id=node, timeout_seconds=1)
+        routes = mock.Mock()
+        routes.wait_connected.return_value = True
+        adapter = mock.Mock()
+        adapter.name = "libp2p"
+        response, _ = _handle_request(
+            request, transport="libp2p", routing_table=routes, transport_adapter=adapter
+        )
+        self.assertEqual(json.loads(response)["error"], "control_forbidden")
+        routes.wait_connected.assert_not_called()
+        response, _ = _handle_request(
+            request, transport="uds", routing_table=routes, transport_adapter=adapter
+        )
+        self.assertEqual(json.loads(response)["response"], "route_connected")
+        routes.wait_connected.assert_called_once_with(
+            peer_id=node, adapter="libp2p", timeout=1
+        )
+        routes.wait_connected.return_value = False
+        response, _ = _handle_request(
+            request, transport="uds", routing_table=routes, transport_adapter=adapter
+        )
+        self.assertEqual(json.loads(response)["error"], "route_timeout")
+        invalid = json.dumps({
+            "kind": "control", "version": 1, "operation": "route-wait",
+            "peer_id": node, "timeout_seconds": 31,
+        }).encode()
+        response, _ = _handle_request(invalid, transport="uds", routing_table=routes)
+        self.assertEqual(json.loads(response)["error"], "bad_control")
 
     def test_read_only_peer_commands_emit_no_daemon_event(self) -> None:
         request = mock.Mock()

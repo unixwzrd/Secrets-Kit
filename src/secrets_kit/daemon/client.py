@@ -21,6 +21,7 @@ from typing import Any, Iterator
 from secrets_kit.daemon.control import (
     control_message_bytes,
     route_frame_bytes,
+    route_wait_message_bytes,
     runtime_access_message_bytes,
 )
 
@@ -121,6 +122,19 @@ def request_daemon(*, command: str, timeout: float = 1.0) -> dict[str, Any]:
     return _request_socket(
         payload=payload, timeout=timeout, sock_factory=lambda: socket.socket(socket.AF_UNIX)
     )
+
+
+def wait_daemon_route(*, peer_id: str, timeout_seconds: int = 30) -> None:
+    """Wait for one authenticated route event over the owner-only UDS."""
+    response = _request_socket(
+        payload=route_wait_message_bytes(
+            peer_id=peer_id, timeout_seconds=timeout_seconds
+        ),
+        timeout=timeout_seconds + 5,
+        sock_factory=lambda: socket.socket(socket.AF_UNIX),
+    )
+    if response.get("status") != "ok" or response.get("response") != "route_connected":
+        raise DaemonError(str(response.get("error") or "authorized route unavailable"))
 
 
 def request_daemon_status(*, timeout: float = 2.0) -> dict[str, Any]:

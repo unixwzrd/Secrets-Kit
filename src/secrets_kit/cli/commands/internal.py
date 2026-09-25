@@ -14,6 +14,7 @@ from secrets_kit.backends.sqlite.peer_endpoints import (
     reregister_local_endpoint,
 )
 from secrets_kit.cli.io import _fatal
+from secrets_kit.daemon.client import DaemonError, wait_daemon_route
 from secrets_kit.runtime.agent_access import handle_runtime_access_request
 from secrets_kit.runtime.endpoint_routes import build_endpoint_routes
 from secrets_kit.runtime.inbound_envelopes import apply_inbound_transaction_envelope_bytes
@@ -61,6 +62,15 @@ def cmd_internal_deliver_pending(*, args: argparse.Namespace) -> int:
             sort_keys=True,
         )
     )
+    return 0
+
+
+def cmd_internal_wait_route(*, args: argparse.Namespace) -> int:
+    """Wait for daemon route admission without a status-polling loop."""
+    try:
+        wait_daemon_route(peer_id=args.peer_id, timeout_seconds=args.timeout_seconds)
+    except (DaemonError, OSError, ValueError) as exc:
+        return _fatal(message=f"authorized route unavailable: {exc}", code=1)
     return 0
 
 
@@ -144,5 +154,6 @@ __all__ = [
     "cmd_internal_status",
     "cmd_internal_sign_transport_binding",
     "cmd_internal_transport_routes",
+    "cmd_internal_wait_route",
     "cmd_internal_verify_transport_binding",
 ]

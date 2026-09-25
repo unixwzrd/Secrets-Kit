@@ -44,6 +44,7 @@ from secrets_kit.daemon.transport import (
     create_transport,
     transport_mode,
 )
+from secrets_kit.identifiers import validate_identifier
 
 LOGGER = logging.getLogger(__name__)
 # Give independently started peers a bounded startup window before the
@@ -116,6 +117,27 @@ def _handle_request(
             if admission_wake is not None:
                 admission_wake()
             return _response(status="ok", response="admission_reconsidered"), False
+        if operation == "route-wait":
+            if transport != "uds":
+                return _response(status="error", error="control_forbidden"), False
+            peer_id = message.get("peer_id")
+            timeout_seconds = message.get("timeout_seconds")
+            if not isinstance(peer_id, str) or type(timeout_seconds) is not int or not 1 <= timeout_seconds <= 30:
+                return _response(status="error", error="bad_control"), False
+            try:
+                peer_id = validate_identifier(value=peer_id, expected_type="node", field="peer_id")
+            except ValueError:
+                return _response(status="error", error="bad_control"), False
+            if routing_table is None:
+                return _response(status="error", error="route_unavailable"), False
+            connected = routing_table.wait_connected(
+                peer_id=peer_id,
+                adapter=transport_adapter.name if transport_adapter else "direct_tcp",
+                timeout=timeout_seconds,
+            )
+            if not connected:
+                return _response(status="error", error="route_timeout"), False
+            return _response(status="ok", response="route_connected"), False
         return _response(status="error", error="unsupported_control"), False
 
     if message is not None and message.get("kind") == RUNTIME_ACCESS_KIND:

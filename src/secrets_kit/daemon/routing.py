@@ -45,6 +45,7 @@ class RoutingTable:
 
     def __init__(self, routes: list[PeerRoute] | tuple[PeerRoute, ...] = ()) -> None:
         self._lock = threading.RLock()
+        self._route_changed = threading.Condition(self._lock)
         self._bootstrap_routes = {
             route.peer_id: _with_source(route=route, source="bootstrap") for route in routes
         }
@@ -149,6 +150,7 @@ class RoutingTable:
         )
         with self._lock:
             self._discovered_routes[peer_id] = discovered
+            self._route_changed.notify_all()
         return discovered
 
     def mark_contact(self, *, peer_id: str) -> None:
@@ -159,6 +161,22 @@ class RoutingTable:
                 self._discovered_routes[peer_id] = _route_state(
                     route=route, connected=True, reachable=True
                 )
+                self._route_changed.notify_all()
+
+    def wait_connected(self, *, peer_id: str, adapter: str, timeout: float) -> bool:
+        """Wait for an authenticated route event without polling or dialing."""
+        peer_id = validate_identifier(value=peer_id, expected_type="node", field="peer_id")
+        with self._route_changed:
+            return self._route_changed.wait_for(
+                lambda: (
+                    (route := self._selected_route(peer_id=peer_id, adapter=adapter))
+                    is not None
+                    and route.connected
+                    and route.reachable
+                    and route.source not in {"bootstrap", "runtime_endpoint"}
+                ),
+                timeout=timeout,
+            )
 
     def discovered(self, *, peer_id: str, adapter: str) -> PeerRoute | None:
         """Return retained authenticated route evidence regardless of availability."""

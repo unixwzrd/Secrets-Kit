@@ -17,6 +17,7 @@ from secrets_kit.cli.commands.internal import (
     cmd_internal_status,
     cmd_internal_transport_routes,
     cmd_internal_verify_transport_binding,
+    cmd_internal_wait_route,
 )
 
 
@@ -51,6 +52,10 @@ def register_internal_commands(
     p_register.set_defaults(func=cmd_internal_register_endpoint)
     p_routes = internal_sub.add_parser("transport-routes", help=argparse.SUPPRESS)
     p_routes.set_defaults(func=cmd_internal_transport_routes)
+    p_wait = internal_sub.add_parser("wait-route", help=argparse.SUPPRESS)
+    p_wait.add_argument("peer_id")
+    p_wait.add_argument("--timeout-seconds", type=int, default=30)
+    p_wait.set_defaults(func=cmd_internal_wait_route)
     p_sign_binding = internal_sub.add_parser(
         "sign-transport-binding", help=argparse.SUPPRESS
     )

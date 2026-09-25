@@ -958,11 +958,14 @@ UPGRADE=1
                 {"peer_id": "local-node", "connected": True, "reachable": True}]}},
         ]
         with mock.patch("secrets_kit.cli.commands.install_peer._peer_command", side_effect=[local, remote]), \
-                mock.patch("secrets_kit.cli.commands.install_peer._status_command", side_effect=statuses):
+                mock.patch("secrets_kit.cli.commands.install_peer._status_command", side_effect=statuses), \
+                mock.patch("secrets_kit.cli.commands.install_peer._wait_route_command") as wait_route:
             verify_authorized_route(host="alice@peer.example")
+            self.assertEqual(wait_route.call_count, 2)
         statuses[1]["routing"]["routes"][0]["connected"] = False
         with mock.patch("secrets_kit.cli.commands.install_peer._peer_command", side_effect=[local, remote]), \
                 mock.patch("secrets_kit.cli.commands.install_peer._status_command", side_effect=statuses), \
+                mock.patch("secrets_kit.cli.commands.install_peer._wait_route_command"), \
                 self.assertRaisesRegex(ValueError, "authorized route not connected"):
             verify_authorized_route(host="alice@peer.example")
 

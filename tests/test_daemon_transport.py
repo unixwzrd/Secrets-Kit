@@ -114,6 +114,27 @@ class _FakeLifecycleHost:
 
 
 class DaemonTransportTests(unittest.TestCase):
+    def test_route_wait_is_woken_by_authenticated_discovery(self) -> None:
+        node = deterministic_identifier(
+            identifier_type="node", namespace="transport-tests", name="route-wait"
+        )
+        table = RoutingTable()
+        self.assertFalse(table.wait_connected(peer_id=node, adapter="libp2p", timeout=0.01))
+        timer = threading.Timer(
+            0.02,
+            lambda: table.install_discovered(
+                peer_id=node,
+                endpoint="/ip4/192.0.2.1/tcp/4001/p2p/remote",
+                transport_peer_id="remote",
+                adapter="libp2p",
+            ),
+        )
+        timer.start()
+        try:
+            self.assertTrue(table.wait_connected(peer_id=node, adapter="libp2p", timeout=1))
+        finally:
+            timer.join()
+
     """Exercise transport selection and opaque direct transport behavior."""
 
     def _wait_until(self, predicate, *, timeout: float = 2.0) -> None:

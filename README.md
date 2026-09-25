@@ -19,7 +19,7 @@
   - [Contributing](#contributing)
   - [Support / license](#support--license)
 
-**Repository:** `Secrets-Kit` · **CLI:** `seckit` · **Candidate:** `v2.0.1b12` (unqualified prerelease; not a public stable release)
+**Repository:** `Secrets-Kit` · **CLI:** `seckit` · **Candidate:** `v2.0.1b13` (unqualified prerelease; not a public stable release)
 
 Secrets Kit is a local-first secrets CLI for macOS and Linux. It supports macOS Keychain and encrypted SQLite storage, authenticated encrypted peer synchronization, optional RSS forwarding, selected environment injection through `seckit run`, and policy-scoped read-only stdio MCP access.
 
@@ -106,7 +106,7 @@ seckit upgrade
 seckit upgrade service install
 ```
 
-The installer records the release repository, channel, and RSS operator origin. Public beta updates need no GitHub authentication. Upgrades preserve customer state; intentional downgrades are not supported. `seckit install user@host --upgrade --ref v2.0.1b12` remains available for remote installation after that release is published.
+The installer records the release repository, channel, and RSS operator origin. Public beta updates need no GitHub authentication. Upgrades preserve customer state; intentional downgrades are not supported. `seckit install user@host --upgrade --ref v2.0.1b13` remains available for remote installation after that release is published.
 
 ## First commands
 
