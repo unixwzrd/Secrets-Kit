@@ -12,8 +12,14 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from secrets_kit.backends.keychain import (
+    delete_keychain,
+    delete_secret,
+    harden_keychain,
+    keychain_path,
+    make_temp_keychain,
+)
 from secrets_kit.cli import cmd_set
-from secrets_kit.keychain_backend import delete_keychain, delete_secret, harden_keychain, keychain_path, make_temp_keychain
 
 
 class LaunchdSmokeScriptInterfaceTest(unittest.TestCase):
@@ -51,7 +57,9 @@ def _daemon_launchd_tests_enabled() -> bool:
 
 
 @unittest.skipUnless(sys.platform == "darwin", "macOS-only launchd integration test")
-@unittest.skipUnless(_launchd_tests_enabled(), "set SECKIT_RUN_LAUNCHD_TESTS=1 to run launchd integration tests")
+@unittest.skipUnless(
+    _launchd_tests_enabled(), "set SECKIT_RUN_LAUNCHD_TESTS=1 to run launchd integration tests"
+)
 class LaunchdRunFlowTest(unittest.TestCase):
     def test_launch_agent_can_receive_seckit_run_environment(self) -> None:
         fixture = make_temp_keychain(password="launchd-pass")
@@ -88,7 +96,7 @@ class LaunchdRunFlowTest(unittest.TestCase):
                         domains=None,
                         meta=None,
                         keychain=fixture["path"],
-                        backend="local",
+                        backend="keychain",
                     )
                     self.assertEqual(cmd_set(args=set_args), 0)
 
@@ -149,7 +157,10 @@ class LaunchdRunFlowTest(unittest.TestCase):
                         time.sleep(0.2)
                     stdout = stdout_file.read_text(encoding="utf-8") if stdout_file.exists() else ""
                     stderr = stderr_file.read_text(encoding="utf-8") if stderr_file.exists() else ""
-                    self.assertTrue(output_file.exists(), f"launchd output was not created\nstdout={stdout}\nstderr={stderr}")
+                    self.assertTrue(
+                        output_file.exists(),
+                        f"launchd output was not created\nstdout={stdout}\nstderr={stderr}",
+                    )
                     self.assertEqual(output_file.read_text(encoding="utf-8"), "expected")
                 finally:
                     if bootstrapped:
@@ -165,7 +176,10 @@ class LaunchdRunFlowTest(unittest.TestCase):
             finally:
                 shutil.rmtree(fixture["directory"], ignore_errors=True)
 
-    @unittest.skipUnless(_login_keychain_launchd_tests_enabled(), "set SECKIT_RUN_LAUNCHD_LOGIN_KEYCHAIN_TESTS=1 to run login-keychain launchd test")
+    @unittest.skipUnless(
+        _login_keychain_launchd_tests_enabled(),
+        "set SECKIT_RUN_LAUNCHD_LOGIN_KEYCHAIN_TESTS=1 to run login-keychain launchd test",
+    )
     def test_launch_agent_can_receive_login_keychain_secret_without_keychain_password(self) -> None:
         label = f"ai.unixwzrd.seckit.launchd-login-test.{os.getpid()}"
         service_target = f"gui/{os.getuid()}/{label}"
@@ -203,7 +217,7 @@ class LaunchdRunFlowTest(unittest.TestCase):
                         domains=None,
                         meta=None,
                         keychain=None,
-                        backend="local",
+                        backend="keychain",
                     )
                     self.assertEqual(cmd_set(args=set_args), 0)
 
@@ -264,7 +278,10 @@ class LaunchdRunFlowTest(unittest.TestCase):
                         time.sleep(0.2)
                     stdout = stdout_file.read_text(encoding="utf-8") if stdout_file.exists() else ""
                     stderr = stderr_file.read_text(encoding="utf-8") if stderr_file.exists() else ""
-                    self.assertTrue(output_file.exists(), f"launchd login-keychain output was not created\nstdout={stdout}\nstderr={stderr}")
+                    self.assertTrue(
+                        output_file.exists(),
+                        f"launchd login-keychain output was not created\nstdout={stdout}\nstderr={stderr}",
+                    )
                     self.assertEqual(output_file.read_text(encoding="utf-8"), "expected-login")
                 finally:
                     if bootstrapped:
@@ -275,9 +292,14 @@ class LaunchdRunFlowTest(unittest.TestCase):
                             check=False,
                         )
         finally:
-            delete_secret(service=service, account=account, name=name, path=login_keychain, backend="local")
+            delete_secret(
+                service=service, account=account, name=name, path=login_keychain, backend="keychain"
+            )
 
-    @unittest.skipUnless(_service_keychain_launchd_tests_enabled(), "set SECKIT_RUN_LAUNCHD_SERVICE_KEYCHAIN_TESTS=1 to run service-keychain launchd test")
+    @unittest.skipUnless(
+        _service_keychain_launchd_tests_enabled(),
+        "set SECKIT_RUN_LAUNCHD_SERVICE_KEYCHAIN_TESTS=1 to run service-keychain launchd test",
+    )
     def test_smoke_script_service_agent_mode(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
         proc = subprocess.run(
@@ -291,7 +313,10 @@ class LaunchdRunFlowTest(unittest.TestCase):
         self.assertIn('"mode": "service-agent"', proc.stdout)
         self.assertIn("launchd smoke test passed", proc.stdout)
 
-    @unittest.skipUnless(_daemon_launchd_tests_enabled(), "set SECKIT_RUN_LAUNCHD_DAEMON_TESTS=1 to run LaunchDaemon test")
+    @unittest.skipUnless(
+        _daemon_launchd_tests_enabled(),
+        "set SECKIT_RUN_LAUNCHD_DAEMON_TESTS=1 to run LaunchDaemon test",
+    )
     def test_smoke_script_service_daemon_mode(self) -> None:
         if os.geteuid() != 0:
             self.skipTest("service-daemon launchd test must run as root")

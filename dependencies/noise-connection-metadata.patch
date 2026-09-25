@@ -1,0 +1,112 @@
+diff --git a/libp2p/security/noise/io.py b/libp2p/security/noise/io.py
+index d1460ed..b5e7666 100644
+--- a/libp2p/security/noise/io.py
++++ b/libp2p/security/noise/io.py
+@@ -54,0 +55,2 @@ class BaseNoiseMsgReadWriter(EncryptedMsgReadWriter):
++        # Store conn so inherited transport metadata delegates to RawConnection.
++        EncryptedMsgReadWriter.__init__(self, conn)
+diff --git a/tests/core/security/noise/test_connection_metadata.py b/tests/core/security/noise/test_connection_metadata.py
+new file mode 100644
+index 0000000..1c34969
+--- /dev/null
++++ b/tests/core/security/noise/test_connection_metadata.py
+@@ -0,0 +1,99 @@
++"""Noise must keep RawConnection relay metadata through session and mplex."""
++
++import pytest
++from multiaddr import Multiaddr
++from noise.connection import NoiseConnection
++
++from libp2p.connection_types import ConnectionType
++from libp2p.crypto.ed25519 import create_new_key_pair
++from libp2p.io.abc import ReadWriteCloser
++from libp2p.network.connection.raw_connection import RawConnection
++from libp2p.peer.id import ID
++from libp2p.security.noise.io import NoiseTransportReadWriter
++from libp2p.security.secure_session import SecureSession
++from libp2p.stream_muxer.mplex.mplex import Mplex
++
++# Remote socket that must not be rewritten into a transport multiaddr.
++_DECOY_REMOTE = ("203.0.113.9", 4001)
++_NOISE_PROTOCOL = b"Noise_XX_25519_ChaChaPoly_SHA256"
++
++
++class _IdleRawStream(ReadWriteCloser):
++    """Underlying stream whose endpoint is not transport metadata."""
++
++    def get_remote_address(self) -> tuple[str, int] | None:
++        return _DECOY_REMOTE
++
++    async def read(self, n: int | None = None) -> bytes:
++        return b""
++
++    async def write(self, data: bytes) -> None:
++        return None
++
++    async def close(self) -> None:
++        return None
++
++
++def _metadata_cases() -> list[object]:
++    relay_peer = ID.from_pubkey(create_new_key_pair().public_key).to_base58()
++    remote_peer = ID.from_pubkey(create_new_key_pair().public_key).to_base58()
++    relayed = Multiaddr(
++        f"/ip4/198.51.100.8/tcp/4001/p2p/{relay_peer}/p2p-circuit/p2p/{remote_peer}"
++    )
++    direct = Multiaddr("/ip4/192.0.2.10/tcp/4001")
++    return [
++        pytest.param(ConnectionType.RELAYED, [relayed], id="relayed"),
++        pytest.param(ConnectionType.DIRECT, [direct], id="direct"),
++        pytest.param(ConnectionType.UNKNOWN, [], id="unknown"),
++    ]
++
++
++def _assert_exact_metadata(
++    obj: object,
++    conn_type: ConnectionType,
++    addresses: list[Multiaddr],
++) -> None:
++    got_type = obj.get_connection_type()  # type: ignore[attr-defined]
++    got_addrs = obj.get_transport_addresses()  # type: ignore[attr-defined]
++    assert got_type is conn_type
++    assert got_addrs == addresses
++    assert [str(addr) for addr in got_addrs] == [str(addr) for addr in addresses]
++    decoy = _DECOY_REMOTE[0]
++    assert all(decoy not in str(addr) for addr in got_addrs)
++
++
++@pytest.mark.parametrize(("conn_type", "addresses"), _metadata_cases())
++def test_noise_preserves_raw_connection_metadata(
++    conn_type: ConnectionType,
++    addresses: list[Multiaddr],
++) -> None:
++    raw = RawConnection(
++        _IdleRawStream(),
++        initiator=False,
++        connection_type=conn_type,
++        addresses=list(addresses),
++    )
++    writer = NoiseTransportReadWriter(
++        raw,
++        NoiseConnection.from_name(_NOISE_PROTOCOL),
++    )
++
++    _assert_exact_metadata(writer, conn_type, addresses)
++    assert writer.get_transport_addresses() == raw.get_transport_addresses()
++    assert writer.get_connection_type() is raw.get_connection_type()
++    assert writer.conn is raw
++
++    local_key = create_new_key_pair()
++    remote_key = create_new_key_pair()
++    session = SecureSession(
++        local_peer=ID.from_pubkey(local_key.public_key),
++        local_private_key=local_key.private_key,
++        remote_peer=ID.from_pubkey(remote_key.public_key),
++        remote_permanent_pubkey=remote_key.public_key,
++        is_initiator=True,
++        conn=writer,
++    )
++    _assert_exact_metadata(session, conn_type, addresses)
++
++    muxed = Mplex(session, session.get_remote_peer())
++    _assert_exact_metadata(muxed, conn_type, addresses)

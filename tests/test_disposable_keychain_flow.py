@@ -3,25 +3,30 @@ from __future__ import annotations
 import argparse
 import io
 import os
-import subprocess
-from contextlib import redirect_stdout
-from pathlib import Path
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from pathlib import Path
 from unittest import mock
 
+from secrets_kit.backends.keychain import (
+    delete_keychain,
+    lock_keychain,
+    make_temp_keychain,
+)
 from secrets_kit.cli import cmd_export, cmd_get, cmd_import_env, cmd_set
-from secrets_kit.keychain_backend import delete_keychain, keychain_path, lock_keychain, make_temp_keychain
+from secrets_kit.registry import ensure_registry_storage
 
 
 def _pythonpath_for_subprocess_hijacked_home(*, src_relative_to_repo: Path) -> str:
     """Build PYTHONPATH when env HOME is replaced so child Python still finds deps.
 
     Apple ``python3`` often loads PyPI wheels from ``~/Library/Python/...``.
-    A temp ``HOME`` makes that path points at an empty tree, so ``import yaml``
-    fails unless we add the real user-site dir explicitly.
+    A temp ``HOME`` makes that path point at an empty tree, so add the real
+    user-site dir explicitly when it exists.
     """
     import site
 
@@ -49,6 +54,7 @@ class DisposableKeychainFlowTest(unittest.TestCase):
             with tempfile.TemporaryDirectory() as home_dir:
                 home = Path(home_dir)
                 with mock.patch("pathlib.Path.home", return_value=home):
+                    ensure_registry_storage(home=home)
                     set_args = argparse.Namespace(
                         name="SECKIT_TEST_ALPHA",
                         value="alpha-1",
@@ -70,7 +76,8 @@ class DisposableKeychainFlowTest(unittest.TestCase):
                         meta=None,
                         keychain=src["path"],
                     )
-                    self.assertEqual(cmd_set(args=set_args), 0)
+                    with redirect_stdout(io.StringIO()):
+                        self.assertEqual(cmd_set(args=set_args), 0)
 
                     export_args = argparse.Namespace(
                         service="sync-test",
@@ -107,7 +114,8 @@ class DisposableKeychainFlowTest(unittest.TestCase):
                         allow_empty=False,
                         yes=True,
                     )
-                    self.assertEqual(cmd_import_env(args=import_args), 0)
+                    with redirect_stdout(io.StringIO()):
+                        self.assertEqual(cmd_import_env(args=import_args), 0)
 
                     get_args = argparse.Namespace(
                         name="SECKIT_TEST_ALPHA",
@@ -127,7 +135,10 @@ class DisposableKeychainFlowTest(unittest.TestCase):
                 finally:
                     shutil.rmtree(fixture["directory"], ignore_errors=True)
 
-    @unittest.skipUnless(_locked_keychain_tests_enabled(), "set SECKIT_RUN_LOCKED_KEYCHAIN_TESTS=1 to run locked-keychain prompt tests")
+    @unittest.skipUnless(
+        _locked_keychain_tests_enabled(),
+        "set SECKIT_RUN_LOCKED_KEYCHAIN_TESTS=1 to run locked-keychain prompt tests",
+    )
     def test_locked_destination_fails_import(self) -> None:
         src = make_temp_keychain(password="src-pass")
         dst = make_temp_keychain(password="dst-pass")
@@ -135,6 +146,7 @@ class DisposableKeychainFlowTest(unittest.TestCase):
             with tempfile.TemporaryDirectory() as home_dir:
                 home = Path(home_dir)
                 with mock.patch("pathlib.Path.home", return_value=home):
+                    ensure_registry_storage(home=home)
                     set_args = argparse.Namespace(
                         name="SECKIT_TEST_ALPHA",
                         value="alpha-1",
@@ -156,7 +168,8 @@ class DisposableKeychainFlowTest(unittest.TestCase):
                         meta=None,
                         keychain=src["path"],
                     )
-                    self.assertEqual(cmd_set(args=set_args), 0)
+                    with redirect_stdout(io.StringIO()):
+                        self.assertEqual(cmd_set(args=set_args), 0)
 
                     export_args = argparse.Namespace(
                         service="sync-test",
@@ -194,7 +207,8 @@ class DisposableKeychainFlowTest(unittest.TestCase):
                         allow_empty=False,
                         yes=True,
                     )
-                    self.assertEqual(cmd_import_env(args=import_args), 1)
+                    with redirect_stdout(io.StringIO()):
+                        self.assertEqual(cmd_import_env(args=import_args), 1)
         finally:
             for fixture in (src, dst):
                 try:
@@ -208,6 +222,7 @@ class DisposableKeychainFlowTest(unittest.TestCase):
             with tempfile.TemporaryDirectory() as home_dir:
                 home = Path(home_dir)
                 with mock.patch("pathlib.Path.home", return_value=home):
+                    ensure_registry_storage(home=home)
                     set_args = argparse.Namespace(
                         name="SECKIT_TEST_ENV",
                         value="expected",
@@ -228,9 +243,10 @@ class DisposableKeychainFlowTest(unittest.TestCase):
                         domains=None,
                         meta=None,
                         keychain=fixture["path"],
-                        backend="local",
+                        backend="keychain",
                     )
-                    self.assertEqual(cmd_set(args=set_args), 0)
+                    with redirect_stdout(io.StringIO()):
+                        self.assertEqual(cmd_set(args=set_args), 0)
 
                 out_file = home / "child-env.txt"
                 child_code = (
@@ -239,33 +255,46 @@ class DisposableKeychainFlowTest(unittest.TestCase):
                 )
                 env = os.environ.copy()
                 env["HOME"] = str(home)
+                env["SECKIT_DAEMON_RUNTIME_DIR"] = str(
+                    home / ".local" / "share" / "seckit" / "runtime"
+                )
                 repo_root = Path(__file__).resolve().parents[1]
                 env["PYTHONPATH"] = _pythonpath_for_subprocess_hijacked_home(
                     src_relative_to_repo=repo_root / "src"
                 )
-                proc = subprocess.run(
-                    [
-                        sys.executable,
-                        "-m",
-                        "secrets_kit.cli",
-                        "run",
-                        "--service",
-                        "run-test",
-                        "--account",
-                        "local",
-                        "--keychain",
-                        fixture["path"],
-                        "--",
-                        sys.executable,
-                        "-c",
-                        child_code,
-                        str(out_file),
-                    ],
-                    env=env,
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                )
+                try:
+                    proc = subprocess.run(
+                        [
+                            sys.executable,
+                            "-m",
+                            "secrets_kit.cli",
+                            "run",
+                            "--service",
+                            "run-test",
+                            "--account",
+                            "local",
+                            "--keychain",
+                            fixture["path"],
+                            "--",
+                            sys.executable,
+                            "-c",
+                            child_code,
+                            str(out_file),
+                        ],
+                        env=env,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                finally:
+                    subprocess.run(
+                        [sys.executable, "-m", "secrets_kit.cli", "daemon", "stop"],
+                        cwd=repo_root,
+                        env=env,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
                 self.assertEqual(proc.returncode, 0, proc.stderr)
                 self.assertEqual(out_file.read_text(encoding="utf-8"), "expected")
         finally:

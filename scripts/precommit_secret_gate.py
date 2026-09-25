@@ -7,7 +7,6 @@ import re
 import sys
 from pathlib import Path
 
-
 PATTERNS = [
     re.compile(r"sk-[A-Za-z0-9]{20,}"),  # OpenAI style
     re.compile(r"ghp_[A-Za-z0-9]{20,}"),  # GitHub
@@ -27,16 +26,16 @@ def scan_file(path: Path) -> list[str]:
         text = path.read_text(encoding="utf-8", errors="ignore")
     except OSError:
         return hits
-    for line in text.splitlines():
+    for line_number, line in enumerate(text.splitlines(), start=1):
         if "API_KEY" in line or "TOKEN" in line or "SECRET" in line:
             if "=" in line:
                 _, raw = line.split("=", 1)
                 val = raw.strip().strip("\"' ")
                 if val and not is_placeholder(val):
-                    hits.append(line.strip()[:200])
+                    hits.append(f"line {line_number}: possible secret assignment")
         for pattern in PATTERNS:
             if pattern.search(line):
-                hits.append(line.strip()[:200])
+                hits.append(f"line {line_number}: possible credential pattern")
                 break
     return hits
 

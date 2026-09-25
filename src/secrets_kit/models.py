@@ -1,12 +1,18 @@
-"""Data models and validation for seckit."""
+"""
+secrets_kit.models
+
+Data models and validation for seckit.
+"""
 
 from __future__ import annotations
 
+import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
-import json
-import re
 from typing import Any, Dict, List, Literal, Optional
+
+from secrets_kit.identifiers import random_uuid_text
+from secrets_kit.internal_metadata import ENTRY_ID_CUSTOM_KEY, SYNC_ORIGIN_CUSTOM_KEY
 
 EntryType = Literal["secret", "pii"]
 EntryKind = Literal[
@@ -23,6 +29,8 @@ EntryKind = Literal[
     "pii_other",
 ]
 KEY_PATTERN = re.compile(r"^[A-Z0-9_]+$")
+# Bundled seed names for tests and defaults hints — not the runtime vocabulary authority.
+# Use the taxonomy registry (`seckit taxonomy list`) for the active vocabulary set.
 ENTRY_KIND_VALUES: List[str] = [
     "generic",
     "token",
@@ -56,9 +64,12 @@ class EntryMetadata:
     comment: str = ""
     service: str = "seckit"
     account: str = "default"
+    entry_id: str = ""
+    sync_origin_host: str = ""
     created_at: str = field(default_factory=lambda: now_utc_iso())
     updated_at: str = field(default_factory=lambda: now_utc_iso())
     source: str = "manual"
+    schema_id: str = ""
     schema_version: int = METADATA_SCHEMA_VERSION
     source_url: str = ""
     source_label: str = ""
@@ -70,7 +81,7 @@ class EntryMetadata:
     custom: Dict[str, Any] = field(default_factory=dict)
 
     def key(self) -> str:
-        """Return unique registry key."""
+        """Return the local metadata projection key."""
         return make_registry_key(service=self.service, account=self.account, name=self.name)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -80,6 +91,7 @@ class EntryMetadata:
     @classmethod
     def from_dict(cls, payload: Dict[str, Any]) -> "EntryMetadata":
         """Create metadata from dict payload."""
+        custom = normalize_custom(payload.get("custom", {}))
         return cls(
             name=str(payload["name"]),
             entry_type=str(payload.get("entry_type", payload.get("type", "secret"))),
@@ -88,9 +100,17 @@ class EntryMetadata:
             comment=str(payload.get("comment", "")),
             service=str(payload.get("service", "seckit")),
             account=str(payload.get("account", "default")),
+            entry_id=str(payload.get("entry_id", custom.get(ENTRY_ID_CUSTOM_KEY, ""))),
+            sync_origin_host=str(
+                payload.get(
+                    "sync_origin_host",
+                    custom.get(SYNC_ORIGIN_CUSTOM_KEY, ""),
+                )
+            ),
             created_at=str(payload.get("created_at", now_utc_iso())),
             updated_at=str(payload.get("updated_at", now_utc_iso())),
             source=str(payload.get("source", "manual")),
+            schema_id=str(payload.get("schema_id", "")),
             schema_version=int(payload.get("schema_version", METADATA_SCHEMA_VERSION)),
             source_url=str(payload.get("source_url", "")),
             source_label=str(payload.get("source_label", "")),
@@ -99,33 +119,31 @@ class EntryMetadata:
             last_rotated_at=str(payload.get("last_rotated_at", "")),
             expires_at=str(payload.get("expires_at", "")),
             domains=normalize_domains(payload.get("domains", [])),
-            custom=normalize_custom(payload.get("custom", {})),
+            custom=custom,
         )
 
     def to_keychain_comment(self) -> str:
         """Serialize metadata into the keychain comment payload."""
-        return json.dumps(self.to_dict(), separators=(",", ":"), sort_keys=True)
+        from secrets_kit.backends.keychain.comment_codec import format_keychain_comment
+
+        return format_keychain_comment(metadata=self)
 
     @classmethod
     def from_keychain_comment(cls, comment: str) -> Optional["EntryMetadata"]:
         """Parse a metadata payload stored in the keychain comment field."""
-        stripped = comment.strip()
-        if not stripped:
-            return None
-        try:
-            payload = json.loads(stripped)
-        except json.JSONDecodeError:
-            return None
-        if not isinstance(payload, dict):
-            return None
-        if "name" not in payload or "service" not in payload or "account" not in payload:
-            return None
-        return cls.from_dict(payload)
+        from secrets_kit.backends.keychain.comment_codec import parse_keychain_comment
+
+        return parse_keychain_comment(comment=comment)
 
 
 def now_utc_iso() -> str:
     """Return current UTC timestamp in ISO-8601 format."""
     return datetime.now(tz=timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def new_entry_id() -> str:
+    """Return a new stable entry UUID for backend metadata."""
+    return random_uuid_text()
 
 
 def validate_key_name(*, name: str) -> str:
@@ -214,5 +232,5 @@ def _optional_int(value: Any) -> Optional[int]:
 
 
 def make_registry_key(*, service: str, account: str, name: str) -> str:
-    """Create composite key for metadata registry."""
+    """Create composite key for the local metadata projection."""
     return f"{service}::{account}::{name}"

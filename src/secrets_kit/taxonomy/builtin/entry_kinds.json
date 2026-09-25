@@ -1,0 +1,15 @@
+{
+  "entry_kinds": [
+    {"name": "generic", "builtin": true},
+    {"name": "token", "builtin": true},
+    {"name": "password", "builtin": true},
+    {"name": "user_id", "builtin": true},
+    {"name": "api_key", "builtin": true},
+    {"name": "email", "builtin": true},
+    {"name": "phone", "builtin": true},
+    {"name": "address", "builtin": true},
+    {"name": "credit_card", "builtin": true},
+    {"name": "wallet", "builtin": true},
+    {"name": "pii_other", "builtin": true}
+  ]
+}

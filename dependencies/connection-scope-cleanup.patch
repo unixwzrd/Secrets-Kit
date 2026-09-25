@@ -1,0 +1,114 @@
+--- a/libp2p/network/swarm.py
++++ b/libp2p/network/swarm.py
+@@ -718,6 +718,10 @@
+             # Enable PNET if psk is provided
+             if self.psk is not None:
+                 raw_conn = new_protected_conn(raw_conn, self.psk)
++        except trio.Cancelled:
++            if pre_scope is not None:
++                pre_scope.close()
++            raise
+         except OpenConnectionError as error:
+             logger.debug("fail to dial peer %s over base transport", peer_id)
+             # Release pre-upgrade scope on failure
+@@ -749,6 +753,9 @@
+             )
+             try:
+                 swarm_conn = await self.add_conn(raw_conn, direction="outbound")
++                if pre_scope is not None:
++                    pre_scope.close()
++                    pre_scope = None
+                 return swarm_conn
+             except Exception:
+                 # Clean up on failure
+@@ -764,19 +771,26 @@
+                 raise
+ 
+         logger.debug("dialed peer %s over base transport", peer_id)
+-        if not isinstance(raw_conn, IRawConnection):
+-            raise TypeError("Expected an IRawConnection to upgrade")
+         try:
++            if not isinstance(raw_conn, IRawConnection):
++                raise TypeError("Expected an IRawConnection to upgrade")
+             swarm_conn = await self.upgrade_outbound_raw_conn(
+                 raw_conn, peer_id, pre_scope
+             )
+-        except Exception:
+-            # Ensure raw_conn is closed if upgrade fails
+-            try:
+-                await raw_conn.close()
+-            except Exception:
+-                pass
++        except BaseException:
++            # Cancellation during security/muxer negotiation must release the
++            # socket too. Shield only bounded cleanup, never the handshake.
++            with trio.move_on_after(1, shield=True):
++                try:
++                    await raw_conn.close()
++                except Exception:
++                    pass
+             raise
++        finally:
++            # The upgrade closes this when transferring admission to the peer
++            # scope. Its endpoint-aware close is not idempotent: release once.
++            if pre_scope is not None and not pre_scope.closed:
++                pre_scope.close()
+ 
+         logger.debug("successfully dialed peer %s", peer_id)
+ 
+@@ -1430,6 +1444,9 @@
+ 
+         async def _cleanup_inbound_upgrade() -> None:
+             """Clean up all resources from a failed inbound upgrade."""
++            # Release synchronous admission even if socket cleanup is cancelled.
++            if pre_scope is not None and not pre_scope.closed:
++                pre_scope.close()
+             if muxed_conn is not None:
+                 try:
+                     await muxed_conn.close()
+@@ -1444,12 +1461,6 @@
+                 await raw_conn.close()
+             except Exception:
+                 pass
+-            try:
+-                if pre_scope is not None and hasattr(pre_scope, "close"):
+-                    pre_scope.close()
+-            except Exception:
+-                pass
+-
+         try:
+             # Apply inbound_upgrade_timeout so a stalled security/muxer
+             # handshake cannot hang indefinitely.
+@@ -1480,6 +1491,10 @@
+                         f"fail to upgrade mux for peer {peer_id}"
+                     ) from error
+                 logger.debug("upgraded mux for peer %s", peer_id)
++        except trio.Cancelled:
++            with trio.move_on_after(1, shield=True):
++                await _cleanup_inbound_upgrade()
++            raise
+         except trio.TooSlowError:
+             logger.debug(
+                 "Inbound upgrade timeout (%.1fs) exceeded for %s",
+@@ -1635,14 +1650,17 @@
+ 
+         """
+         # Apply resource manager checks to ALL connection types (TCP, WebSocket, QUIC)
+-        conn_scope = None
++        # Upgraded TCP connections already carry their admitted scope. Adopt it
++        # instead of allocating a second scope and losing the first one.
++        conn_scope = getattr(muxed_conn, "_resource_scope", None)
+         if self._resource_manager is not None:
+             try:
+                 # Extract peer_id from any muxed connection type
+                 peer_id_for_scope = muxed_conn.peer_id
+-                conn_scope = self._resource_manager.open_connection(
+-                    peer_id=peer_id_for_scope,
+-                )
++                if conn_scope is None:
++                    conn_scope = self._resource_manager.open_connection(
++                        peer_id=peer_id_for_scope,
++                    )
+                 if conn_scope is None:
+                     # Resource manager denied the connection.
+                     # Keep the message concise so it fits within the

@@ -4,28 +4,66 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "seckit"
-version = "1.2.3"
+version = "2.0.1b12"
 description = "Local macOS CLI for handling secrets and PII without leaving them scattered in plain-text files"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 license = "MIT"
 authors = [{ name = "unixwzrd", email = "unixwzrd@unixwzrd.ai" }]
 dependencies = [
-  "cryptography>=42.0.0",
-  "PyYAML>=6.0",
+  "cryptography==50.0.1",
+  "cbor2>=5.4.0,<6.0.0",
+  "libp2p==0.7.0+seckit.4",
+  "psutil==7.2.2",
+  "tomli>=2.0.0",
+  "zeroconf==0.150.5+seckit.1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "zstandard==0.25.0",
+  "ruff>=0.8",
+  "basedpyright>=1.20",
+  "pre-commit>=3.5",
 ]
 
 [project.scripts]
 secrets-kit = "secrets_kit.cli:main"
 seckit = "secrets_kit.cli:main"
+seckitd = "secrets_kit.daemon.server:main"
+seckit-mcp = "secrets_kit.mcp_server:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
 
-[tool.setuptools.package-data]
-secrets_kit = [
-  "native_helper_bundled/README.md",
-]
-
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"secrets_kit" = ["py.typed"]
+"secrets_kit.schemas" = ["builtin/*.json"]
+"secrets_kit.taxonomy" = ["builtin/*.json"]
+
+[tool.setuptools.data-files]
+"share/seckit" = ["scripts/manage-peer-boot-service.sh"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B"]
+ignore = ["E501", "B008"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/__init__.py" = ["F401"]
+
+[tool.basedpyright]
+include = ["src", "tests"]
+extraPaths = ["src"]
+pythonVersion = "3.11"
+typeCheckingMode = "off"
+reportMissingImports = true
+reportMissingModuleSource = true
+reportMissingTypeStubs = false

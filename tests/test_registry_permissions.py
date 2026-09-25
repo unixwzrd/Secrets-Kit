@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
-from secrets_kit.registry import defaults_path, ensure_defaults_storage, ensure_registry_storage, registry_dir, registry_path
+from secrets_kit.registry import (
+    defaults_path,
+    ensure_defaults_storage,
+    ensure_registry_storage,
+    registry_dir,
+    registry_path,
+)
 
 
 class RegistryPermissionsTest(unittest.TestCase):

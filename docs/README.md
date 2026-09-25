@@ -1,42 +1,39 @@
 # Secrets Kit documentation
 
-**Updated:** 2026-05-04
+**Created:** 2026-03-10
+**Updated:** 2026-08-20
 
-Use this page as the map. The root [README](../README.md) stays short; detail lives here.
+Use this page as the public documentation map. The root [README](../README.md) stays short; day-to-day detail lives here.
+
+- [Secrets Kit documentation](#secrets-kit-documentation)
+  - [Operators](#operators)
+  - [CLI And Metadata](#cli-and-metadata)
+  - [Development Checks](#development-checks)
 
 ## Operators
 
-| Doc | Purpose |
-|-----|---------|
-| [QUICKSTART.md](QUICKSTART.md) | Shortest path: install, unlock keychain, set/list/run |
-| [USAGE.md](USAGE.md) | Command reference: set, get, list, import, export, run, migrate |
-| [DEFAULTS.md](DEFAULTS.md) | `defaults.json`, env vars, `seckit config` |
-| [SECURITY_MODEL.md](SECURITY_MODEL.md) | What the tool does and does not protect |
-| [INTEGRATIONS.md](INTEGRATIONS.md) | Patterns for apps, agents, Hermes, OpenClaw |
-| [EXAMPLES.md](EXAMPLES.md) | Small scripts and command snippets |
-| [examples/](examples/) | Runnable shell examples |
+| Doc                                            | Purpose                                                                     |
+| ---------------------------------------------- | --------------------------------------------------------------------------- |
+| [QUICKSTART.md](QUICKSTART.md)                 | Shortest path: install, unlock keychain, set/list/run                       |
+| [USAGE.md](USAGE.md)                           | Entry point + links to CLI docs (minimal examples)                          |
+| [DEFAULTS.md](DEFAULTS.md)                     | `defaults.json`, env vars, `seckit config`                                  |
+| [SECURITY_MODEL.md](SECURITY_MODEL.md)         | What the tool does and does not protect                                     |
+| [OPERATOR_LIFECYCLE.md](OPERATOR_LIFECYCLE.md) | Export/resilience policy and current/next-RC uninstall contract              |
+| [INTEGRATIONS.md](INTEGRATIONS.md)             | Patterns for apps, agents, and runtimes (includes legacy OpenClaw examples) |
+| [EXAMPLES.md](EXAMPLES.md)                     | Small scripts and command snippets                                          |
+| [examples/](examples/)                         | Runnable shell examples                                                     |
 
-## Keychain backends and validation
+## CLI And Metadata
 
-| Doc | Purpose |
-|-----|---------|
-| [ICLOUD_SYNC_VALIDATION.md](ICLOUD_SYNC_VALIDATION.md) | **Legacy:** iCloud helper path (unsupported); use **secure** + export/import for real workflows |
-| [plans/icloud-two-host-checklist.md](plans/icloud-two-host-checklist.md) | **Historical** two-Mac checklist (experimental iCloud helper only) |
-| [CROSS_HOST_VALIDATION.md](CROSS_HOST_VALIDATION.md) | Disposable-keychain transfer tests |
-| [CROSS_HOST_CHECKLIST.md](CROSS_HOST_CHECKLIST.md) | Operational checklist |
-| [LAUNCHD_VALIDATION.md](LAUNCHD_VALIDATION.md) | LaunchAgent/Daemon notes |
+| Doc                                        | Purpose                                                              |
+| ------------------------------------------ | -------------------------------------------------------------------- |
+| [CONCEPTS.md](CONCEPTS.md)                 | Operator mental model; resolve vs materialize; compatibility summary |
+| [CLI_REFERENCE.md](CLI_REFERENCE.md)       | Full command reference                                               |
+| [LOCALIZATION.md](LOCALIZATION.md) | Language selection and adding translations |
+| [WORKFLOWS.md](WORKFLOWS.md)               | Recipes and common operator flows                                    |
+| [TAXONOMY.md](TAXONOMY.md)                 | Entry types, kinds, and tags                                         |
+| [METADATA_SCHEMAS.md](METADATA_SCHEMAS.md) | Custom metadata field descriptors                                    |
 
-## Packaging and maintainers
+## Development Checks
 
-| Doc | Purpose |
-|-----|---------|
-| [GITHUB_RELEASE_BUILD.md](GITHUB_RELEASE_BUILD.md) | Wheels, universal2, GitHub Actions secrets, local packaging scripts |
-
-## Internal / planning (may move or trim)
-
-| Doc | Purpose |
-|-----|---------|
-| [SECKIT_RUN_AND_BACKEND_REWORK_PLAN.md](SECKIT_RUN_AND_BACKEND_REWORK_PLAN.md) | Historical/rework notes |
-| [METADATA_REGISTRY.md](METADATA_REGISTRY.md) | Registry schema |
-
-Checklists shipped with the repo: **`docs/plans/icloud-two-host-checklist.md`** (other files under **`docs/plans/`** are gitignored for local notes).
+GitHub Actions runs `scripts/run_local_validation.sh` on macOS. For local work, install dev dependencies once (`pip install -e ".[dev]"` in your active Python environment — see [README Contributing](../README.md#contributing)), then use `make` / `make help` for validation targets. Start with `make validate-fast`; use `make validate-full` or `make make-all` when you also want integration and launchd layers. `make lint` requires **ruff** and **basedpyright** from the `dev` optional dependency group in `pyproject.toml`. `make test-keychain` runs the Keychain integration path, `make test-sqlite` runs the SQLite integration path, and `make test-integration` runs both. Some tests require interactive Keychain access or PyNaCl; others use SQLite-only harnesses.

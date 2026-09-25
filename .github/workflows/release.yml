@@ -1,7 +1,10 @@
 name: release
 
 on:
+  workflow_dispatch:
   push:
+    branches:
+      - "**"
     tags:
       - "v*"
 
@@ -13,51 +16,69 @@ env:
 
 jobs:
   validate:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Restore exact pushed tag ref
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        run: git fetch --no-tags --no-recurse-submodules origin "+${GITHUB_REF}:${GITHUB_REF}"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Release channel preflight
+        run: bash ./scripts/release_preflight.sh
+      - name: Install for tests
+        run: |
+          python -m pip install -U pip setuptools wheel
+          python -m pip install --find-links dependencies -e ".[dev]"
+      - name: Validate
+        run: |
+          export PYTHON="$(command -v python)"
+          make lint PYTHON="$PYTHON"
+          make test-fast PYTHON="$PYTHON"
+          make test-sqlite-unit PYTHON="$PYTHON"
+
+  wheel:
+    needs: [validate]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Release preflight (tag vs pyproject)
-        run: bash ./scripts/release_preflight.sh
-      - name: Install for tests
-        run: |
-          python -m pip install -U pip setuptools wheel
-          python -m pip install -e .
-      - name: Validate
-        run: |
-          bash ./scripts/run_local_validation.sh --without-localhost-transport
-
-  wheel:
-    needs: [validate]
-    runs-on: macos-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-      - name: Build wheel
+      - name: Build universal wheel
         run: |
           python -m pip install -U pip setuptools wheel build
           python -m build -w -n
-      - name: Smoke test wheel install (same interpreter as matrix)
+          test "$(find dist -maxdepth 1 -name 'seckit-*-py3-none-any.whl' | wc -l | tr -d ' ')" = "1"
+      - name: Verify release artifact naming (installer contract)
+        run: bash ./scripts/verify-release-artifacts.sh --local
+      - name: Smoke test wheel install
         run: |
           rm -rf .wheel-smoke
           python -m venv .wheel-smoke
           .wheel-smoke/bin/python -m pip install -U pip
-          .wheel-smoke/bin/pip install dist/*.whl
-          .wheel-smoke/bin/seckit version
-          .wheel-smoke/bin/seckit version --json | python -m json.tool > /dev/null
-          .wheel-smoke/bin/seckit helper status | python -m json.tool > /dev/null
+          .wheel-smoke/bin/pip install --find-links dependencies dist/*.whl
+          .wheel-smoke/bin/seckit --version
+          .wheel-smoke/bin/seckit info --json | python -m json.tool > /dev/null
+          .wheel-smoke/bin/seckit doctor --install-check | python -m json.tool > /dev/null
+      - name: Include pinned dependency in release bundle
+        run: |
+          (cd dependencies && sha256sum -c installer-pins.sha256)
+          cp dependencies/installer-pins.sha256 dist/
+          while read -r digest artifact; do
+            [[ "$digest" =~ ^[a-f0-9]{64}$ && "$artifact" =~ ^[A-Za-z0-9_+.-]+$ ]] || exit 1
+            cp "dependencies/$artifact" dist/
+          done < dependencies/installer-pins.sha256
       - uses: actions/upload-artifact@v4
         with:
-          name: wheel-py${{ matrix.python-version }}
-          path: dist/*.whl
+          name: wheel
+          path: |
+            dist/*.whl
+            dist/zeroconf-*.tar.gz
+            dist/installer-pins.sha256
 
   sdist:
     needs: validate
@@ -81,33 +102,61 @@ jobs:
     needs: [wheel, sdist]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - uses: actions/download-artifact@v4
         with:
-          name: wheel-py3.9
-          path: dist
-      - uses: actions/download-artifact@v4
-        with:
-          name: wheel-py3.10
-          path: dist
-      - uses: actions/download-artifact@v4
-        with:
-          name: wheel-py3.11
-          path: dist
-      - uses: actions/download-artifact@v4
-        with:
-          name: wheel-py3.12
-          path: dist
-      - uses: actions/download-artifact@v4
-        with:
-          name: wheel-py3.13
+          name: wheel
           path: dist
       - uses: actions/download-artifact@v4
         with:
           name: sdist
           path: dist
-      - name: List dist
-        run: ls -la dist
+      - name: Generate repository-bound installer and checksums
+        run: |
+          mkdir installer-input
+          cp dist/*.whl dist/*.tar.gz dist/installer-pins.sha256 install.sh installer-input/
+          printf '%s\n' "$GITHUB_SHA" > installer-input/source-commit.txt
+          (cd installer-input && sha256sum *.whl *.tar.gz install.sh installer-pins.sha256 source-commit.txt > manifest.sha256)
+          rss_operator_url=""
+          if [[ "$GITHUB_REF" == "refs/heads/beta" || "$GITHUB_REF" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+b[0-9]+$ ]]; then
+            rss_operator_url="${{ vars.SECKIT_BETA_OPERATOR_URL }}"
+            [[ -n "$rss_operator_url" ]] || { echo 'SECKIT_BETA_OPERATOR_URL repository variable is required' >&2; exit 1; }
+          fi
+          python scripts/build-standalone-installer.py installer-input dist/install.sh --rss-operator-url "$rss_operator_url"
+          cp installer-input/source-commit.txt dist/
+          bash dist/install.sh --verify-only
+          (cd dist && sha256sum *.whl *.tar.gz install.sh install.sh.sha256 installer-pins.sha256 source-commit.txt release-origin.json > manifest.sha256 && sha256sum -c manifest.sha256)
       - uses: actions/upload-artifact@v4
         with:
           name: seckit-dist
           path: dist/*
+
+  publish-github-release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [collect-dist]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: seckit-dist
+          path: dist
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd dist
+          sha256sum -c manifest.sha256
+          release_flags=()
+          if [[ "$GITHUB_REF_NAME" =~ (a|b|rc)[0-9]+$ ]]; then
+            release_flags+=(--prerelease)
+          fi
+          gh release create "$GITHUB_REF_NAME" ./* \
+            --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "Secrets Kit $GITHUB_REF_NAME" \
+            --notes "Download install.sh below and run: bash install.sh. Packages and verification are automatic; do not download Source code archives to install. Optional script checksum: install.sh.sha256. Built from $GITHUB_SHA; see release-origin.json for repository and tag identity. Qualification status is reported separately." \
+            "${release_flags[@]}"

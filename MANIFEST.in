@@ -1,0 +1,9 @@
+include dependencies/libp2p-0.7.0+seckit.4-py3-none-any.whl
+include dependencies/zeroconf-0.150.5+seckit.1-py3-none-any.whl
+include dependencies/zeroconf-0.150.5+seckit.1.tar.gz
+include dependencies/installer-pins.sha256
+include dependencies/fastecdsa-3.0.1-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.whl
+exclude dependencies/libp2p-0.7.0+seckit.1-py3-none-any.whl
+exclude dependencies/libp2p-0.7.0+seckit.2-py3-none-any.whl
+exclude dependencies/libp2p-0.7.0+seckit.3-py3-none-any.whl
+include dependencies/README.md
