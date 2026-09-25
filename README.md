@@ -19,7 +19,7 @@
   - [Contributing](#contributing)
   - [Support / license](#support--license)
 
-**Repository:** `Secrets-Kit` · **CLI:** `seckit` · **Candidate:** `v2.0.1b13` (unqualified prerelease; not a public stable release)
+**Repository:** `Secrets-Kit` · **CLI:** `seckit` · **Release status:** public beta available; no stable release yet
 
 Secrets Kit is a local-first secrets CLI for macOS and Linux. It supports macOS Keychain and encrypted SQLite storage, authenticated encrypted peer synchronization, optional RSS forwarding, selected environment injection through `seckit run`, and policy-scoped read-only stdio MCP access.
 
@@ -63,18 +63,26 @@ If any row above is unclear, do not use this tool for real secrets yet.
 
 End users do not need to install Python, uv, virtual environments, or Git. The installer provisions the runtime automatically.
 
-Download **`install.sh`** from the selected release or the maintainer's supplied link and open Terminal in its folder. Do not download GitHub's **Source code** archives.
+For the current public beta (`v2.0.1b13`), run the exact qualified first-machine command below. No GitHub sign-in is needed. Do not use GitHub's **Source code** archives as installers.
 
 ```bash
-bash ./install.sh
+bash -o pipefail -c 'curl -fsSL https://github.com/unixwzrd/Secrets-Kit/releases/download/v2.0.1b13/install.sh | bash'
 ```
 
-CI supplies the repository and exact release identity; the user does not edit repository names, tags or package locations. The single-file installer handles application verification and managed-runtime setup automatically. No archive extraction, individual package downloads, manual checksum commands, Python installation or GitHub CLI are required. Internet access is needed for runtime dependencies. The script also supports `curl … | bash` and `wget … | bash` when given an accessible direct download URL. See [INSTALL.md](docs/INSTALL.md) for streaming and optional checksum verification.
+If `curl` is unavailable, use `wget` instead:
+
+```bash
+bash -o pipefail -c 'wget -qO- https://github.com/unixwzrd/Secrets-Kit/releases/download/v2.0.1b13/install.sh | bash'
+```
+
+The installer supplies and verifies its release identity and managed runtime; no separate Python, uv, Git, archive extraction, or manual package download is required. Open a new Terminal after installation so its PATH setup takes effect. Do not run `seckit init` over an existing store. See [installation troubleshooting](docs/INSTALL.md) as needed. Private DEV/QA builds require approved repository access and their own exact release artifacts; this public beta command does not install those builds.
 
 Remote installation is performed from an installed `seckit` command:
 
 ```bash
 seckit install user@host
+# If both machines use the same SSH username:
+seckit install @host
 ```
 
 For first-time SSH setup, see [QUICK_SSH_SETUP.md](docs/QUICK_SSH_SETUP.md).
@@ -85,7 +93,7 @@ User installation uses the release installer and does not require a source check
 
 ## Release channels
 
-Operators install published release artifacts only. Maintainers validate a public release candidate before promoting it to the production branch; local feature branches and development checkouts are not production release sources.
+Private DEV and QA builds and the public beta are separate release channels. Do not install from a moving branch; use the exact built artifact for the intended channel. Public beta access does not imply a stable production release or production RSS billing.
 
 ## Install
 
@@ -106,7 +114,7 @@ seckit upgrade
 seckit upgrade service install
 ```
 
-The installer records the release repository, channel, and RSS operator origin. Public beta updates need no GitHub authentication. Upgrades preserve customer state; intentional downgrades are not supported. `seckit install user@host --upgrade --ref v2.0.1b13` remains available for remote installation after that release is published.
+The installer records the release repository, channel, and RSS operator origin. Public beta downloads need no GitHub sign-in; private DEV/QA updates require authorized access. Upgrades preserve customer state; intentional downgrades and an automatic QA-to-production RSS conversion are not supported. Do not change an RSS profile's URLs to switch environments.
 
 ## First commands
 
@@ -152,7 +160,7 @@ bash ./scripts/run_local_validation.sh
 
 Use `make validate-full` or `make make-all` for the full local validation layer, including integration and launchd test targets.
 
-**Updated:** 2026-09-16
+**Updated:** 2026-09-25
 
 ---
 
