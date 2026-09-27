@@ -1,17 +1,18 @@
 # Install Secrets-Kit
 
-**Updated**: 2026-09-24
+**Updated**: 2026-09-26
 
 Canonical operator install for macOS and Linux.
 
 If creation, package installation or pre-activation transport validation fails, the installer preserves its newly created candidate in an owner-only `failed-install.*` recovery directory alongside the runtime directory. The previous installation is unchanged, and the failed candidate is excluded from the executable-generation inventory used by uninstall. Keep the reported recovery directory for diagnosis; it is not automatically deleted. This handling does not adopt or repair older unreceipted/modified runtimes, and it does not move a candidate once activation has begun. Uninstall continues to reject unknown or changed runtime contents.
 
-The normal installer provisions UV and a managed Python runtime; preinstalled Python, pip, Git and GitHub CLI are not prerequisites. Release wheels are preferred. Explicit GitHub branch references without release wheels use a downloaded source archive, without Git. A custom non-GitHub Git URL still requires Git. The public beta installer is downloadable without GitHub sign-in; never put credentials in URLs or command arguments. The bootstrap needs Bash, standard platform utilities, and a downloader such as curl or wget. `--safe` and `--no-uv-download` deliberately prohibit bootstrap downloads and are not clean-machine installation defaults; use `--yes --no-shell-profile` for unattended installation with bootstrap enabled. Clean-machine qualification must test this default path without local Python or GitHub tools.
+The normal installer provisions UV and a managed Python runtime; preinstalled Python, pip, Git and GitHub CLI are not prerequisites. Release wheels are preferred. Explicit GitHub branch references without release wheels use a downloaded source archive, without Git. A custom non-GitHub Git URL still requires Git. Private downloads require repository access via `GH_TOKEN`, `GITHUB_TOKEN`, or an existing optional `gh` login; never put credentials in URLs or command arguments. The bootstrap needs Bash, standard platform utilities, and a downloader such as curl or wget. `--safe` and `--no-uv-download` deliberately prohibit bootstrap downloads and are not clean-machine installation defaults; use `--yes --no-shell-profile` for unattended installation with bootstrap enabled. Clean-machine qualification must test this default path without local Python or GitHub tools.
 
 - [Install Secrets-Kit](#install-secrets-kit)
   - [Prerequisites](#prerequisites)
   - [Install](#install)
   - [Upgrade](#upgrade)
+  - [Shared-host installation (qualification candidate)](#shared-host-installation-qualification-candidate)
   - [Runtime layout](#runtime-layout)
   - [Verify](#verify)
   - [Validation helpers](#validation-helpers)
@@ -37,7 +38,7 @@ End users do not need to install Python, uv, virtual environments, or Git. The i
 
 ## Install
 
-For the public beta distribution, use the exact release installer URL supplied with the beta invitation. The tag and literal command will be inserted after tagged-artifact qualification. Download **`install.sh`** from that URL, open Terminal in the download folder and run:
+For this private beta, download **`install.sh`** from the maintainer's supplied link. Open Terminal in the download folder and run:
 
 ```bash
 bash ./install.sh
@@ -53,7 +54,7 @@ seckit init
 
 The PATH entry exposes stable launchers in `~/.local/bin`, not an internal UV Python or versioned runtime directory. The running installer cannot change its parent shell's environment. For immediate use without opening a new terminal, invoke `"$HOME/.local/bin/seckit"`. Use `--no-shell-profile` to opt out; `--safe` also suppresses profile changes. The underlying source installer retains its explicit `--shell-profile-force` option for unattended use, but users of the generated single-file installer do not need it. Unsupported shells require their own setup; report the shell to the maintainer if the new terminal still cannot find `seckit`. Bash startup-file selection is not a guarantee for every custom shell configuration.
 
-Uninstall removes only an unchanged, installer-owned PATH block after validating its exact contents. It preserves unrelated shell configuration, UV installations, shared Python runtimes, customer state and identities. A modified or ambiguous block causes uninstall to stop rather than edit it.
+Current uninstall preserves shell profiles, including the marked PATH block. Automatic removal of only the installer-owned, unchanged block is planned. Until implemented, users may remove the section between `# >>> seckit path >>>` and `# <<< seckit path <<<` after uninstall; do not remove unrelated PATH entries, UV installations or shared Python runtimes.
 
 The selected release determines the version. CI records its repository, exact tag (or branch build commit) and update channel in the installer; you do not edit or supply them. This one file contains the pinned application assets and verifies them automatically before invoking the original installer. It downloads the managed runtime and dependencies. No archive extraction, individual packages, manual checksum checks, preinstalled Python, GitHub CLI or API token are needed. Keep the script for reinstall. Existing users should upgrade rather than initialize again.
 
@@ -65,7 +66,7 @@ curl -fsSL "$INSTALLER_URL" | bash
 wget -qO- "$INSTALLER_URL" | bash
 ```
 
-These are alternative commands, not additional installation steps. `INSTALLER_URL` must be the supplied public release asset URL, not a GitHub repository page or source archive. If terminal access to the URL is unavailable, download the single script in a browser and run it as shown above.
+These are alternative commands, not additional installation steps. `INSTALLER_URL` must be the supplied script URL, not a GitHub repository page or source archive. No unauthenticated hosting URL is implied here: private GitHub browser sign-in is not inherited by curl or wget. If terminal access to the URL is unavailable, download the single script in your authenticated browser and run it as shown above; do not set up developer tools just to install.
 
 If verification fails, installation stops. Download a fresh script from the maintainer and retry; if it fails again, send a sanitized error, not credentials or full logs. The beta guide covers managed daemon startup and subsequent tests.
 
@@ -112,7 +113,19 @@ Updates are explicitly installed; there is no background automatic installation 
 bash ./install.sh --upgrade --ref "${RELEASE_TAG}" --yes --no-init --no-shell-profile
 ```
 
-The CLI also exposes `seckit install --upgrade` and `seckit install user@hostname --upgrade --ref "${RELEASE_TAG}"`. A release-wheel installation without a local installer fetches it from the configured installation URL. Remote installation retrieves and verifies the installer on the initiating machine and streams it over SSH; the target does not need repository access or the caller's credentials.
+The CLI also exposes `seckit install --upgrade` and `seckit install user@hostname --upgrade --ref "${RELEASE_TAG}"`. A release-wheel installation without a local installer fetches it from the configured installation URL. Remote installation requires SSH access and appropriate download authentication on the target; it does not automatically distribute your local credentials.
+
+## Shared-host installation (qualification candidate)
+
+Before first activation, invoke `host configure` and `host activate` through the staged executable at `PREFIX/runtime/runtime-NAME/bin/seckit`; the stable `PREFIX/bin/seckit` launcher is not active yet.
+
+This administrator path is under DEV qualification and is **not** a released beta procedure. It shares only verified executable code. Each Unix account retains its own initialized store, storage key, peer/node identity, managed daemon, and one-time RSS device enrollment. Host configuration grants neither billing nor peer admission.
+
+Use a different root-owned prefix for each environment, such as `/opt/seckit/dev`, `/opt/seckit/qa`, and `/opt/seckit/production`. System mode requires a preinstalled, trusted, root-owned `uv` at `PREFIX/bin/uv` (or in a root-owned core system directory); it never runs a user-writable `/usr/local` tool or downloads a bootstrap script as root. The verified release installer stages a generation at its final path with `bash install.sh --system --prefix PREFIX --environment ENVIRONMENT --ref TAG`; it does not initialize users or activate code. From the staged CLI, run `seckit host configure --prefix PREFIX --environment ENVIRONMENT --organization NAME --client NAME` once. `Personal` is a valid organization display name. Another host in the same business scope may pass the generated `--organization-id` and `--client-id`, while retaining its own installation UUID. The root-owned `config/host.json` contains only IDs and labels, never credentials. Activate the first generation with the staged CLI's `seckit host activate --prefix PREFIX --generation runtime-NAME`; no users are registered yet, so this only enables the launcher.
+
+After checking and preserving their existing installation, each user explicitly runs `PREFIX/bin/seckit host join --prefix PREFIX --environment ENVIRONMENT` under their own Unix account after initialization. Joining adds local scope metadata and a stable principal; it does not rewrite historical transactions or signatures, authorize peers, or reenroll RSS. The user installs their managed service via `PREFIX/bin/seckit daemon service install`. The administrator verifies that service uses that exact launcher and runs `PREFIX/bin/seckit host register --prefix PREFIX --user USER`. Later, after staging an exact new generation, the administrator runs `PREFIX/bin/seckit host activate --prefix PREFIX --generation runtime-NAME`. Activation switches code once, restarts registered user services sequentially, checks health and version, and restores the previous code pointer on failure without restoring user stores. A failed user restart still requires operator investigation.
+
+Existing per-user installations remain unchanged until explicitly opted in. Installed macOS/Linux, historical-data preservation, and rolling-upgrade qualification must pass before this path is offered to beta testers.
 
 ## Runtime layout
 
@@ -149,21 +162,20 @@ bash scripts/upgrade-validation.sh
 
 ## Remote install
 
-First-time SSH setup: [QUICK_SSH_SETUP.md](QUICK_SSH_SETUP.md). From the installed first machine, install and authorize a peer reachable by public-key SSH:
+First-time SSH setup: [QUICK_SSH_SETUP.md](QUICK_SSH_SETUP.md). Once SSH works, use the customer-facing install command from the initiating machine:
 
 ```bash
-seckit install user@host
-# Or, when both machines use the same login name:
 seckit install @host
+seckit install seckit@other-host
 ```
 
-Remote targets must include `@` (`@host` uses your local `$USER`; `user@host` sets the SSH user). Remote software installation supplies `--yes` on the target; peer authorization remains interactive on the initiating machine.
+Remote targets must include `@` (`@host` uses your local `$USER`; `user@host` sets the SSH user). Remote install implies `--yes` (non-interactive).
 
-Remote install pins the **release wheel** for the caller’s version (`v` + `seckit --version`) via `SECKIT_REF` on the remote host (no `git` required). Override with `--ref TAG` (release wheel where available; a GitHub source archive does not require Git).
+Remote install pins the **release wheel** for the caller’s version (`v` + `seckit --version`) via `SECKIT_REF` on the remote host (no `git` required). Override with `--ref TAG` only when an exact qualified release tag has been approved for that installation.
 
-Remote install performs software installation and authenticated peer setup using the existing admission protocol. The initiating command needs an interactive terminal for peer setup; `--install-only` intentionally skips it. Qualification must verify the authorized route rather than treating a successful transfer as sufficient.
+Remote install is installation only. It does not exchange peer identity keys, register peers, authorize service groups, configure synchronization trust, or perform authenticated peer bootstrap. A future `seckit username@host` bootstrap ceremony may combine install, identity exchange, explicit peer registration, static connectivity setup, and authenticated connectivity checks, but that is a separate peer-admission workflow and not implemented by the current install command.
 
-Each node generates or imports its own long-lived signing and encryption keypairs during install/init. Private keys remain on their originating node. Public keys and fingerprints are exchanged only during authenticated peer admission. Node identity keys are distinct from the local SQLite storage key, and SQLite storage keys must not be shared between real peers.
+When peer bootstrap is implemented, each node must generate or import its own long-lived signing and encryption keypairs during install/init. Private keys must remain on their originating node. Public keys and fingerprints are exchanged only during explicit peer admission. Node identity keys are distinct from the local SQLite storage key, and SQLite storage keys must not be shared between real peers.
 
 For SQLite, current initialization provisions standalone local node identity material at `~/.config/seckit/node-identity.key` and stores only public keys plus private-key references in the SQLite `nodes` and `node_private` tables.
 Normal runtime validates this identity state and does not silently repair it.

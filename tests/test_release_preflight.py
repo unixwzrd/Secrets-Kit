@@ -19,7 +19,7 @@ class ReleasePreflightTests(unittest.TestCase):
         (self.root / "scripts").mkdir()
         source = Path(__file__).resolve().parents[1] / "scripts" / "release_preflight.sh"
         shutil.copy2(source, self.root / "scripts" / "release_preflight.sh")
-        self.git("init", "-q")
+        self.git("init", "-q", "-b", "main")
         self.git("config", "user.email", "fixture@example.invalid")
         self.git("config", "user.name", "Release Fixture")
         (self.root / "CHANGELOG.md").write_text("fixture\n")
@@ -166,20 +166,102 @@ class ReleasePreflightTests(unittest.TestCase):
             )
         )
 
-    def test_private_dev_qa_and_feature_branch_channels(self) -> None:
-        cases = (
-            ("1.2.3a4", "refs/heads/dev", True),
-            ("1.2.3b4", "refs/heads/qa", True),
-            ("1.2.3a4", "refs/heads/feature/bounded", True),
-        )
-        for version, ref, private in cases:
-            with self.subTest(version=version, ref=ref):
-                self.assert_passes(self.run_preflight(version=version, ref=ref, private=private))
+    def test_release_tag_helper_uses_committed_version_and_qualified_branch(self) -> None:
+        source = Path(__file__).resolve().parents[1] / "scripts" / "prepare-release-tag.sh"
+        shutil.copy2(source, self.root / "scripts" / source.name)
+        remote_temp = tempfile.TemporaryDirectory(prefix="seckit-tag-remote-")
+        self.addCleanup(remote_temp.cleanup)
+        remote = Path(remote_temp.name) / "Secrets-Kit-Private.git"
+        subprocess.run(["git", "init", "--bare", "-q", str(remote)], check=True)
+        self.git("remote", "add", "origin", str(remote))
+        self.git("switch", "-c", "dev")
+        (self.root / "CHANGELOG.md").write_text("## 1.2.3a4 — candidate\n")
+        self.git("add", "CHANGELOG.md", "scripts/prepare-release-tag.sh")
+        self.git("commit", "-qm", "release inputs")
+        self.git("push", "-q", "origin", "dev")
 
-    def test_public_beta_release_helper_derives_tag_and_requires_current_links(self) -> None:
-        for name in ("prepare-release-tag.sh", "sync-release-metadata.py"):
-            source = Path(__file__).resolve().parents[1] / "scripts" / name
-            shutil.copy2(source, self.root / "scripts" / name)
+        def helper(mode: str) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                ["bash", "scripts/prepare-release-tag.sh", mode],
+                cwd=self.root, capture_output=True, text=True, timeout=10,
+            )
+
+        self.assert_passes(helper("--check"))
+        self.assertEqual(self.git("tag", "--list").stdout, "")
+        (self.root / "content.txt").write_text("dirty\n")
+        self.assert_fails(helper("--check"))
+        (self.root / "content.txt").write_text("base\n")
+        self.git("switch", "-c", "wrong-channel")
+        (self.root / "content.txt").write_text("unqualified candidate\n")
+        self.git("add", "content.txt")
+        self.git("commit", "-qm", "unqualified candidate")
+        self.assert_fails(helper("--check"))
+        self.git("switch", "dev")
+        self.git("switch", "-c", "dev-next-candidate")
+        self.assert_passes(helper("--check"))
+        self.git("switch", "dev")
+        self.assert_passes(helper("--create"))
+        self.assertEqual(self.git("tag", "--list").stdout.strip(), "v1.2.3a4")
+        self.assert_fails(helper("--create"))
+
+    def test_release_helper_pushes_once_and_waits_for_exact_ci_before_tag(self) -> None:
+        source = Path(__file__).resolve().parents[1] / "scripts" / "prepare-release-tag.sh"
+        shutil.copy2(source, self.root / "scripts" / source.name)
+        remote_temp = tempfile.TemporaryDirectory(prefix="seckit-tag-remote-")
+        self.addCleanup(remote_temp.cleanup)
+        remote = Path(remote_temp.name) / "Secrets-Kit-Private.git"
+        subprocess.run(["git", "init", "--bare", "-q", str(remote)], check=True)
+        self.git("remote", "add", "origin", str(remote))
+        self.git("switch", "-c", "dev")
+        (self.root / "CHANGELOG.md").write_text("## 1.2.3a4 — candidate\n")
+        self.git("add", "CHANGELOG.md", "scripts/prepare-release-tag.sh")
+        self.git("commit", "-qm", "release inputs")
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("push", "-q", "origin", "dev")
+        (self.root / "content.txt").write_text("reviewed update\n")
+        self.git("add", "content.txt")
+        self.git("commit", "-qm", "reviewed update")
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+
+        def helper(mode: str, *, path: str | None = None) -> subprocess.CompletedProcess[str]:
+            env = dict(os.environ)
+            if path is not None:
+                env["PATH"] = path + os.pathsep + env.get("PATH", "")
+            return subprocess.run(
+                ["bash", "scripts/prepare-release-tag.sh", mode],
+                cwd=self.root, env=env, capture_output=True, text=True, timeout=10,
+            )
+
+        self.assert_passes(helper("--push-branch"))
+        self.assertEqual(self.git("ls-remote", "--heads", "origin", "dev").stdout.split()[0], head)
+        self.assertEqual(self.git("tag", "--list").stdout, "")
+        if shutil.which("jq") is None:
+            self.skipTest("jq is required for exact CI verification")
+        fake_bin = self.root / "fake-bin"
+        fake_bin.mkdir()
+        fake_gh = fake_bin / "gh"
+        fake_gh.write_text("#!/bin/sh\nprintf '[]\\n'\n")
+        fake_gh.chmod(0o755)
+        self.assert_fails(helper("--publish", path=str(fake_bin)))
+        self.assertEqual(self.git("tag", "--list").stdout, "")
+        fake_gh.write_text(
+            "#!/bin/sh\nprintf '%s\\n' '" + json.dumps([
+                {"headSha": head, "conclusion": "success", "event": "push"}
+            ]) + "'\n"
+        )
+        self.assert_passes(helper("--publish", path=str(fake_bin)))
+        self.assertEqual(self.git("rev-parse", "refs/tags/v1.2.3a4^{commit}").stdout.strip(), head)
+        self.assertEqual(
+            self.git("ls-remote", "--refs", "--tags", "origin", "refs/tags/v1.2.3a4").stdout.split()[1],
+            "refs/tags/v1.2.3a4",
+        )
+        self.assert_fails(helper("--publish", path=str(fake_bin)))
+
+    def test_public_beta_helper_rejects_stale_installer_links(self) -> None:
+        source = Path(__file__).resolve().parents[1] / "scripts" / "prepare-release-tag.sh"
+        shutil.copy2(source, self.root / "scripts" / source.name)
+        sync_source = Path(__file__).resolve().parents[1] / "scripts" / "sync-release-metadata.py"
+        shutil.copy2(sync_source, self.root / "scripts" / sync_source.name)
         remote_temp = tempfile.TemporaryDirectory(prefix="seckit-tag-remote-")
         self.addCleanup(remote_temp.cleanup)
         remote = Path(remote_temp.name) / "Secrets-Kit.git"
@@ -196,31 +278,136 @@ class ReleasePreflightTests(unittest.TestCase):
         self.git("add", ".")
         self.git("commit", "-qm", "beta candidate")
         self.git("push", "-q", "origin", "beta")
+        command = ["bash", "scripts/prepare-release-tag.sh", "--check"]
+        self.assert_fails(subprocess.run(command, cwd=self.root, capture_output=True, text=True, timeout=10))
+        sync = ["bash", "scripts/prepare-release-tag.sh", "--sync-metadata"]
+        self.assert_passes(subprocess.run(sync, cwd=self.root, capture_output=True, text=True, timeout=10))
+        self.assertIn("current public beta (`v1.2.3b4`)", readme.read_text())
+        self.assertEqual(readme.read_text().count("/releases/download/v1.2.3b4/install.sh"), 2)
+        self.assert_passes(subprocess.run(sync, cwd=self.root, capture_output=True, text=True, timeout=10))
+        self.git("add", "README.md")
+        self.git("commit", "-qm", "qualify beta installer links")
+        self.git("push", "-q", "origin", "beta")
+        self.assert_passes(subprocess.run(command, cwd=self.root, capture_output=True, text=True, timeout=10))
 
-        def helper(mode: str) -> subprocess.CompletedProcess[str]:
+    def test_public_beta_sync_promotes_private_readme_snapshot(self) -> None:
+        source = Path(__file__).resolve().parents[1] / "scripts" / "sync-release-metadata.py"
+        shutil.copy2(source, self.root / "scripts" / source.name)
+        self.write_version("1.2.3b4")
+        readme = self.root / "README.md"
+        readme.write_text(
+            "For the public beta available when this candidate was prepared (`v1.2.3b3`)\n"
+            + "https://example.invalid/releases/download/v1.2.3b3/install.sh\n" * 2
+        )
+        result = subprocess.run(
+            ["python3", "scripts/sync-release-metadata.py", "v1.2.3b4"],
+            cwd=self.root, capture_output=True, text=True, timeout=10,
+        )
+        self.assert_passes(result)
+        self.assertIn("For the current public beta (`v1.2.3b4`)", readme.read_text())
+        self.assertEqual(readme.read_text().count("/releases/download/v1.2.3b4/install.sh"), 2)
+
+    def test_promotion_gate_requires_identical_product_and_compatible_versions(self) -> None:
+        source = Path(__file__).resolve().parents[1] / "scripts" / "verify-promotion.py"
+        shutil.copy2(source, self.root / "scripts" / source.name)
+        (self.root / "src").mkdir()
+        (self.root / "src" / "product.py").write_text("value = 1\n")
+        self.git("add", "scripts/verify-promotion.py", "src/product.py")
+        self.git("commit", "-qm", "qualified DEV product")
+        self.git("branch", "dev")
+        self.git("switch", "-c", "qa")
+        self.write_version("1.2.3b4")
+        self.git("add", "pyproject.toml")
+        self.git("commit", "-qm", "QA version only")
+
+        def verify(
+            source_stage: str = "dev", target_stage: str = "qa",
+            source_ref: str = "dev", target_ref: str = "qa",
+        ) -> subprocess.CompletedProcess[str]:
             return subprocess.run(
-                ["bash", "scripts/prepare-release-tag.sh", mode],
+                ["python3", "scripts/verify-promotion.py",
+                 "--source-repo", str(self.root), "--source-ref", source_ref,
+                 "--source-stage", source_stage, "--target-repo", str(self.root),
+                 "--target-ref", target_ref, "--target-stage", target_stage],
                 cwd=self.root, capture_output=True, text=True, timeout=10,
             )
 
-        self.assert_fails(helper("--check"))
-        self.assert_passes(helper("--sync-metadata"))
-        self.assertIn("current public beta (`v1.2.3b4`)", readme.read_text())
-        self.assertEqual(readme.read_text().count("/releases/download/v1.2.3b4/install.sh"), 2)
-        self.assert_passes(helper("--sync-metadata"))
-        self.assert_fails(helper("--check"))  # Edited metadata must be reviewed and committed.
-        self.git("add", "README.md")
-        self.git("commit", "-qm", "qualify beta installer links")
-        self.assert_fails(helper("--check"))  # Local commit is not yet the remote beta head.
-        self.assert_passes(helper("--push-branch"))
-        self.assert_passes(helper("--check"))
-        self.assertEqual(self.git("tag", "--list").stdout, "")
+        self.assert_passes(verify())
+        self.assert_fails(verify("qa", "main"))
+        (self.root / "src" / "product.py").write_text("value = 2\n")
+        self.git("add", "src/product.py")
+        self.git("commit", "-qm", "QA-only product fix")
+        failed = verify()
+        self.assert_fails(failed)
+        self.assertIn("product input differs: src/product.py", failed.stderr)
+        self.git("switch", "dev")
+        (self.root / "src" / "product.py").write_text("value = 2\n")
+        self.git("add", "src/product.py")
+        self.git("commit", "-qm", "backport QA fix through DEV")
+        self.assert_passes(verify())
+        self.git("switch", "qa")
+        self.git("switch", "-c", "beta")
+        self.assert_passes(verify("qa", "beta", "qa", "beta"))
+        self.write_version("1.2.3b5")
+        self.git("add", "pyproject.toml")
+        self.git("commit", "-qm", "mismatched public beta version")
+        self.assert_fails(verify("qa", "beta", "qa", "beta"))
+        self.git("switch", "main")
+        (self.root / "src").mkdir(exist_ok=True)
+        (self.root / "src" / "product.py").write_text("value = 2\n")
+        shutil.copy2(source, self.root / "scripts" / source.name)
+        self.write_version("1.2.3")
+        self.git("add", "pyproject.toml", "src/product.py", "scripts/verify-promotion.py")
+        self.git("commit", "-qm", "stable version")
+        self.assert_passes(verify("beta", "main", "beta", "main"))
 
-    def test_tag_push_does_not_repeat_public_branch_ci_matrix(self) -> None:
-        workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml").read_text()
-        trigger = workflow.split("permissions:", 1)[0]
-        self.assertIn("  push:\n    branches:\n      - beta\n      - main\n", trigger)
-        self.assertNotIn("tags:", trigger)
+    def test_operator_url_selection_is_repository_and_ref_bound(self) -> None:
+        script = Path(__file__).resolve().parents[1] / "scripts" / "select-rss-operator-url.sh"
+        urls = {
+            "RSS_OPERATOR_URL_DEV": "https://dev.example.invalid",
+            "RSS_OPERATOR_URL_QA": "https://qa.example.invalid",
+            "RSS_OPERATOR_URL_BETA": "https://beta.example.invalid",
+            "RSS_OPERATOR_URL_PRODUCTION": "https://production.example.invalid",
+        }
+
+        def select(repository: str, ref: str, *, missing: str | None = None) -> subprocess.CompletedProcess[str]:
+            env = {**os.environ, **urls, "GITHUB_REPOSITORY": repository, "GITHUB_REF": ref}
+            if missing:
+                env.pop(missing)
+            return subprocess.run(
+                ["bash", str(script)], env=env, capture_output=True, text=True, timeout=10,
+            )
+
+        cases = (
+            ("Secrets-Kit-Private", "refs/heads/dev", "dev"),
+            ("Secrets-Kit-Private", "refs/tags/v1.2.3a4", "dev"),
+            ("Secrets-Kit-Private", "refs/heads/qa", "qa"),
+            ("Secrets-Kit-Private", "refs/tags/v1.2.3b4", "qa"),
+            ("Secrets-Kit", "refs/heads/beta", "beta"),
+            ("Secrets-Kit", "refs/tags/v1.2.3b4", "beta"),
+            ("Secrets-Kit", "refs/heads/main", "production"),
+            ("Secrets-Kit", "refs/tags/v1.2.3", "production"),
+        )
+        for repository, ref, channel in cases:
+            with self.subTest(repository=repository, ref=ref):
+                result = select(f"unixwzrd/{repository}", ref)
+                self.assert_passes(result)
+                self.assertEqual(result.stdout.strip(), urls[f"RSS_OPERATOR_URL_{channel.upper()}"])
+        self.assert_fails(select("unixwzrd/Secrets-Kit", "refs/tags/v1.2.3a4"))
+        self.assert_fails(select("unixwzrd/Secrets-Kit-Private", "refs/heads/beta"))
+        self.assert_fails(select("unixwzrd/Secrets-Kit", "refs/heads/beta", missing="RSS_OPERATOR_URL_BETA"))
+
+    def test_channel_neutral_install_and_integration_docs_do_not_pin_old_candidates(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        paths = (
+            "docs/INSTALL.md",
+            "docs/INTEGRATIONS.md",
+            "integrations/hermes/install-secrets-kit-for-hermes/README.md",
+            "integrations/hermes/install-secrets-kit-for-hermes/SKILL.md",
+        )
+        for path in paths:
+            with self.subTest(path=path):
+                self.assertNotRegex((root / path).read_text(), r"v\d+\.\d+\.\d+[ab]\d+")
 
     def test_branch_push_does_not_build_release_artifacts(self) -> None:
         workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/release.yml").read_text()
@@ -229,19 +416,25 @@ class ReleasePreflightTests(unittest.TestCase):
         self.assertIn('      - "v*"', trigger)
         self.assertNotIn("branches:", trigger)
 
-    def test_public_beta_branch_and_ancestral_tag_are_allowed(self) -> None:
-        self.assert_passes(
-            self.run_preflight(version="1.2.3b4", ref="refs/heads/beta", private=False)
+    def test_tag_push_does_not_repeat_branch_ci_matrix(self) -> None:
+        workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml").read_text()
+        trigger = workflow.split("permissions:", 1)[0]
+        self.assertIn("  push:\n    branches:\n      - dev\n      - qa\n      - beta\n      - main\n", trigger)
+        self.assertNotIn("tags:", trigger)
+
+    def test_private_dev_qa_and_feature_branch_channels(self) -> None:
+        cases = (
+            ("1.2.3a4", "refs/heads/dev", True),
+            ("1.2.3b4", "refs/heads/qa", True),
+            ("1.2.3a4", "refs/heads/feature/bounded", True),
         )
-        commit = self.commit_version("1.2.3b4")
-        self.git("tag", "v1.2.3b4")
-        self.git("update-ref", "refs/remotes/origin/beta", commit)
-        self.assert_passes(
-            self.run_preflight(
-                version="1.2.3b4", ref="refs/tags/v1.2.3b4",
-                private=False, sha=commit,
-            )
-        )
+        for version, ref, private in cases:
+            with self.subTest(version=version, ref=ref):
+                self.assert_passes(self.run_preflight(version=version, ref=ref, private=private))
+
+    def test_public_beta_branch_channel(self) -> None:
+        self.assert_passes(self.run_preflight(version="1.2.3b4", ref="refs/heads/beta", private=False))
+        self.assert_fails(self.run_preflight(version="1.2.3b4", ref="refs/heads/beta", private=True))
 
     def test_artifact_verifier_has_no_implicit_public_repository(self) -> None:
         source = Path(__file__).resolve().parents[1] / "scripts" / "verify-release-artifacts.sh"
@@ -270,7 +463,6 @@ class ReleasePreflightTests(unittest.TestCase):
             ("1.2.3a4", "refs/heads/dev", False),
             ("1.2.3b4", "refs/heads/qa", False),
             ("1.2.3a4", "refs/heads/beta", False),
-            ("1.2.3b4", "refs/heads/beta", True),
         )
         for version, ref, private in cases:
             with self.subTest(version=version, ref=ref, private=private):
@@ -296,6 +488,14 @@ class ReleasePreflightTests(unittest.TestCase):
                         sha=commit,
                     )
                 )
+
+    def test_public_beta_tag_requires_beta_branch_ancestry(self) -> None:
+        commit = self.commit_version("1.2.3b4")
+        self.git("tag", "v1.2.3b4")
+        self.git("update-ref", "refs/remotes/origin/beta", commit)
+        self.assert_passes(self.run_preflight(
+            version="1.2.3b4", ref="refs/tags/v1.2.3b4", private=False, sha=commit,
+        ))
 
     def test_annotated_tag_push_matches_ref_object_and_peeled_commit(self) -> None:
         commit = self.commit_version("1.2.3a4")

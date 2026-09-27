@@ -1,7 +1,6 @@
 # Usage
 
-**Created**: 2026-03-10
-
+**Created**: 2026-03-10  
 **Updated**: 2026-05-07
 
 This file is a **short entry point**. Full command coverage and policies live in the split CLI docs:

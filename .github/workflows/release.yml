@@ -113,16 +113,18 @@ jobs:
           name: sdist
           path: dist
       - name: Generate repository-bound installer and checksums
+        env:
+          RSS_OPERATOR_URL_DEV: ${{ vars.SECKIT_RSS_OPERATOR_URL_DEV }}
+          RSS_OPERATOR_URL_QA: ${{ vars.SECKIT_RSS_OPERATOR_URL_QA }}
+          RSS_OPERATOR_URL_BETA: ${{ vars.SECKIT_BETA_OPERATOR_URL }}
+          RSS_OPERATOR_URL_PRODUCTION: ${{ vars.SECKIT_RSS_OPERATOR_URL_PRODUCTION }}
         run: |
           mkdir installer-input
           cp dist/*.whl dist/*.tar.gz dist/installer-pins.sha256 install.sh installer-input/
           printf '%s\n' "$GITHUB_SHA" > installer-input/source-commit.txt
           (cd installer-input && sha256sum *.whl *.tar.gz install.sh installer-pins.sha256 source-commit.txt > manifest.sha256)
-          rss_operator_url=""
-          if [[ "$GITHUB_REF" == "refs/heads/beta" || "$GITHUB_REF" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+b[0-9]+$ ]]; then
-            rss_operator_url="${{ vars.SECKIT_BETA_OPERATOR_URL }}"
-            [[ -n "$rss_operator_url" ]] || { echo 'SECKIT_BETA_OPERATOR_URL repository variable is required' >&2; exit 1; }
-          fi
+          rss_operator_url="$(bash scripts/select-rss-operator-url.sh)"
+          test -n "$rss_operator_url" || { echo 'Missing RSS operator URL repository variable for release channel' >&2; exit 1; }
           python scripts/build-standalone-installer.py installer-input dist/install.sh --rss-operator-url "$rss_operator_url"
           cp installer-input/source-commit.txt dist/
           bash dist/install.sh --verify-only

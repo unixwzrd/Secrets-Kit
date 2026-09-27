@@ -1,0 +1,4 @@
+interface:
+  display_name: "Install Secrets Kit for Hermes"
+  short_description: "Install and configure Secrets Kit for Hermes."
+  default_prompt: "Install a pinned Secrets Kit release for Hermes, migrate dotenv secrets safely, register the read-only MCP server, verify the integration, and preserve rollback."

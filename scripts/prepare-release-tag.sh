@@ -24,16 +24,27 @@ tag="v$version"
 branch="$(git symbolic-ref --quiet --short HEAD)" || die "a release tag requires a branch checkout"
 origin="$(git remote get-url origin)" || die "origin is unavailable"
 case "$origin" in
+  "https://github.com/unixwzrd/Secrets-Kit-Private"|"https://github.com/unixwzrd/Secrets-Kit-Private.git"|\
+  "git@github.com:unixwzrd/Secrets-Kit-Private"|"git@github.com:unixwzrd/Secrets-Kit-Private.git"|\
+  "ssh://git@github.com/unixwzrd/Secrets-Kit-Private"|"ssh://git@github.com/unixwzrd/Secrets-Kit-Private.git"|\
+  /*/Secrets-Kit-Private.git) repository=private ;;
   "https://github.com/unixwzrd/Secrets-Kit"|"https://github.com/unixwzrd/Secrets-Kit.git"|\
   "git@github.com:unixwzrd/Secrets-Kit"|"git@github.com:unixwzrd/Secrets-Kit.git"|\
   "ssh://git@github.com/unixwzrd/Secrets-Kit"|"ssh://git@github.com/unixwzrd/Secrets-Kit.git"|\
-  /*/Secrets-Kit.git) ;;
+  /*/Secrets-Kit.git) repository=public ;;
   *) die "unrecognized release origin: $origin" ;;
 esac
-case "$version" in
-  *b[0-9]*) channel=beta ;;
-  *a[0-9]*) die "$tag cannot be released from the public repository" ;;
-  *) channel=main ;;
+case "$version:$repository" in
+  *a[0-9]*:private) channel=dev ;;
+  *b[0-9]*:private) channel=qa ;;
+  *b[0-9]*:public) channel=beta ;;
+  *a[0-9]*:public) die "$tag cannot be released from the public repository" ;;
+  *:public) channel=main ;;
+  *) die "$tag cannot be released from the $repository repository" ;;
+esac
+case "$branch" in
+  "$channel"|"$channel"-*) ;;
+  *) die "$tag belongs on the $channel candidate branch, not $branch" ;;
 esac
 grep -Eq "^## ${version}([[:space:]]|$)" CHANGELOG.md \
   || die "CHANGELOG.md needs a $version release heading"
@@ -47,7 +58,8 @@ if [[ "$mode" == "--sync-metadata" ]]; then
 fi
 [[ -z "$(git status --porcelain --untracked-files=no)" ]] || die "tracked working tree is not clean"
 
-# A public beta README describes an immutable installer. Check only the three current-release links;
+# A public beta README describes an immutable installer, not the private
+# channel's independent version. Check only the three current-release links;
 # historical references and the frozen tester guide are never rewritten here.
 if [[ "$channel" == "beta" ]]; then
   grep -Fq "For the current public beta (\`$tag\`)" README.md \

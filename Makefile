@@ -36,6 +36,9 @@ TEST_FAST := \
 	tests.test_install_native_prefix \
 	tests.test_cli_install \
 	tests.test_installer_downloads \
+	tests.test_install_shared_host \
+	tests.test_host_context \
+	tests.test_shared_runtime \
 	tests.test_install_bundle \
 	tests.test_release_preflight \
 	tests.test_upgrade \

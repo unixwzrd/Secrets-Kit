@@ -1,4 +1,4 @@
-"""Update only the current public beta installer references from the project tag.
+"""Update only the public beta README installer references from the project tag.
 
 The release helper derives the tag from pyproject.toml. This script never edits
 historical release notes, the frozen tester guide, or private-channel README
@@ -25,10 +25,13 @@ def main() -> int:
         raise SystemExit("tag does not match pyproject.toml project.version")
     readme = Path("README.md")
     source = readme.read_text(encoding="utf-8")
-    heading = re.compile(r"For the current public beta \(`(v\d+\.\d+\.\d+b\d+)`\)")
+    heading = re.compile(
+        r"(?:For the current public beta|For the public beta available when this candidate was prepared) "
+        r"\(`(v\d+\.\d+\.\d+b\d+)`\)"
+    )
     matches = heading.findall(source)
     if len(matches) != 1:
-        raise SystemExit("README.md needs exactly one current public beta heading")
+        raise SystemExit("README.md needs exactly one public beta installer heading")
     previous = matches[0]
     old_url = f"/releases/download/{previous}/install.sh"
     if source.count(old_url) != 2:

@@ -49,6 +49,7 @@
 *.rar
 *.zip
 *.gz
+!dependencies/zeroconf-0.150.5+seckit.1.tar.gz
 *.gzip
 *.tgz
 *.bzip
@@ -440,6 +441,7 @@ poetry.toml
 
 # LSP config files
 pyrightconfig.json
+!pyrightconfig.json
 
 ### SSH ###
 **/.ssh/id_*
@@ -639,6 +641,7 @@ zsdoc/data
 *.pyc
 logs/
 tmp/
+test-reports/
 AGENTS.macOSd
 
 .codex/*
@@ -668,9 +671,15 @@ docs/reports/
 docs/internal/
 docs/archive/
 
-### Secrets-Kit: bundled Keychain helper (built at wheel time; see scripts/build_bundled_helper_for_wheel.sh)
+### Secrets-Kit: bundled Keychain helper (removed; no binary in tree — see scripts/build_bundled_helper_for_wheel.sh)
 src/secrets_kit/native_helper_bundled/seckit-keychain-helper
 src/secrets_kit/native_helper_bundled/*.zip
-docs/plans/*
-!docs/plans/icloud-two-host-checklist.md
+docs/plans/
 .gitignore
+AGENTS.md
+!secrets.py
+!/dependencies/
+!/dependencies/README.md
+!/dependencies/libp2p-0.7.0+seckit.1-py3-none-any.whl
+pytest.ini
+test-reports/

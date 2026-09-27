@@ -1,7 +1,6 @@
 # Quickstart
 
-**Created**: 2026-04-12
-
+**Created**: 2026-04-12  
 **Updated**: 2026-07-16
 
 Next steps after this page: [CONCEPTS.md](CONCEPTS.md) (mental model), [CLI_REFERENCE.md](CLI_REFERENCE.md) (all commands), [WORKFLOWS.md](WORKFLOWS.md) (recipes).

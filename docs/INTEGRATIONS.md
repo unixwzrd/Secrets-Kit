@@ -150,7 +150,7 @@ Process startup resolution and MCP retrieval are separate boundaries. Startup re
 
 ### Agentic installation
 
-The integration directory under `integrations/hermes/install-secrets-kit-for-hermes/` contains the agent skill, controller and security reference. For a9 GitHub assets, install through the verified release installer, then use the controller's `configure` and `verify` actions with the installed runtime's Python. The controller's legacy `preflight`/`install` adapter expects a different `release-id` manifest layout and must not be used with unmodified GitHub assets. Never fabricate a receipt or rewrite a release manifest to bypass that check. Configuration preserves unrelated Hermes state, imports only approved names, installs same-user supervision and denies MCP retrieval unless separately authorized.
+The integration directory under `integrations/hermes/install-secrets-kit-for-hermes/` contains the agent skill, controller and security reference. For the current GitHub release asset layout, install through the verified release installer, then use the controller's `configure` and `verify` actions with the installed runtime's Python. The controller's legacy `preflight`/`install` adapter expects a different `release-id` manifest layout and must not be used with unmodified GitHub assets. Never fabricate a receipt or rewrite a release manifest to bypass that check. Configuration preserves unrelated Hermes state, imports only approved names, installs same-user supervision and denies MCP retrieval unless separately authorized.
 
 Agents must use a pinned release tag and verified bundle. Unpinned `main`, unverified raw scripts, and `curl | sh` are prohibited.
 
@@ -158,7 +158,7 @@ Agents must use a pinned release tag and verified bundle. Unpinned `main`, unver
 
 ### Upgrading Secrets Kit for Hermes
 
-Run `seckit upgrade --check`, then an owner-approved `seckit upgrade` or `seckit upgrade --ref v2.0.1b11`. Keep the repository/channel recorded at installation; private releases require authentication. Verify daemon health, rerun integration verification and restart Hermes/MCP after upgrade. Do not reinitialize the datastore or repeat dotenv import automatically. This updates Secrets Kit, not Hermes or the separately pinned integration files. Optional `seckit upgrade service install` enables daily checks only. The controller's `rollback` restores Hermes configuration, not an older Secrets Kit runtime.
+Run `seckit upgrade --check`, then an owner-approved `seckit upgrade` or `seckit upgrade --ref TAG` with the exact qualified non-older tag supplied for this installation. Keep the repository/channel recorded at installation; private releases require authentication. Verify daemon health, rerun integration verification and restart Hermes/MCP after upgrade. Do not reinitialize the datastore or repeat dotenv import automatically. This updates Secrets Kit, not Hermes or the separately pinned integration files. Optional `seckit upgrade service install` enables daily checks only. The controller's `rollback` restores Hermes configuration, not an older Secrets Kit runtime.
 
 ## Hermes on Another Machine
 

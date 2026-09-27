@@ -63,16 +63,16 @@ If any row above is unclear, do not use this tool for real secrets yet.
 
 End users do not need to install Python, uv, virtual environments, or Git. The installer provisions the runtime automatically.
 
-For the current public beta (`v2.0.1b18`), run the exact qualified first-machine command below. No GitHub sign-in is needed. Do not use GitHub's **Source code** archives as installers.
+For the current public beta (`v2.0.1b19`), run the exact qualified first-machine command below. No GitHub sign-in is needed. Do not use GitHub's **Source code** archives as installers.
 
 ```bash
-bash -o pipefail -c 'curl -fsSL https://github.com/unixwzrd/Secrets-Kit/releases/download/v2.0.1b18/install.sh | bash'
+bash -o pipefail -c 'curl -fsSL https://github.com/unixwzrd/Secrets-Kit/releases/download/v2.0.1b19/install.sh | bash'
 ```
 
 If `curl` is unavailable, use `wget` instead:
 
 ```bash
-bash -o pipefail -c 'wget -qO- https://github.com/unixwzrd/Secrets-Kit/releases/download/v2.0.1b18/install.sh | bash'
+bash -o pipefail -c 'wget -qO- https://github.com/unixwzrd/Secrets-Kit/releases/download/v2.0.1b19/install.sh | bash'
 ```
 
 The installer supplies and verifies its release identity and managed runtime; no separate Python, uv, Git, archive extraction, or manual package download is required. Open a new Terminal after installation so its PATH setup takes effect. Do not run `seckit init` over an existing store. See [installation troubleshooting](docs/INSTALL.md) as needed. Private DEV/QA builds require approved repository access and their own exact release artifacts; this public beta command does not install those builds.

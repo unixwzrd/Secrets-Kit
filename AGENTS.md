@@ -1,26 +1,42 @@
-# AGENTS.md — Secrets-Kit
+# Contributor instructions — Secrets Kit
 
-**Created**: 2026-05-02  
-**Updated**: 2026-05-02
+This is the client product: CLI, same-user daemon, local storage, encrypted peer synchronization, client-side RSS enrollment and read-only MCP. Hosted services, billing authority, deployment automation, private qualification evidence and release planning do not belong in this repository.
 
-Guidance for humans and coding agents working in this repository.
+## Scope and safety
 
-## Environment
+- Inspect current code and tests before changing behavior. Preserve unrelated edits.
+- Prefer small, reversible changes with explicit data flow; do not introduce speculative frameworks or abstractions.
+- Keep datastore, transport, IPC, authorization and runtime coordination separate. Transport delivery order must not define datastore truth.
+- Never log plaintext secrets, decrypted payloads, sensitive environment values or private keys.
+- Keep MCP fail-closed and preserve same-user access boundaries.
+- Stop for maintainer review before authority, cryptographic, datastore, replay or transport semantic changes; compatibility-surface removal; destructive cleanup; or broad restructuring.
+- Do not push, publish tags/releases, delete remote branches or create readiness-implying pull requests without explicit maintainer approval.
 
-- Use the **same Python environment** for development, tests, and tooling as in the IDE (**Command Palette → Python: Select Interpreter**), e.g. Conda **`venvutil`**.
-- Some setups wrap **`conda`** and **`pip`** in shell functions (e.g. via `do_wrapper`) to log installs/uninstalls and other venv-changing commands. Prefer a shell where those hooks run when changing dependencies; one-off automation should still target the same interpreter (e.g. `conda run -n venvutil …`) so it matches the selected environment.
+## Implementation
 
-## Scope
+- Preserve CLI and machine-readable output contracts. Use stable error identifiers and bounded execution.
+- Keep human-facing CLI text in the existing locale dictionaries; keep protocol and JSON field names stable and unlocalized.
+- Document touched modules and public entry points with purpose, inputs, outputs, side effects and relevant security boundaries. Include module names in module docstrings and type hints where practical.
+- Prefer direct imports, explicit wiring and keyword arguments. Do not embed Python in shell scripts.
+- Preserve transactional integrity, identity, tombstones and replay protections. Do not simplify correctness checks merely to reduce line counts.
+- Verify runtime, CLI and test references before removing code. Record deferred findings rather than broadening the change silently.
 
-- Prefer changes that stay aligned with [docs/SECKIT_RUN_AND_BACKEND_REWORK_PLAN.md](docs/SECKIT_RUN_AND_BACKEND_REWORK_PLAN.md) and [CHANGELOG.md](CHANGELOG.md).
-- macOS Keychain / iCloud validation remains partly manual; see [docs/ICLOUD_SYNC_VALIDATION.md](docs/ICLOUD_SYNC_VALIDATION.md) and [docs/LAUNCHD_VALIDATION.md](docs/LAUNCHD_VALIDATION.md).
+## Validation
 
-## Tests
+Use the configured project Python environment consistently. The Makefile is the canonical test orchestration surface; inspect `make help` and run the narrowest relevant `make test-*` target first.
 
-From the repo root, with the project env active:
+- `make test-fast`: fast client regression checks.
+- `make test-uninstall`: installer, uninstall and managed-service checks.
+- `make test-mcp`: MCP contract checks.
+- `make test`: full serial suite; macOS live integrations may run in an interactive GUI session.
 
-```bash
-PYTHONPATH=src python -m unittest discover -s tests -q
-```
+Do not change environments, install dependencies or run live service tests silently. For boundary changes, retain reference searches and package-content checks in addition to unit tests. A source test pass does not qualify a built release or installed system.
 
-(or `conda run -n venvutil python -m unittest discover -s tests -q` when hooks are non-interactive.)
+## Documentation and handoff
+
+- Keep customer documentation factual; distinguish implemented, planned and qualified behavior.
+- Update customer-facing changelog entries when behavior materially changes.
+- Where an authoritative documentation source is supplied by the maintainer, edit it first and synchronize only approved public derivatives.
+- Keep Markdown paragraphs and list items on single physical lines; do not hard-wrap prose.
+- Exclude generated build copies, caches, local databases, secret exports, private reports and host inventories from publication inputs.
+- Report changed files, tests and failures, invariant checks and remaining limitations. Never imply release readiness from partial qualification.

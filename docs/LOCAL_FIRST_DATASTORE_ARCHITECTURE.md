@@ -322,6 +322,8 @@ erDiagram
 
 Business organizations are the top-level business scope.
 
+For an opted-in shared-host installation, a locally minted organization UUID is the stable business identity; `Personal` is a valid display name. The root-owned host file is an offline identifier hint, not a billing credential or access grant. Private Ops binds the UUID to one verified Stripe customer/account and organization-wide subscription. Installation UUIDs remain host-specific, and historical signed rows are not rewritten.
+
 Fields:
 
 - `organization_id` (primary key)
@@ -340,6 +342,8 @@ Relationships:
 ### `business_clients`
 
 Business clients belong to a business organization.
+
+A client is a business-unit attribution scope under the one organization bill. Its UUID can be used on multiple participating hosts; client-level device counts and RSS usage do not create separate subscriptions or invoices in this release.
 
 Fields:
 
@@ -361,6 +365,8 @@ Relationships:
 ### `owners`
 
 Owners belong to a business client and own peer groups, secrets, and transaction scope.
+
+Each opted-in Unix account receives its own stable principal/owner UUID; the username is local metadata, not the immutable ID. Existing account-label-derived owner IDs remain historical aliases. Each account keeps a separate store, storage key, node/peer identity, daemon and RSS device credential. Common host or billing scope never grants local-store access or peer admission.
 
 Fields:
 

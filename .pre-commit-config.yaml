@@ -1,16 +1,36 @@
+# Maintainer host setup (not operator curl|bash runtime):
+#   pip install -e ".[dev]"
+#   pre-commit install
+# Ruff runs from ruff-pre-commit; basedpyright uses your host Python.
 repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.11.13
+    hooks:
+      - id: ruff-check
+        name: ruff check (src, tests, scripts)
+        files: ^(src|tests|scripts)/.*\.py$
+
   - repo: local
     hooks:
+      - id: seckit-basedpyright
+        name: basedpyright (src, tests)
+        entry: python scripts/precommit_lint_types.py
+        language: system
+        pass_filenames: false
+        files: ^(src|tests)/.*\.py$
+
       - id: seckit-tests
         name: seckit unit tests
         entry: python -m unittest discover -s tests -v
         language: system
         pass_filenames: false
+
       - id: seckit-py-compile
         name: seckit py_compile
         entry: python -m py_compile src/secrets_kit/*.py
         language: system
         pass_filenames: false
+
       - id: seckit-secret-warn
         name: seckit secret warning (non-blocking)
         entry: python scripts/precommit_secret_gate.py

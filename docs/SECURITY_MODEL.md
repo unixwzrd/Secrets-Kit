@@ -1,7 +1,6 @@
 # Security Model
 
-**Created**: 2026-03-10
-
+**Created**: 2026-03-10  
 **Updated**: 2026-08-20
 
 - [Security Model](#security-model)
