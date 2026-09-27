@@ -15,10 +15,13 @@ import argparse
 import importlib
 import importlib.metadata
 import json
+import os
 import platform
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Sequence
+from unittest.mock import patch
 
 APPROVED_VERSIONS = {
     "cryptography": "50.0.1",
@@ -180,25 +183,29 @@ def verify_libp2p_startup() -> dict[str, object]:
         sign_transport_binding=unexpected_binding,
         verify_transport_binding=unexpected_binding,
     )
-    try:
-        try:
-            transport.start(services=services)
-        except Exception as exc:
-            raise TransportDependencyError(f"libp2p host startup failed: {exc}") from exc
-        snapshot = transport.snapshot()
-        details = snapshot.as_dict()
-        if not snapshot.running or not snapshot.transport_identity or not snapshot.tcp_port:
-            raise TransportDependencyError(f"libp2p host startup was incomplete: {details}")
-        if details.get("security_protocols") != ["/noise"]:
-            raise TransportDependencyError(f"libp2p security profile is not Noise-only: {details}")
-        return {
-            "transport": snapshot.transport,
-            "peer_id": snapshot.transport_identity,
-            "tcp_port": snapshot.tcp_port,
-            "security_protocols": details["security_protocols"],
-        }
-    finally:
-        transport.stop()
+    # A root-run system install may inherit a user's HOME. Never probe with
+    # that user's daemon identity, or create a persistent root-owned identity.
+    with tempfile.TemporaryDirectory(prefix="seckit-transport-check-") as runtime:
+        with patch.dict(os.environ, {"SECKIT_DAEMON_RUNTIME_DIR": runtime}):
+            try:
+                try:
+                    transport.start(services=services)
+                except Exception as exc:
+                    raise TransportDependencyError(f"libp2p host startup failed: {exc}") from exc
+                snapshot = transport.snapshot()
+                details = snapshot.as_dict()
+                if not snapshot.running or not snapshot.transport_identity or not snapshot.tcp_port:
+                    raise TransportDependencyError(f"libp2p host startup was incomplete: {details}")
+                if details.get("security_protocols") != ["/noise"]:
+                    raise TransportDependencyError(f"libp2p security profile is not Noise-only: {details}")
+                return {
+                    "transport": snapshot.transport,
+                    "peer_id": snapshot.transport_identity,
+                    "tcp_port": snapshot.tcp_port,
+                    "security_protocols": details["security_protocols"],
+                }
+            finally:
+                transport.stop()
 
 
 def validate_installation(*, system: str | None = None) -> dict[str, object]:

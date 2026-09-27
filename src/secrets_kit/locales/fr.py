@@ -6,6 +6,12 @@ Table des messages français du CLI.
 from __future__ import annotations
 
 STRINGS = {
+    "cli.host.help": "Gérer le contexte d’organisation d’un hôte partagé",
+    "cli.host.configure_help": "Créer les identifiants d’hôte administrés",
+    "cli.host.show_help": "Afficher les identifiants publics de l’hôte",
+    "cli.host.join_help": "Associer le stockage de cet utilisateur Unix au contexte de l’hôte",
+    "cli.host.register_help": "Inscrire un utilisateur associé aux mises à niveau administrées",
+    "cli.host.activate_help": "Activer une génération partagée et vérifier les utilisateurs inscrits",
     "cli.rss.device_capacity_exhausted": "La capacité RSS est entièrement provisionnée. Demandez à l’opérateur d’augmenter la capacité ou de déprovisionner un appareil. La configuration locale et le démon sont conservés.",
     "cli.rss.rss_authorization_pending": "La configuration RSS locale est enregistrée, mais l’autorisation RSS n’est pas confirmée. Le démon reste actif ; consultez seckit status avant de réessayer l’inscription.",
     "cli.upgrade.help": "Rechercher et installer les mises à jour de Secrets Kit",

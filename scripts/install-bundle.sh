@@ -10,6 +10,7 @@ verify_only=0
 args=(--ref @INSTALL_REF@ --yes)
 shell_profile_force=0
 shell_profile_opt_out=0
+system_mode=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --verify-only) verify_only=1; shift ;;
@@ -24,6 +25,14 @@ while [[ $# -gt 0 ]]; do
             shell_profile_force=1
             args+=("$1")
             shift ;;
+        --system)
+            system_mode=1
+            args+=("$1")
+            shift ;;
+        --prefix|--environment)
+            [[ $# -ge 2 && -n "$2" ]] || fail "$1 requires a value"
+            args+=("$1" "$2")
+            shift 2 ;;
         --upgrade|--repair|--yes|--no-init|--no-verify|--skip-verify-if-unchanged|--dry-run|--json|--verbose|--no-uv-download)
             args+=("$1"); shift ;;
         *) fail 'Unsupported option for a pinned installer; repository and release cannot be overridden.' ;;
@@ -31,7 +40,7 @@ while [[ $# -gt 0 ]]; do
 done
 # File and piped runs both ask install.sh to apply its managed PATH block.
 # --no-shell-profile and --safe keep the engine's existing opt-out, including noninteractive SSH qualification.
-if [[ "$shell_profile_opt_out" -eq 0 && "$shell_profile_force" -eq 0 ]]; then
+if [[ "$system_mode" -eq 0 && "$shell_profile_opt_out" -eq 0 && "$shell_profile_force" -eq 0 ]]; then
     args+=(--shell-profile-force)
 fi
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")"

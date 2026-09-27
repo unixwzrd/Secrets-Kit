@@ -20,17 +20,19 @@ from secrets_kit.crypto.codecs import decode_b64url
 
 
 def _peer_command(
-    *, host: str | None, parts: list[str], payload: dict[str, Any] | None = None
+    *, host: str | None, parts: list[str], payload: dict[str, Any] | None = None,
+    shared_launcher: Path | None = None,
 ) -> dict[str, Any] | list[dict[str, Any]]:
     """Run one bounded peer CLI operation and parse JSON output when present."""
     if host is None:
-        launcher = Path.home() / ".local/bin/seckit"
+        launcher = shared_launcher or Path.home() / ".local/bin/seckit"
         executable = str(launcher) if launcher.is_file() else shutil.which("seckit")
         if not executable:
             raise ValueError("local Secrets Kit command is unavailable")
         argv = [executable, "peer", *parts]
     else:
-        remote = '"$HOME/.local/bin/seckit" peer ' + " ".join(shlex.quote(part) for part in parts)
+        remote_launcher = shlex.quote(str(shared_launcher)) if shared_launcher else '"$HOME/.local/bin/seckit"'
+        remote = remote_launcher + " peer " + " ".join(shlex.quote(part) for part in parts)
         argv = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host, remote]
     completed = subprocess.run(
         argv,
@@ -53,9 +55,19 @@ def _peer_command(
     return value
 
 
-def _existing_admission(*, host: str | None, node_id: str) -> dict[str, Any] | None:
+def _call_peer(
+    *, host: str | None, parts: list[str], payload: dict[str, Any] | None = None,
+    shared_launcher: Path | None = None,
+) -> dict[str, Any] | list[dict[str, Any]]:
+    """Keep the per-user command unchanged unless a shared launcher was verified."""
+    if shared_launcher is None:
+        return _peer_command(host=host, parts=parts, payload=payload)
+    return _peer_command(host=host, parts=parts, payload=payload, shared_launcher=shared_launcher)
+
+
+def _existing_admission(*, host: str | None, node_id: str, shared_launcher: Path | None = None) -> dict[str, Any] | None:
     """Read admission without changing it; missing is distinct from failed lookup."""
-    rows = _peer_command(host=host, parts=["list", "--backend", "sqlite", "--json"])
+    rows = _call_peer(host=host, parts=["list", "--backend", "sqlite", "--json"], shared_launcher=shared_launcher)
     if not isinstance(rows, list):
         raise ValueError("peer list returned an invalid JSON array")
     return next((row for row in rows if row.get("node_id") == node_id), None)
@@ -92,21 +104,21 @@ def _confirm_scope(*, host: str, local: tuple[str, str, str], remote: tuple[str,
     return service, account
 
 
-def pair_installed_peer(*, host: str) -> None:
+def pair_installed_peer(*, host: str, shared_launcher: Path | None = None) -> None:
     """Exchange existing signed proofs over SSH and verify mutual scoped admission.
 
     Installation has already completed. A failure after requests are created
     may leave pending or one-sided admission; the operator must inspect both
     peers before retrying.
     """
-    local_identity = _peer_command(host=None, parts=["export-identity", "--backend", "sqlite", "--json"])
-    remote_identity = _peer_command(host=host, parts=["export-identity", "--backend", "sqlite", "--json"])
+    local_identity = _call_peer(host=None, parts=["export-identity", "--backend", "sqlite", "--json"], shared_launcher=shared_launcher)
+    remote_identity = _call_peer(host=host, parts=["export-identity", "--backend", "sqlite", "--json"], shared_launcher=shared_launcher)
     local_summary = _identity_summary(local_identity)
     remote_summary = _identity_summary(remote_identity)
     if local_summary[0] == remote_summary[0]:
         raise ValueError("local and remote nodes have the same identity")
-    local_existing = _existing_admission(host=None, node_id=remote_summary[0])
-    remote_existing = _existing_admission(host=host, node_id=local_summary[0])
+    local_existing = _existing_admission(host=None, node_id=remote_summary[0], shared_launcher=shared_launcher)
+    remote_existing = _existing_admission(host=host, node_id=local_summary[0], shared_launcher=shared_launcher)
     if local_existing is not None or remote_existing is not None:
         if local_existing is None or remote_existing is None:
             raise ValueError("one-sided peer admission; preserve both stores and report this state")
@@ -123,24 +135,24 @@ def pair_installed_peer(*, host: str) -> None:
     service, account = _confirm_scope(host=host, local=local_summary, remote=remote_summary)
 
     request_args = ["request", "--backend", "sqlite", "--json"]
-    local_request = _peer_command(host=None, parts=request_args)
-    remote_request = _peer_command(host=host, parts=request_args)
+    local_request = _call_peer(host=None, parts=request_args, shared_launcher=shared_launcher)
+    remote_request = _call_peer(host=host, parts=request_args, shared_launcher=shared_launcher)
     if _identity_summary(local_request) != local_summary or _identity_summary(remote_request) != remote_summary:
         raise ValueError("a node identity changed during SSH peer setup; no peer was authorized")
 
-    _peer_command(host=None, parts=["import-request", "--backend", "sqlite"], payload=remote_request)
-    _peer_command(host=host, parts=["import-request", "--backend", "sqlite"], payload=local_request)
+    _call_peer(host=None, parts=["import-request", "--backend", "sqlite"], payload=remote_request, shared_launcher=shared_launcher)
+    _call_peer(host=host, parts=["import-request", "--backend", "sqlite"], payload=local_request, shared_launcher=shared_launcher)
     accept_args = ["--backend", "sqlite", "--service", service, "--account", account, "--json"]
-    local_acceptance = _peer_command(host=None, parts=["accept", remote_summary[0], *accept_args])
-    remote_acceptance = _peer_command(host=host, parts=["accept", local_summary[0], *accept_args])
-    _peer_command(host=None, parts=["import-acceptance", "--backend", "sqlite"], payload=remote_acceptance)
-    _peer_command(host=host, parts=["import-acceptance", "--backend", "sqlite"], payload=local_acceptance)
+    local_acceptance = _call_peer(host=None, parts=["accept", remote_summary[0], *accept_args], shared_launcher=shared_launcher)
+    remote_acceptance = _call_peer(host=host, parts=["accept", local_summary[0], *accept_args], shared_launcher=shared_launcher)
+    _call_peer(host=None, parts=["import-acceptance", "--backend", "sqlite"], payload=remote_acceptance, shared_launcher=shared_launcher)
+    _call_peer(host=host, parts=["import-acceptance", "--backend", "sqlite"], payload=local_acceptance, shared_launcher=shared_launcher)
 
     expected = set(local_acceptance.get("service_group_ids", []))
     if not expected or expected != set(remote_acceptance.get("service_group_ids", [])):
         raise ValueError("peer authorization scopes differ; inspect both nodes")
     for side, node_id in ((None, remote_summary[0]), (host, local_summary[0])):
-        row = _peer_command(host=side, parts=["show", "--backend", "sqlite", "--json", node_id])
+        row = _call_peer(host=side, parts=["show", "--backend", "sqlite", "--json", node_id], shared_launcher=shared_launcher)
         if row.get("state") != "active" or not row.get("synchronization_eligible"):
             raise ValueError("peer authorization did not become active on both nodes")
         if set(row.get("service_group_ids", [])) != expected:
@@ -148,17 +160,18 @@ def pair_installed_peer(*, host: str) -> None:
     print(f"Peer admission complete for {service}/{account} on both nodes.")
 
 
-def _status_command(*, host: str | None) -> dict[str, Any]:
+def _status_command(*, host: str | None, shared_launcher: Path | None = None) -> dict[str, Any]:
     """Read one bounded daemon snapshot without modifying peer or route state."""
     if host is None:
-        launcher = Path.home() / ".local/bin/seckit"
+        launcher = shared_launcher or Path.home() / ".local/bin/seckit"
         executable = str(launcher) if launcher.is_file() else shutil.which("seckit")
         if not executable:
             raise ValueError("local Secrets Kit command is unavailable")
         argv = [executable, "status", "--json"]
     else:
+        remote_launcher = shlex.quote(str(shared_launcher)) if shared_launcher else '"$HOME/.local/bin/seckit"'
         argv = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host,
-                '"$HOME/.local/bin/seckit" status --json']
+                f"{remote_launcher} status --json"]
     completed = subprocess.run(argv, text=True, capture_output=True, check=False, timeout=30)
     if completed.returncode:
         raise ValueError(f"daemon status failed on {host or 'this machine'}: {completed.stderr.strip()[:400]}")
@@ -168,18 +181,19 @@ def _status_command(*, host: str | None) -> dict[str, Any]:
     return value
 
 
-def _wait_route_command(*, host: str | None, peer_id: str) -> None:
+def _wait_route_command(*, host: str | None, peer_id: str, shared_launcher: Path | None = None) -> None:
     """Wait for the daemon's authenticated route event, never poll status."""
     if host is None:
-        launcher = Path.home() / ".local/bin/seckit"
+        launcher = shared_launcher or Path.home() / ".local/bin/seckit"
         executable = str(launcher) if launcher.is_file() else shutil.which("seckit")
         if not executable:
             raise ValueError("local Secrets Kit command is unavailable")
         argv = [executable, "internal", "wait-route", peer_id]
     else:
+        remote_launcher = shlex.quote(str(shared_launcher)) if shared_launcher else '"$HOME/.local/bin/seckit"'
         argv = [
             "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host,
-            f'"$HOME/.local/bin/seckit" internal wait-route {shlex.quote(peer_id)}',
+            f"{remote_launcher} internal wait-route {shlex.quote(peer_id)}",
         ]
     completed = subprocess.run(argv, text=True, capture_output=True, check=False, timeout=45)
     if completed.returncode:
@@ -188,17 +202,17 @@ def _wait_route_command(*, host: str | None, peer_id: str) -> None:
         )
 
 
-def verify_authorized_route(*, host: str) -> None:
+def verify_authorized_route(*, host: str, shared_launcher: Path | None = None) -> None:
     """Fail closed unless each live daemon reports the authenticated peer route."""
-    local = _peer_command(host=None, parts=["export-identity", "--backend", "sqlite", "--json"])
-    remote = _peer_command(host=host, parts=["export-identity", "--backend", "sqlite", "--json"])
+    local = _call_peer(host=None, parts=["export-identity", "--backend", "sqlite", "--json"], shared_launcher=shared_launcher)
+    remote = _call_peer(host=host, parts=["export-identity", "--backend", "sqlite", "--json"], shared_launcher=shared_launcher)
     if not isinstance(local, dict) or not isinstance(remote, dict):
         raise ValueError("peer identity response was invalid")
     local_id = _identity_summary(local)[0]
     remote_id = _identity_summary(remote)[0]
     for side, other_id in ((None, remote_id), (host, local_id)):
-        _wait_route_command(host=side, peer_id=other_id)
-        status = _status_command(host=side)
+        _wait_route_command(host=side, peer_id=other_id, shared_launcher=shared_launcher)
+        status = _status_command(host=side, shared_launcher=shared_launcher)
         daemon = status.get("daemon")
         routing = status.get("routing")
         routes = routing.get("routes") if isinstance(routing, dict) else None

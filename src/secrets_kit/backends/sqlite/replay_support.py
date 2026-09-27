@@ -27,6 +27,8 @@ class _ReplaySupportRows:
     origin_node_ids: frozenset[str]
     owner_ids: frozenset[str]
     service_groups: Mapping[str, str]
+    clients: Mapping[str, str]
+    principal_clients: Mapping[str, str]
 
 
 def bootstrap_replay_support_rows(
@@ -58,13 +60,22 @@ def bootstrap_replay_support_rows(
         """,
         (LOCAL_CLIENT_ID, LOCAL_ORGANIZATION_ID, "local SQLite replay support"),
     )
+    for client_id, organization_id in sorted(support.clients.items()):
+        conn.execute(
+            "INSERT OR IGNORE INTO business_organizations (organization_id, operator_comment) VALUES (?, ?)",
+            (organization_id, "authenticated transaction scope; not billing authority"),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO business_clients (client_id, organization_id, operator_comment) VALUES (?, ?, ?)",
+            (client_id, organization_id, "authenticated transaction scope; not billing authority"),
+        )
     for owner_id in sorted(support.owner_ids):
         conn.execute(
             """
             INSERT OR IGNORE INTO owners (owner_id, client_id, operator_comment)
             VALUES (?, ?, ?)
             """,
-            (owner_id, LOCAL_CLIENT_ID, "local SQLite replay support"),
+            (owner_id, support.principal_clients.get(owner_id, LOCAL_CLIENT_ID), "local SQLite replay support"),
         )
     for node_id in sorted(support.origin_node_ids):
         peer_group_id = local_peer_group_id_for_node(node_id=node_id)
@@ -122,6 +133,8 @@ def _replay_support_rows(*, transactions: Iterable[Transaction]) -> _ReplaySuppo
     origin_node_ids: set[str] = set()
     owner_ids: set[str] = set()
     service_groups: dict[str, str] = {}
+    clients: dict[str, str] = {}
+    principal_clients: dict[str, str] = {}
 
     for transaction in transactions:
         if transaction.origin_node_id:
@@ -138,6 +151,26 @@ def _replay_support_rows(*, transactions: Iterable[Transaction]) -> _ReplaySuppo
                 field_name="owner_id",
             )
             owner_ids.add(transaction.owner_id)
+        if transaction.organization_id is not None or transaction.client_id is not None:
+            if transaction.organization_id is None or transaction.client_id is None:
+                raise SQLiteValidationError("transaction organization and client scope must be paired")
+            _validate_identifier(
+                value=transaction.organization_id,
+                expected_type="organization",
+                field_name="organization_id",
+            )
+            _validate_identifier(
+                value=transaction.client_id,
+                expected_type="client",
+                field_name="client_id",
+            )
+            prior_organization = clients.setdefault(transaction.client_id, transaction.organization_id)
+            if prior_organization != transaction.organization_id:
+                raise SQLiteValidationError("transaction client maps to multiple organizations")
+            if transaction.owner_id:
+                prior_client = principal_clients.setdefault(transaction.owner_id, transaction.client_id)
+                if prior_client != transaction.client_id:
+                    raise SQLiteValidationError("transaction principal maps to multiple clients")
         if transaction.transaction_type not in {"secret.set", "secret.delete"}:
             continue
         owner_id = _payload_text(transaction.payload, "owner_id")
@@ -161,6 +194,8 @@ def _replay_support_rows(*, transactions: Iterable[Transaction]) -> _ReplaySuppo
         origin_node_ids=frozenset(origin_node_ids),
         owner_ids=frozenset(owner_ids),
         service_groups=service_groups,
+        clients=clients,
+        principal_clients=principal_clients,
     )
 
 

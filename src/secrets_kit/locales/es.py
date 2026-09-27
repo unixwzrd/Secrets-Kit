@@ -6,6 +6,12 @@ Tabla de cadenas en español.
 from __future__ import annotations
 
 STRINGS = {
+    "cli.host.help": "Gestionar el contexto de organización de un equipo compartido",
+    "cli.host.configure_help": "Crear identificadores del equipo administrados",
+    "cli.host.show_help": "Mostrar los identificadores públicos del equipo",
+    "cli.host.join_help": "Asociar el almacén de este usuario Unix al contexto del equipo",
+    "cli.host.register_help": "Registrar un usuario asociado para actualizaciones administradas",
+    "cli.host.activate_help": "Activar una generación compartida y verificar los usuarios registrados",
     "cli.rss.device_capacity_exhausted": "La capacidad de dispositivos RSS está totalmente ocupada. Solicite al operador que aumente la capacidad o retire un dispositivo. Se conservan la configuración local y el demonio.",
     "cli.rss.rss_authorization_pending": "La configuración RSS local está guardada, pero la autorización RSS no está confirmada. El demonio sigue activo; consulte seckit status antes de volver a intentar la inscripción.",
     "cli.upgrade.help": "Buscar e instalar actualizaciones de Secrets Kit",

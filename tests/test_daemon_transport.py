@@ -32,12 +32,14 @@ from secrets_kit.daemon.transport import (
     PyLibP2PTransport,
     TransportError,
     TransportServices,
+    TransportUnavailable,
     _create_noise_only_host,
     _invoke_runtime_binding,
     _lan_ipv4_addresses,
     _LibP2PNotifee,
     _load_or_create_libp2p_identity,
     _peerstore_endpoint,
+    _proven_direct_connection,
     create_transport,
     transport_mode,
 )
@@ -114,6 +116,54 @@ class _FakeLifecycleHost:
 
 
 class DaemonTransportTests(unittest.TestCase):
+    def test_direct_route_survives_later_rss_binding_and_falls_back_after_failure(self) -> None:
+        """Discovery order cannot replace a live direct path, but failure can."""
+        node = deterministic_identifier(
+            identifier_type="node", namespace="transport-tests", name="route-failover"
+        )
+        direct = "/ip4/10.42.0.12/tcp/43123/p2p/remote"
+        circuit = "/dns4/relay.example/tcp/24001/p2p/relay/p2p-circuit/p2p/remote"
+        table = RoutingTable()
+        table.install_discovered(
+            peer_id=node, endpoint=direct, transport_peer_id="remote", adapter="libp2p"
+        )
+        retained = table.install_discovered(
+            peer_id=node, endpoint=circuit, transport_peer_id="remote", adapter="libp2p"
+        )
+        self.assertEqual(retained.endpoint, direct)
+        self.assertEqual(table.resolve(peer_id=node, adapter="libp2p").endpoint, direct)
+
+        table.mark_unavailable(peer_id=node)
+        table.install_discovered(
+            peer_id=node, endpoint=circuit, transport_peer_id="remote", adapter="libp2p"
+        )
+        self.assertEqual(table.resolve(peer_id=node, adapter="libp2p").endpoint, circuit)
+        table.install_discovered(
+            peer_id=node, endpoint=direct, transport_peer_id="remote", adapter="libp2p"
+        )
+        self.assertEqual(table.resolve(peer_id=node, adapter="libp2p").endpoint, direct)
+
+    def test_stale_direct_send_result_cannot_change_new_rss_route(self) -> None:
+        """A route change while a send is in flight keeps its own availability."""
+        node = deterministic_identifier(
+            identifier_type="node", namespace="transport-tests", name="stale-send"
+        )
+        direct = "/ip4/10.42.0.12/tcp/43123/p2p/remote"
+        circuit = "/dns4/relay.example/tcp/24001/p2p/relay/p2p-circuit/p2p/remote"
+        table = RoutingTable()
+        table.install_discovered(
+            peer_id=node, endpoint=direct, transport_peer_id="remote", adapter="libp2p"
+        )
+        table.mark_unavailable(peer_id=node, endpoint=direct)
+        table.install_discovered(
+            peer_id=node, endpoint=circuit, transport_peer_id="remote", adapter="libp2p"
+        )
+        table.mark_unavailable(peer_id=node, endpoint=direct)
+        self.assertEqual(table.resolve(peer_id=node, adapter="libp2p").endpoint, circuit)
+        table.mark_unavailable(peer_id=node, endpoint=circuit)
+        table.mark_contact(peer_id=node, endpoint=direct)
+        self.assertEqual(table.routes(adapter="libp2p"), ())
+
     def test_route_wait_is_woken_by_authenticated_discovery(self) -> None:
         node = deterministic_identifier(
             identifier_type="node", namespace="transport-tests", name="route-wait"
@@ -566,7 +616,7 @@ class DaemonTransportTests(unittest.TestCase):
         )
         table = RoutingTable()
         selected = "/dns4/relay.example/tcp/24001/p2p/relay/p2p-circuit/p2p/remote"
-        lan = "/ip4/192.0.2.74/tcp/40035/p2p/remote"
+        lan = "/ip4/10.42.0.74/tcp/40035/p2p/remote"
         observed = "/p2p/relay/p2p-circuit/p2p/remote"
         adapter = LibP2PTransport(host="0.0.0.0", requested_port=0, routing_table=table)
         adapter._peer_id = "a-local"
@@ -618,7 +668,7 @@ class DaemonTransportTests(unittest.TestCase):
         self._run_inbound_binding(
             adapter,
             stream,
-            peerstore_endpoint="/ip4/192.0.2.74/tcp/40035/p2p/remote",
+            peerstore_endpoint="/ip4/10.42.0.74/tcp/40035/p2p/remote",
         )
 
         self.assertEqual(table.resolve(peer_id=node_id, adapter="libp2p").endpoint, verified)
@@ -634,7 +684,7 @@ class DaemonTransportTests(unittest.TestCase):
         identity = create_new_key_pair()
         peer_id = ID.from_pubkey(identity.public_key)
         relay_id = ID.from_pubkey(create_new_key_pair().public_key)
-        listen = multiaddr.Multiaddr("/ip4/192.0.2.74/tcp/40035")
+        listen = multiaddr.Multiaddr("/ip4/10.42.0.74/tcp/40035")
         selected = f"/dns4/relay.example/tcp/24001/p2p/{relay_id}/p2p-circuit/p2p/{peer_id}"
         store = PeerStore()
         store.add_addrs(peer_id, [multiaddr.Multiaddr(selected)], 120)
@@ -671,7 +721,7 @@ class DaemonTransportTests(unittest.TestCase):
 
         route = table.resolve(peer_id=node_id, adapter="libp2p")
         self.assertEqual(route.endpoint, selected)
-        self.assertNotIn("/ip4/192.0.2.74/", route.endpoint)
+        self.assertNotIn("/ip4/10.42.0.74/", route.endpoint)
 
     def test_noise_chain_preserves_raw_connection_metadata(self) -> None:
         """Relay, direct and unknown metadata stay exact through Noise and Mplex."""
@@ -763,7 +813,7 @@ class DaemonTransportTests(unittest.TestCase):
         )
         table = RoutingTable()
         selected = "/dns4/relay.example/tcp/24001/p2p/relay/p2p-circuit/p2p/remote"
-        lan = "/ip4/192.0.2.12/tcp/59719/p2p/remote"
+        lan = "/ip4/10.42.0.12/tcp/59719/p2p/remote"
         adapter = LibP2PTransport(host="0.0.0.0", requested_port=0, routing_table=table)
         adapter._peer_id = "a-local"
         adapter._circuit_dial_endpoints["remote"] = selected
@@ -790,7 +840,7 @@ class DaemonTransportTests(unittest.TestCase):
         )
         table = RoutingTable()
         selected = "/dns4/relay.example/tcp/24001/p2p/relay/p2p-circuit/p2p/remote"
-        lan = "/ip4/192.0.2.12/tcp/59719/p2p/remote"
+        lan = "/ip4/10.42.0.12/tcp/59719/p2p/remote"
         adapter = LibP2PTransport(host="0.0.0.0", requested_port=0, routing_table=table)
         adapter._peer_id = "a-local"
         adapter._circuit_dial_endpoints["remote"] = selected
@@ -807,6 +857,67 @@ class DaemonTransportTests(unittest.TestCase):
         self.assertEqual(table.resolve(peer_id=node_id, adapter="libp2p").endpoint, lan)
         self.assertEqual(adapter._binding_states["remote"], (lan, "healthy"))
 
+    def test_direct_inbound_uses_authenticated_mdns_listener_over_old_circuit(self) -> None:
+        """Reverse routing uses the advertised listener, not the inbound socket port."""
+        from libp2p.connection_types import ConnectionType
+
+        node_id = deterministic_identifier(
+            identifier_type="node", namespace="transport-tests", name="direct-reverse"
+        )
+        table = RoutingTable()
+        circuit = "/dns4/relay.example/tcp/24001/p2p/relay/p2p-circuit/p2p/remote"
+        lan = "/ip4/10.42.0.12/tcp/59719/p2p/remote"
+        table.install_discovered(
+            peer_id=node_id, endpoint=circuit, transport_peer_id="remote", adapter="libp2p"
+        )
+        adapter = LibP2PTransport(host="0.0.0.0", requested_port=0, routing_table=table)
+        adapter._peer_id = "a-local"
+        adapter._mdns_candidate_infos["remote"] = types.SimpleNamespace(
+            peer_id="remote", addrs=["/ip4/10.42.0.12/tcp/59719"]
+        )
+        adapter._sign_claim = mock.AsyncMock(return_value={"signature": "local"})
+        adapter._verify_claim = mock.AsyncMock(return_value=node_id)
+        stream = _binding_stream(
+            peer_id="remote",
+            connection_type=ConnectionType.DIRECT,
+            transport_addresses=["/ip4/10.42.0.12/tcp/63241"],
+        )
+
+        self._run_inbound_binding(adapter, stream, peerstore_endpoint=circuit)
+
+        self.assertEqual(table.resolve(peer_id=node_id, adapter="libp2p").endpoint, lan)
+        self.assertIn("remote", adapter._direct_bound_peers)
+
+    def test_later_inbound_rss_binding_keeps_authenticated_direct_route(self) -> None:
+        """A relay stream cannot displace a still-healthy direct route."""
+        from libp2p.connection_types import ConnectionType
+
+        node_id = deterministic_identifier(
+            identifier_type="node", namespace="transport-tests", name="inbound-route-order"
+        )
+        direct = "/ip4/10.42.0.12/tcp/59719/p2p/remote"
+        circuit = "/dns4/relay.example/tcp/24001/p2p/relay/p2p-circuit/p2p/remote"
+        table = RoutingTable()
+        table.install_discovered(
+            peer_id=node_id, endpoint=direct, transport_peer_id="remote", adapter="libp2p"
+        )
+        adapter = LibP2PTransport(host="0.0.0.0", requested_port=0, routing_table=table)
+        adapter._peer_id = "a-local"
+        adapter._circuit_dial_endpoints["remote"] = circuit
+        adapter._sign_claim = mock.AsyncMock(return_value={"signature": "local"})
+        adapter._verify_claim = mock.AsyncMock(return_value=node_id)
+        stream = _binding_stream(
+            peer_id="remote",
+            connection_type=ConnectionType.RELAYED,
+            transport_addresses=[circuit],
+        )
+
+        self._run_inbound_binding(adapter, stream, peerstore_endpoint=circuit)
+
+        self.assertEqual(table.resolve(peer_id=node_id, adapter="libp2p").endpoint, direct)
+        self.assertEqual(adapter._binding_states["remote"], (direct, "healthy"))
+        self.assertIn("remote", adapter._direct_bound_peers)
+
     def test_missing_connection_metadata_does_not_invent_circuit(self) -> None:
         """No swarm connection metadata leaves the peerstore endpoint in place."""
         node_id = deterministic_identifier(
@@ -816,7 +927,7 @@ class DaemonTransportTests(unittest.TestCase):
         )
         table = RoutingTable()
         selected = "/dns4/relay.example/tcp/24001/p2p/relay/p2p-circuit/p2p/remote"
-        lan = "/ip4/192.0.2.74/tcp/40035/p2p/remote"
+        lan = "/ip4/10.42.0.74/tcp/40035/p2p/remote"
         adapter = LibP2PTransport(host="0.0.0.0", requested_port=0, routing_table=table)
         adapter._peer_id = "a-local"
         adapter._circuit_dial_endpoints["remote"] = selected
@@ -851,7 +962,7 @@ class DaemonTransportTests(unittest.TestCase):
         self._run_inbound_binding(
             adapter,
             stream,
-            peerstore_endpoint="/ip4/192.0.2.74/tcp/40035/p2p/remote",
+            peerstore_endpoint="/ip4/10.42.0.74/tcp/40035/p2p/remote",
         )
 
         adapter._verify_claim.assert_awaited_once()
@@ -881,14 +992,14 @@ class DaemonTransportTests(unittest.TestCase):
         self._run_inbound_binding(
             adapter,
             stream,
-            peerstore_endpoint="/ip4/192.0.2.74/tcp/40035/p2p/remote",
+            peerstore_endpoint="/ip4/10.42.0.74/tcp/40035/p2p/remote",
         )
 
         adapter._verify_claim.assert_awaited_once()
         self.assertEqual(table.routes(adapter="libp2p"), ())
         self.assertEqual(
             adapter._binding_states["remote"],
-            ("/ip4/192.0.2.74/tcp/40035/p2p/remote", "rejected"),
+            ("/ip4/10.42.0.74/tcp/40035/p2p/remote", "rejected"),
         )
         self.assertIn(b"rejected", stream.write.await_args_list[-1].args[0])
 
@@ -2221,6 +2332,47 @@ class DaemonTransportTests(unittest.TestCase):
             if previous is not None:
                 os.environ["SECKIT_DAEMON_TRANSPORT"] = previous
 
+    def test_listener_recovers_when_host_scope_fails_after_first_bind(self) -> None:
+        """A running listener must not silently die on a later nursery error."""
+        adapter = LibP2PTransport(host="127.0.0.1", requested_port=0)
+        attempts = 0
+
+        async def host_scope(**_kwargs: object) -> None:
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                adapter._host_generation += 1
+                raise RuntimeError("post-bind failure")
+            adapter._stop_event.set()
+
+        with (
+            mock.patch.object(adapter, "_run_host_scope", side_effect=host_scope),
+            mock.patch("secrets_kit.daemon.transport.LAN_LISTENER_REFRESH_INTERVAL_SECONDS", 0.01),
+        ):
+            adapter._run_thread()
+
+        self.assertEqual(attempts, 2)
+        self.assertIsNone(adapter._startup_error)
+        self.assertTrue(
+            any(
+                event["event"] == "listener_recovery_failed"
+                and "test_daemon_transport.py" in event["reason_origin"]
+                for event in adapter._routing_events
+            )
+        )
+
+    def test_listener_initial_bind_failure_remains_fatal(self) -> None:
+        adapter = LibP2PTransport(host="127.0.0.1", requested_port=0)
+
+        async def fail_before_bind(**_kwargs: object) -> None:
+            raise RuntimeError("initial bind failure")
+
+        with mock.patch.object(adapter, "_run_host_scope", side_effect=fail_before_bind):
+            adapter._run_thread()
+
+        self.assertEqual(adapter._host_generation, 0)
+        self.assertIsNotNone(adapter._startup_error)
+
     def test_libp2p_identity_is_stable_in_protected_runtime_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             with mock.patch.dict(
@@ -2806,6 +2958,7 @@ class DaemonTransportTests(unittest.TestCase):
             requested_port=0,
             discovery=False,
             relay_peers=["/ip4/192.0.2.1/tcp/4001/p2p/12D3KooWRelay"],
+            relay_auth=mock.Mock(),
         )
         adapter._ready = mock.Mock()
         adapter._ready.wait.return_value = False
@@ -2819,6 +2972,50 @@ class DaemonTransportTests(unittest.TestCase):
                     )
                 )
         adapter._ready.wait.assert_called_once_with(timeout=30.0)
+
+    def test_relay_authentication_does_not_gate_local_listener(self) -> None:
+        import trio
+
+        adapter = PyLibP2PTransport(
+            host="127.0.0.1",
+            requested_port=0,
+            discovery=False,
+            relay_peers=["/ip4/192.0.2.1/tcp/4001/p2p/12D3KooWRelay"],
+            relay_auth=mock.Mock(),
+        )
+        host = _FakeLifecycleHost(listen_addr="/ip4/127.0.0.1/tcp/0", port=43123)
+        relay_started = threading.Event()
+
+        async def slow_relay(**_kwargs: object) -> None:
+            relay_started.set()
+            await trio.sleep_forever()
+
+        with (
+            mock.patch("secrets_kit.daemon.transport._create_noise_only_host", return_value=host),
+            mock.patch.object(adapter, "_start_relay_services", side_effect=slow_relay),
+            mock.patch("secrets_kit.daemon.transport.RSS_TRANSPORT_STARTUP_TIMEOUT_SECONDS", 0.5),
+        ):
+            adapter.start(services=_services(handler=lambda _payload, _adapter: (b"{}", True), routing_table=RoutingTable()))
+            try:
+                self.assertTrue(relay_started.wait(1.0))
+                self.assertEqual(adapter.snapshot().tcp_port, 43123)
+            finally:
+                adapter.stop()
+
+    def test_missing_rss_credentials_fail_before_listener_is_ready(self) -> None:
+        adapter = PyLibP2PTransport(
+            host="127.0.0.1",
+            requested_port=0,
+            discovery=False,
+            relay_peers=["/ip4/192.0.2.1/tcp/4001/p2p/12D3KooWRelay"],
+        )
+        with (
+            mock.patch("secrets_kit.daemon.transport.load_rss_relay_credentials_from_environment", return_value=None),
+            mock.patch("secrets_kit.daemon.transport._create_noise_only_host") as create_host,
+        ):
+            with self.assertRaisesRegex(TransportUnavailable, "not configured"):
+                adapter.start(services=_services(handler=lambda _payload, _adapter: (b"{}", True), routing_table=RoutingTable()))
+            create_host.assert_not_called()
 
     def test_automatic_libp2p_listener_binds_selected_lan_address(self) -> None:
         created: list[_FakeLifecycleHost] = []
@@ -3162,9 +3359,13 @@ class DaemonTransportTests(unittest.TestCase):
         relay_candidate = FakePeer("192.0.2.99")
         adapter._candidate_infos[FakePeer.peer_id] = relay_candidate
         adapter._relay_candidate_ranks[FakePeer.peer_id] = 0
-        observed["on_candidate"](FakePeer())
+        observed["on_candidate"](FakePeer("192.0.2.68"))
         self.assertIs(adapter._candidate_infos[FakePeer.peer_id], relay_candidate)
         self.assertEqual(adapter._mdns_candidate_infos[FakePeer.peer_id].peer_id, FakePeer.peer_id)
+        self.assertIs(
+            observed["scheduled"][1],
+            adapter._mdns_candidate_infos[FakePeer.peer_id],
+        )
         observed["on_remove"](FakePeer.peer_id)
         self.assertNotIn(FakePeer.peer_id, adapter._mdns_candidate_infos)
         self.assertIs(adapter._candidate_infos[FakePeer.peer_id], relay_candidate)
@@ -3402,6 +3603,198 @@ down0 00000000 0101A8C0 0003 0 0 10 00000000 0 0 0
 
         self.assertTrue(adapter._stop_event.is_set())
         network.close.assert_not_called()
+
+    def test_authenticated_mdns_route_stays_preferred_over_later_rss_candidate(self) -> None:
+        """An authenticated direct route is not replaced by a later RSS callback."""
+        import trio
+
+        node_id = deterministic_identifier(
+            identifier_type="node", namespace="transport-tests", name="direct-preference"
+        )
+        peer_id = "12D3KooWDiscovered"
+        direct = types.SimpleNamespace(
+            peer_id=peer_id, addrs=["/ip4/192.0.2.12/tcp/43123"]
+        )
+        circuit = types.SimpleNamespace(
+            peer_id=peer_id,
+            addrs=["/dns4/relay.example/tcp/4001/p2p/relay/p2p-circuit"],
+        )
+        from libp2p.connection_types import ConnectionType
+
+        stream = types.SimpleNamespace(
+            write=mock.AsyncMock(),
+            close=mock.AsyncMock(),
+            swarm_conn=types.SimpleNamespace(get_connection_type=lambda: ConnectionType.DIRECT),
+        )
+        host = types.SimpleNamespace(
+            connect=mock.AsyncMock(),
+            new_stream=mock.AsyncMock(return_value=stream),
+            get_peerstore=lambda: types.SimpleNamespace(
+                get_protocols=lambda _peer_id: ["/seckit/identity-binding/1.0.0"]
+            ),
+        )
+        table = RoutingTable()
+        adapter = LibP2PTransport(host="0.0.0.0", requested_port=0, routing_table=table)
+        adapter._host_object = host
+        adapter._peer_id = "12D3KooWLocal"
+        adapter._mdns_candidate_infos[peer_id] = direct
+        adapter._candidate_infos[peer_id] = circuit
+        adapter._relay_candidate_ranks[peer_id] = 0
+        adapter._verify_claim = mock.AsyncMock(return_value=node_id)
+        adapter._sign_claim = mock.AsyncMock(return_value={"signature": "opaque"})
+        adapter._wait_for_identify = mock.AsyncMock()
+        responses = [
+            b'{"version":1,"challenge":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","claim":{}}',
+            b'{"version":1,"status":"accepted"}',
+        ]
+        with mock.patch(
+            "secrets_kit.daemon.transport._read_stream_frame",
+            new=mock.AsyncMock(side_effect=responses),
+        ):
+            trio.run(adapter._bind_candidate, direct)
+            trio.run(adapter._bind_candidate, circuit)
+
+        self.assertEqual(host.new_stream.await_count, 1)
+        self.assertIn(peer_id, adapter._direct_bound_peers)
+        self.assertIn(
+            "/ip4/192.0.2.12/tcp/43123",
+            table.resolve(peer_id=node_id, adapter="libp2p").endpoint,
+        )
+
+    def test_inflight_rss_bind_cannot_replace_new_authenticated_direct_route(self) -> None:
+        """A relay bind started first must not win after a direct bind completes."""
+        import multiaddr
+        import trio
+        from libp2p.peer.peerinfo import info_from_p2p_addr
+
+        node_id = deterministic_identifier(
+            identifier_type="node", namespace="transport-tests", name="direct-race"
+        )
+        destination = "12D3KooWB9zdJUBTokkUCLWgMmUVk9N5VzaQq2G6ewxJGsiGE5zD"
+        relay = "12D3KooWSQA9BTmvTuWs9qW1nSCmQTAtkbSA8fEPVgMf7KEE6F1e"
+        circuit = info_from_p2p_addr(
+            multiaddr.Multiaddr(
+                f"/ip4/192.0.2.99/tcp/4001/p2p/{relay}/p2p-circuit/p2p/{destination}"
+            )
+        )
+        direct = f"/ip4/192.0.2.12/tcp/43123/p2p/{destination}"
+        table = RoutingTable()
+        adapter = LibP2PTransport(host="0.0.0.0", requested_port=0, routing_table=table)
+        adapter._host_object = types.SimpleNamespace(
+            get_peerstore=mock.Mock(return_value=mock.Mock()),
+            get_network=lambda: types.SimpleNamespace(close_peer=mock.AsyncMock()),
+            new_stream=mock.AsyncMock(
+                return_value=types.SimpleNamespace(write=mock.AsyncMock(), close=mock.AsyncMock())
+            ),
+        )
+        adapter._verify_claim = mock.AsyncMock(return_value=node_id)
+        adapter._sign_claim = mock.AsyncMock(return_value={"signature": "opaque"})
+        adapter._mdns_candidate_infos[destination] = types.SimpleNamespace(
+            peer_id=destination,
+            addrs=[direct],
+        )
+        calls = 0
+
+        async def read_binding(_stream: object) -> bytes:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return b'{"version":1,"challenge":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","claim":{}}'
+            table.install_discovered(
+                peer_id=node_id, endpoint=direct,
+                transport_peer_id=destination, adapter="libp2p",
+            )
+            # A concurrent inbound bind can install the verified direct route
+            # while its binding-state tuple is displaced by this RSS attempt.
+            return b'{"version":1,"status":"accepted"}'
+
+        with mock.patch("secrets_kit.daemon.transport._read_stream_frame", new=read_binding):
+            trio.run(adapter._bind_candidate, circuit)
+
+        self.assertEqual(table.resolve(peer_id=node_id, adapter="libp2p").endpoint, direct)
+        self.assertEqual(adapter._binding_states[destination], (direct, "healthy"))
+        self.assertIn(destination, adapter._direct_bound_peers)
+        self.assertIn(
+            "rss_route_superseded_by_direct",
+            [event["event"] for event in adapter.metadata()["routing_events"]],
+        )
+
+    def test_direct_route_proof_rejects_relay_and_unknown_connections(self) -> None:
+        """A discovered LAN address is not proof that a reused stream went direct."""
+        from libp2p.connection_types import ConnectionType
+
+        for connection_type in (ConnectionType.RELAYED, ConnectionType.UNKNOWN):
+            with self.subTest(connection_type=connection_type):
+                stream = types.SimpleNamespace(
+                    swarm_conn=types.SimpleNamespace(
+                        get_connection_type=lambda value=connection_type: value
+                    )
+                )
+                self.assertFalse(_proven_direct_connection(stream=stream))
+        self.assertFalse(_proven_direct_connection(stream=object()))
+        self.assertTrue(
+            _proven_direct_connection(
+                stream=types.SimpleNamespace(
+                    swarm_conn=types.SimpleNamespace(
+                        get_connection_type=lambda: ConnectionType.DIRECT
+                    )
+                )
+            )
+        )
+
+    def test_failed_mdns_dial_schedules_existing_rss_fallback(self) -> None:
+        """A failed direct attempt keeps the RSS route available for one fallback."""
+        import trio
+
+        peer_id = "12D3KooWDiscovered"
+        direct = types.SimpleNamespace(
+            peer_id=peer_id, addrs=["/ip4/192.0.2.12/tcp/43123"]
+        )
+        circuit = types.SimpleNamespace(
+            peer_id=peer_id,
+            addrs=["/dns4/relay.example/tcp/4001/p2p/relay/p2p-circuit"],
+        )
+        adapter = LibP2PTransport(host="0.0.0.0", requested_port=0)
+        adapter._host_object = types.SimpleNamespace(
+            connect=mock.AsyncMock(side_effect=OSError("direct unavailable"))
+        )
+        adapter._mdns_candidate_infos[peer_id] = direct
+        adapter._candidate_infos[peer_id] = circuit
+        adapter._relay_candidate_ranks[peer_id] = 0
+        adapter._spawn_scope_task = mock.Mock()
+
+        trio.run(adapter._bind_candidate, direct)
+
+        adapter._spawn_scope_task.assert_called_once_with(
+            adapter._connect_and_bind, circuit
+        )
+        self.assertNotIn(peer_id, adapter._direct_bound_peers)
+
+    def test_failed_direct_delivery_schedules_retained_rss_candidate(self) -> None:
+        """A failed delivery changes route preference only for that destination."""
+        peer_id = "12D3KooWDiscovered"
+        circuit = types.SimpleNamespace(
+            peer_id=peer_id,
+            addrs=["/dns4/relay.example/tcp/4001/p2p/relay/p2p-circuit"],
+        )
+        adapter = LibP2PTransport(host="0.0.0.0", requested_port=0)
+        adapter._candidate_infos[peer_id] = circuit
+        adapter._direct_bound_peers.add(peer_id)
+        adapter._spawn_scope_task = mock.Mock()
+        token = types.SimpleNamespace(run_sync_soon=lambda callback: callback())
+        route = PeerRoute(
+            peer_id="node:test",
+            endpoint="/ip4/192.0.2.12/tcp/43123/p2p/12D3KooWDiscovered",
+            transport_peer_id=peer_id,
+            adapter="libp2p",
+        )
+
+        adapter._queue_failed_direct_fallback(destination=route, token=token)
+
+        adapter._spawn_scope_task.assert_called_once_with(
+            adapter._connect_and_bind, circuit
+        )
+        self.assertNotIn(peer_id, adapter._direct_bound_peers)
 
     def test_discovered_candidate_connects_and_installs_one_validated_route(self) -> None:
         node_id = deterministic_identifier(

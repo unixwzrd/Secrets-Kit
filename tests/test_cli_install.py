@@ -24,6 +24,7 @@ from secrets_kit.cli.commands.install_cmd import (
     _prepare_remote_install,
     _remote_ssh_command,
     _remote_version_pin_env,
+    _shared_loopback_launcher,
     _verified_remote_installer,
     cmd_install,
 )
@@ -40,6 +41,47 @@ class CliInstallTest(unittest.TestCase):
                                      return_value=("example/installed", "prerelease")))
         self.enterContext(mock.patch("secrets_kit.cli.commands.install_cmd._safe_install_state",
                                      return_value={"ref": "v2.0.1a22"}))
+
+    def test_shared_localhost_install_uses_joined_launcher(self) -> None:
+        membership = {
+            "installation_id": "installation-1", "environment": "qa",
+            "organization_id": "org:one", "client_id": "cli:one",
+            "unix_username": "first", "principal_owner_id": "own:first",
+        }
+        remote = {**membership, "unix_username": "second", "principal_owner_id": "own:second"}
+        launcher = Path("/opt/seckit/qa/bin/seckit")
+        probe = subprocess.CompletedProcess(
+            args=[], returncode=0,
+            stdout=f"seckit {__import__('secrets_kit').__version__}\n{json.dumps(remote)}\n",
+            stderr="",
+        )
+        with mock.patch.dict(os.environ, {"SECKIT_LAUNCHER_PATH": str(launcher)}), \
+             mock.patch.object(Path, "is_file", return_value=True), \
+             mock.patch("secrets_kit.cli.commands.install_cmd.joined_host_membership", return_value=membership), \
+             mock.patch("secrets_kit.cli.commands.install_cmd.subprocess.run", return_value=probe):
+            result = _shared_loopback_launcher(host="second@localhost", args=argparse.Namespace())
+        self.assertEqual(result, launcher)
+
+    def test_shared_localhost_install_rejects_different_context(self) -> None:
+        membership = {
+            "installation_id": "installation-1", "environment": "qa",
+            "organization_id": "org:one", "client_id": "cli:one",
+            "unix_username": "first", "principal_owner_id": "own:first",
+        }
+        remote = {**membership, "unix_username": "second", "principal_owner_id": "own:second",
+                  "organization_id": "org:other"}
+        launcher = Path("/opt/seckit/qa/bin/seckit")
+        probe = subprocess.CompletedProcess(
+            args=[], returncode=0,
+            stdout=f"seckit {__import__('secrets_kit').__version__}\n{json.dumps(remote)}\n",
+            stderr="",
+        )
+        with mock.patch.dict(os.environ, {"SECKIT_LAUNCHER_PATH": str(launcher)}), \
+             mock.patch.object(Path, "is_file", return_value=True), \
+             mock.patch("secrets_kit.cli.commands.install_cmd.joined_host_membership", return_value=membership), \
+             mock.patch("secrets_kit.cli.commands.install_cmd.subprocess.run", return_value=probe), \
+             self.assertRaisesRegex(ValueError, "differs from the joined installation"):
+            _shared_loopback_launcher(host="second@localhost", args=argparse.Namespace())
 
     def test_installer_url_uses_installed_repository_not_public_default(self) -> None:
         from secrets_kit.cli.commands.install_cmd import _installer_url

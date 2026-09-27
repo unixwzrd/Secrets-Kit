@@ -135,7 +135,7 @@ class RoutingTable:
         adapter: str,
         source: str = "discovery",
     ) -> PeerRoute:
-        """Install one validated ephemeral adapter route."""
+        """Install an authenticated route, retaining a healthy direct path over RSS."""
         discovered = PeerRoute(
             peer_id=validate_identifier(
                 value=peer_id, expected_type="node", field="peer_id"
@@ -149,15 +149,27 @@ class RoutingTable:
             last_contact=_now(),
         )
         with self._lock:
+            current = self._discovered_routes.get(peer_id)
+            if (
+                current is not None
+                and current.adapter == adapter
+                and current.transport_peer_id == transport_peer_id
+                and current.connected
+                and current.reachable
+                and current.endpoint is not None
+                and "/p2p-circuit/" not in current.endpoint
+                and "/p2p-circuit/" in endpoint
+            ):
+                return current
             self._discovered_routes[peer_id] = discovered
             self._route_changed.notify_all()
         return discovered
 
-    def mark_contact(self, *, peer_id: str) -> None:
-        """Mark a discovered route connected after successful transport I/O."""
+    def mark_contact(self, *, peer_id: str, endpoint: str | None = None) -> None:
+        """Mark the route used by successful I/O connected, if still selected."""
         with self._lock:
             route = self._discovered_routes.get(peer_id)
-            if route is not None:
+            if route is not None and (endpoint is None or route.endpoint == endpoint):
                 self._discovered_routes[peer_id] = _route_state(
                     route=route, connected=True, reachable=True
                 )
@@ -186,11 +198,11 @@ class RoutingTable:
                 return None
             return route
 
-    def mark_unavailable(self, *, peer_id: str) -> None:
-        """Keep route evidence but make an unavailable discovery route ineligible."""
+    def mark_unavailable(self, *, peer_id: str, endpoint: str | None = None) -> None:
+        """Mark the failed route unavailable without clobbering a replacement."""
         with self._lock:
             route = self._discovered_routes.get(peer_id)
-            if route is not None:
+            if route is not None and (endpoint is None or route.endpoint == endpoint):
                 self._discovered_routes[peer_id] = _route_state(
                     route=route, connected=False, reachable=False
                 )

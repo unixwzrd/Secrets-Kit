@@ -7,6 +7,12 @@ Static US English string table.
 from __future__ import annotations
 
 STRINGS = {
+    "cli.host.help": "Manage a shared-host organization context",
+    "cli.host.configure_help": "Create administrator-owned host identifiers",
+    "cli.host.show_help": "Show public host identifiers",
+    "cli.host.join_help": "Opt this Unix user's existing store into a host context",
+    "cli.host.register_help": "Register a joined user for administrator rolling upgrades",
+    "cli.host.activate_help": "Activate one shared runtime generation and verify registered users",
     "cli.rss.device_capacity_exhausted": "RSS device capacity is fully provisioned. Ask the operator to increase capacity or deprovision a device. Local configuration and daemon are retained.",
     "cli.rss.rss_authorization_pending": "Local RSS configuration is saved, but RSS authorization is not confirmed. The daemon remains running; inspect seckit status before retrying enrollment.",
     "cli.upgrade.help": "Check for and install Secrets Kit updates",

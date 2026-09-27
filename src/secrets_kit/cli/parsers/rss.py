@@ -7,7 +7,6 @@ Parser registration for Remote Secrets Sync customer configuration.
 from __future__ import annotations
 
 import argparse
-from urllib.parse import urlsplit
 
 from secrets_kit.cli.commands.rss import (
     cmd_rss_checkout,
@@ -16,23 +15,7 @@ from secrets_kit.cli.commands.rss import (
     cmd_rss_identity_export,
     cmd_rss_identity_import,
 )
-from secrets_kit.cli.update_check import _safe_install_state
 from secrets_kit.locale import msg
-from secrets_kit.protocol.rss_provisioning import DEFAULT_RSS_OPERATOR_URL
-
-
-def _installed_operator_url() -> str:
-    """Use the HTTPS operator origin recorded by the verified installer."""
-
-    recorded = _safe_install_state().get("rss_operator_url")
-    if not recorded:
-        return DEFAULT_RSS_OPERATOR_URL
-    if not isinstance(recorded, str) or not recorded.startswith("https://"):
-        raise ValueError("invalid installed RSS operator origin")
-    parsed = urlsplit(recorded)
-    if not parsed.netloc or parsed.path not in ("", "/") or parsed.query or parsed.fragment:
-        raise ValueError("invalid installed RSS operator origin")
-    return recorded.rstrip("/")
 
 
 def register_rss_commands(
@@ -50,7 +33,7 @@ def register_rss_commands(
     )
     checkout.add_argument(
         "--operator-url",
-        default=_installed_operator_url(),
+        default=None,
         help=msg("cli.rss.operator_url_help"),
     )
     checkout.set_defaults(func=cmd_rss_checkout)

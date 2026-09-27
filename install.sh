@@ -52,6 +52,9 @@ SAFE_MODE=0
 NO_UV_DOWNLOAD=0
 NO_SHELL_PROFILE=0
 SHELL_PROFILE_FORCE=0
+SYSTEM_MODE=0
+SYSTEM_PREFIX=""
+SYSTEM_ENVIRONMENT=""
 SECKIT_DEBUG="${SECKIT_DEBUG:-0}"
 
 PYTHON=""
@@ -117,6 +120,7 @@ install_supported_os() {
 
 # Non-login SSH often ships a minimal PATH; standard sbin/bin dirs hold tar, etc.
 ensure_operator_path() {
+  [[ "${SYSTEM_MODE}" -eq 0 ]] || return 0
   local std="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
   local dir merged="${PATH}"
   local IFS=':'
@@ -190,6 +194,7 @@ find_uv_bin() {
     command -v uv
     return 0
   fi
+  [[ "${SYSTEM_MODE}" -eq 0 ]] || return 1
   if [[ -x "${SECKIT_LAUNCHER_BIN_DIR}/uv" ]]; then
     printf '%s' "${SECKIT_LAUNCHER_BIN_DIR}/uv"
     return 0
@@ -1365,6 +1370,8 @@ Options:
   --safe                 CI/SSH: no shell profile edits, no runtime bootstrap download
   --no-uv-download       Do not download runtime tooling; fail if unavailable
   --no-shell-profile     Never modify shell startup files
+  --system --prefix PATH --environment DEV|QA|PRODUCTION
+                         Stage a root-owned shared runtime; activate separately
   --shell-profile-force  Allow profile edits in non-interactive mode
   -h, --help             Show this help
 EOF
@@ -1395,11 +1402,185 @@ parse_args() {
       --safe) SAFE_MODE=1; NO_UV_DOWNLOAD=1; shift ;;
       --no-uv-download) NO_UV_DOWNLOAD=1; shift ;;
       --no-shell-profile) NO_SHELL_PROFILE=1; shift ;;
+      --system) SYSTEM_MODE=1; shift ;;
+      --prefix) SYSTEM_PREFIX="${2:?--prefix requires a value}"; shift 2 ;;
+      --environment) SYSTEM_ENVIRONMENT="${2:?--environment requires a value}"; shift 2 ;;
       --shell-profile-force) SHELL_PROFILE_FORCE=1; shift ;;
       -h|--help) usage; exit 0 ;;
       *) install_die "unknown option: $1" ;;
     esac
   done
+}
+
+configure_system_install() {
+  [[ "${SYSTEM_MODE}" -eq 1 ]] || {
+    [[ -z "${SYSTEM_PREFIX}" && -z "${SYSTEM_ENVIRONMENT}" ]] \
+      || install_die "--prefix and --environment require --system"
+    return 0
+  }
+  # Never run a caller-controlled tool or bootstrap script with root authority.
+  PATH=/usr/sbin:/usr/bin:/sbin:/bin
+  export PATH
+  [[ "${EUID}" -eq 0 ]] || install_die "--system requires administrator privileges"
+  umask 077
+  [[ "${DEV_MODE}" -eq 0 && "${REPAIR}" -eq 0 ]] \
+    || install_die "shared runtimes require a verified release wheel, not --dev or --repair"
+  [[ "${SYSTEM_PREFIX}" == /* && "${SYSTEM_PREFIX}" != / ]] \
+    || install_die "--prefix must be an absolute non-root path"
+  [[ "${SYSTEM_PREFIX}" != *'/../'* && "${SYSTEM_PREFIX}" != *'/./'* \
+    && "${SYSTEM_PREFIX}" != */.. && "${SYSTEM_PREFIX}" != */. && "${SYSTEM_PREFIX}" != */ ]] \
+    || install_die "--prefix must be normalized and cannot contain dot components"
+  case "${SYSTEM_ENVIRONMENT}" in
+    dev|qa|production) ;;
+    *) install_die "--environment must be dev, qa or production" ;;
+  esac
+  local path=/ component owner mode
+  local IFS=/
+  for component in ${SYSTEM_PREFIX#/}; do
+    [[ -n "${component}" ]] || install_die "--prefix contains an empty path component"
+    path="${path%/}/${component}"
+    [[ -d "${path}" && ! -L "${path}" ]] \
+      || install_die "administrator must pre-create a real, root-owned prefix and safe parent directories: ${path}"
+    if [[ "$(uname -s)" == Darwin ]]; then
+      IFS=' ' read -r owner mode < <(stat -f '%u %Lp' "${path}")
+    else
+      IFS=' ' read -r owner mode < <(stat -c '%u %a' "${path}")
+    fi
+    [[ "${owner}" == 0 && $((8#${mode} & 8#022)) -eq 0 ]] \
+      || install_die "shared prefix component is not root-owned or is group/other writable: ${path}"
+  done
+  [[ $((8#${mode} & 8#055)) -eq 8#055 ]] \
+    || install_die "shared prefix must be readable and searchable by users"
+  local subdir subpath sub_owner sub_mode
+  for subdir in runtime state config bin python python-bin cache; do
+    subpath="${SYSTEM_PREFIX}/${subdir}"
+    if [[ -e "${subpath}" || -L "${subpath}" ]]; then
+      [[ -d "${subpath}" && ! -L "${subpath}" ]] \
+        || install_die "shared installation directory is unsafe: ${subpath}"
+      if [[ "$(uname -s)" == Darwin ]]; then
+        IFS=' ' read -r sub_owner sub_mode < <(stat -f '%u %Lp' "${subpath}")
+      else
+        IFS=' ' read -r sub_owner sub_mode < <(stat -c '%u %a' "${subpath}")
+      fi
+      [[ "${sub_owner}" == 0 && $((8#${sub_mode} & 8#022)) -eq 0 ]] \
+        || install_die "shared installation directory is not administrator-controlled: ${subpath}"
+    fi
+  done
+  # The installation prefix was checked above. Its administrator-owned bin
+  # directory can carry uv without trusting a user-writable /usr/local PATH.
+  PATH="${SYSTEM_PREFIX}/bin:${PATH}"
+  export PATH
+  SECKIT_SHARE_DIR="${SYSTEM_PREFIX}"
+  SECKIT_RUNTIME_DIR="${SYSTEM_PREFIX}/runtime"
+  SECKIT_STATE_DIR="${SYSTEM_PREFIX}/state"
+  SECKIT_RUNTIME_PATH_FILE="${SECKIT_STATE_DIR}/runtime-path"
+  SECKIT_RUNTIME_JSON="${SECKIT_STATE_DIR}/runtime.json"
+  SECKIT_INSTALL_LOG="${SECKIT_STATE_DIR}/install.log"
+  SECKIT_LAUNCHER_BIN_DIR="${SYSTEM_PREFIX}/bin"
+  SECKIT_LAUNCHER_PATH="${SECKIT_LAUNCHER_BIN_DIR}/seckit"
+  SECKIT_MCP_LAUNCHER_PATH="${SECKIT_LAUNCHER_BIN_DIR}/seckit-mcp"
+  SECKIT_CONFIG_DIR="${SYSTEM_PREFIX}/config"
+  SECKIT_INSTALL_STATE="${SECKIT_STATE_DIR}/install.json"
+  UV_PYTHON_INSTALL_DIR="${SYSTEM_PREFIX}/python"
+  UV_PYTHON_BIN_DIR="${SYSTEM_PREFIX}/python-bin"
+  UV_CACHE_DIR="${SYSTEM_PREFIX}/cache"
+  export UV_PYTHON_INSTALL_DIR UV_PYTHON_BIN_DIR UV_CACHE_DIR
+  NO_INIT=1
+  NO_SHELL_PROFILE=1
+}
+
+stage_system_runtime() {
+  install_log "Staging ${SYSTEM_ENVIRONMENT} shared code under ${SYSTEM_PREFIX}; no user store or daemon will change."
+  if [[ "${DRY_RUN}" -eq 1 ]]; then
+    install_log "dry-run: shared runtime only; prefix=${SYSTEM_PREFIX}, environment=${SYSTEM_ENVIRONMENT}, ref=${SECKIT_REF:-latest-${SECKIT_RELEASE_CHANNEL}}"
+    return 0
+  fi
+  UV_BIN="$(find_uv_bin)" \
+    || install_die "shared installation requires a preinstalled root-owned uv in the system PATH"
+  local uv_path=/ uv_component uv_owner uv_mode
+  local IFS=/
+  for uv_component in ${UV_BIN#/}; do
+    uv_path="${uv_path%/}/${uv_component}"
+    [[ ! -L "${uv_path}" ]] || install_die "shared uv path may not contain symbolic links: ${uv_path}"
+    if [[ "$(uname -s)" == Darwin ]]; then
+      IFS=' ' read -r uv_owner uv_mode < <(stat -f '%u %Lp' "${uv_path}")
+    else
+      IFS=' ' read -r uv_owner uv_mode < <(stat -c '%u %a' "${uv_path}")
+    fi
+    [[ "${uv_owner}" == 0 && $((8#${uv_mode} & 8#022)) -eq 0 ]] \
+      || install_die "shared uv path is not root-owned or is writable by other users: ${uv_path}"
+  done
+  ensure_uv_runtime_python
+  if [[ -z "${SECKIT_REF}" ]]; then
+    resolve_latest_release_tag
+  fi
+  resolve_package_spec
+  [[ "${PACKAGE_SOURCE}" == release ]] \
+    || install_die "shared installation requires a published release wheel"
+  validate_local_release_artifact
+  prepare_dependency_override
+  create_runtime
+  uv_install_secrets_kit install
+  validate_transport_dependencies
+  "${TARGET_RUNTIME}/bin/seckit" --version >/dev/null \
+    || install_die "shared runtime CLI version probe failed"
+  printf '%s\n' "${SYSTEM_ENVIRONMENT}" > "${TARGET_RUNTIME}/seckit-environment"
+  if [[ -n "${SECKIT_RSS_OPERATOR_URL}" ]]; then
+    printf '%s\n' "${SECKIT_RSS_OPERATOR_URL}" > "${TARGET_RUNTIME}/seckit-rss-operator-url"
+  elif [[ "${SYSTEM_ENVIRONMENT}" != production ]]; then
+    install_die "shared DEV/QA releases require an embedded RSS operator origin"
+  fi
+  chmod -R a+rX "${UV_PYTHON_INSTALL_DIR}" "${TARGET_RUNTIME}" \
+    || install_die "could not make verified runtime readable to participating users"
+  if [[ -d "${UV_PYTHON_BIN_DIR}" ]]; then
+    chmod -R a+rX "${UV_PYTHON_BIN_DIR}"
+  fi
+  chmod 755 "${SYSTEM_PREFIX}/runtime" "${SYSTEM_PREFIX}/bin" \
+    || install_die "could not expose the shared runtime directories"
+  write_system_launcher
+  TARGET_RUNTIME_ACTIVATING=1
+  install_log "Verified shared generation staged: ${TARGET_RUNTIME}"
+  install_log "Before first activation, create IDs with: ${TARGET_RUNTIME}/bin/seckit host configure --prefix ${SYSTEM_PREFIX} --environment ${SYSTEM_ENVIRONMENT} --organization NAME --client NAME"
+  install_log "Then activate with: ${TARGET_RUNTIME}/bin/seckit host activate --prefix ${SYSTEM_PREFIX} --generation $(basename "${TARGET_RUNTIME}")"
+  if [[ "${JSON_OUT}" -eq 1 ]]; then
+    emit_json "{\"ok\":true,\"staged\":true,\"generation\":\"$(_json_escape "${TARGET_RUNTIME}")\",\"environment\":\"${SYSTEM_ENVIRONMENT}\"}"
+  fi
+}
+
+write_system_launcher() {
+  local launcher runtime_link launcher_path target staged
+  launcher="$(mktemp -t seckit-system-launcher.XXXXXX)"
+  runtime_link="$(printf '%q' "${SECKIT_RUNTIME_DIR}/current")"
+  launcher_path="$(printf '%q' "${SECKIT_LAUNCHER_PATH}")"
+  cat >"${launcher}" <<EOF_LAUNCH
+#!/usr/bin/env bash
+set -euo pipefail
+RUNTIME_LINK=${runtime_link}
+export SECKIT_LAUNCHER_PATH=${launcher_path}
+COMMAND="\$(basename "\$0")"
+case "\${COMMAND}" in
+  seckit|seckit-mcp) ;;
+  *) echo 'seckit launcher: unsupported command' >&2; exit 1 ;;
+esac
+[[ -L "\${RUNTIME_LINK}" ]] || { echo 'seckit launcher: shared runtime is not active' >&2; exit 1; }
+RUNTIME_DIR="\$(cd -P "\${RUNTIME_LINK}" && pwd)"
+[[ -x "\${RUNTIME_DIR}/bin/\${COMMAND}" ]] || { echo 'seckit launcher: invalid runtime' >&2; exit 1; }
+export PYTHONDONTWRITEBYTECODE=1
+exec "\${RUNTIME_DIR}/bin/\${COMMAND}" "\$@"
+EOF_LAUNCH
+  for target in "${SECKIT_LAUNCHER_PATH}" "${SECKIT_MCP_LAUNCHER_PATH}"; do
+    if [[ -e "${target}" || -L "${target}" ]]; then
+      [[ -f "${target}" && ! -L "${target}" && -O "${target}" ]] \
+        || install_die "shared launcher is not administrator-owned: ${target}"
+      cmp -s "${launcher}" "${target}" \
+        || install_die "shared launcher differs from the verified template: ${target}"
+      continue
+    fi
+    staged="${target}.tmp.$$"
+    install -m 0755 "${launcher}" "${staged}"
+    mv -f "${staged}" "${target}"
+  done
+  rm -f "${launcher}"
 }
 
 emit_json() { printf '%s\n' "$1"; }
@@ -1470,12 +1651,24 @@ main() {
   trap 'preserve_failed_runtime; [[ -n "${PACKAGE_CACHE_FILE:-}" ]] && rm -f "${PACKAGE_CACHE_FILE}"; [[ -n "${PACKAGE_CACHE_DIR:-}" ]] && rmdir "${PACKAGE_CACHE_DIR}" 2>/dev/null || true; [[ -n "${DEPENDENCY_OVERRIDE_FILE:-}" ]] && rm -f "${DEPENDENCY_OVERRIDE_FILE}"; cleanup_dependency_cache' EXIT
 
   parse_args "$@"
+  configure_system_install
   load_installer_pins
-  require_user_managed_install
+  if [[ "${SYSTEM_MODE}" -eq 0 ]]; then
+    require_user_managed_install
+  fi
   if [[ "$DEV_MODE" -eq 0 && ( -z "$SECKIT_GITHUB_REPO" || -z "$SECKIT_RELEASE_CHANNEL" ) ]]; then
     install_die 'Use the CI-generated install.sh from the intended release; this source installer has no repository/channel identity.'
   fi
+  if [[ "${SYSTEM_MODE}" -eq 1 && "${DRY_RUN}" -eq 1 ]]; then
+    stage_system_runtime
+    return 0
+  fi
   preflight_install
+
+  if [[ "${SYSTEM_MODE}" -eq 1 ]]; then
+    stage_system_runtime
+    return 0
+  fi
 
   if [[ "${YES}" -eq 0 && ! -t 0 ]]; then
     YES=1

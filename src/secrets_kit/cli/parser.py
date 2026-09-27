@@ -15,6 +15,7 @@ from secrets_kit.cli.parsers.config import register_config_commands
 from secrets_kit.cli.parsers.daemon import register_daemon_commands
 from secrets_kit.cli.parsers.envelope import register_envelope_commands
 from secrets_kit.cli.parsers.export import register_export_command
+from secrets_kit.cli.parsers.host import register_host_commands
 from secrets_kit.cli.parsers.import_cmd import register_import_commands
 from secrets_kit.cli.parsers.info import register_info_command
 from secrets_kit.cli.parsers.init_cmd import register_init_commands
@@ -65,6 +66,7 @@ def build_parser() -> argparse.ArgumentParser:
     register_peer_commands(subparsers=subparsers)
     register_internal_commands(subparsers=subparsers)
     register_config_commands(subparsers=subparsers)
+    register_host_commands(subparsers=subparsers)
     register_delete_command(subparsers=subparsers, common=common)
     register_import_commands(subparsers=subparsers, common=common)
     register_export_command(subparsers=subparsers, common=common)

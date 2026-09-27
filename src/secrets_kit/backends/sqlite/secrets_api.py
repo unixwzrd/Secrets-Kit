@@ -38,6 +38,7 @@ from secrets_kit.backends.sqlite.vocabulary_projections import (
 )
 from secrets_kit.crypto.storage.sqlite import decrypt_payload as decrypt_storage_payload
 from secrets_kit.crypto.storage.sqlite import encrypt_payload as encrypt_storage_payload
+from secrets_kit.host_context import local_host_scope
 from secrets_kit.identifiers import (
     IdentifierValidationError,
     deterministic_identifier,
@@ -86,12 +87,16 @@ def set_sqlite_secret(
         with transaction(conn=conn):
             _ensure_local_projection_parents(conn=conn, account=account, service=service)
             origin_node_id = _local_origin_node_id(conn=conn)
+            organization_id, client_id, principal_owner_id = local_host_scope(conn=conn)
             _emit_vocabulary_transactions_for_metadata(conn=conn, metadata=metadata)
             tx = create_transaction(
                 transaction_id=_new_transaction_id(),
                 transaction_type="secret.set",
                 origin_node_id=origin_node_id,
                 created_at=now_utc_iso(),
+                organization_id=organization_id,
+                client_id=client_id,
+                owner_id=principal_owner_id,
                 payload=_set_payload(
                     service=service,
                     account=account,
@@ -288,6 +293,7 @@ def delete_sqlite_secret(
         with transaction(conn=conn):
             _ensure_local_projection_parents(conn=conn, account=account, service=service)
             origin_node_id = _local_origin_node_id(conn=conn)
+            organization_id, client_id, principal_owner_id = local_host_scope(conn=conn)
             active_row = _active_secret_row(
                 conn=conn,
                 service=service,
@@ -300,6 +306,9 @@ def delete_sqlite_secret(
                 transaction_type="secret.delete",
                 origin_node_id=origin_node_id,
                 created_at=now_utc_iso(),
+                organization_id=organization_id,
+                client_id=client_id,
+                owner_id=principal_owner_id,
                 payload=_delete_payload(
                     service=service,
                     account=account,
@@ -460,6 +469,7 @@ def _ensure_local_projection_parents(
     """
     local_node_id = _local_origin_node_id(conn=conn)
     peer_group_id = local_peer_group_id_for_node(node_id=local_node_id)
+    _, host_client_id, _ = local_host_scope(conn=conn)
     conn.execute(
         "INSERT OR IGNORE INTO business_organizations (organization_id, operator_comment) VALUES (?, ?)",
         (LOCAL_ORGANIZATION_ID, "local standalone SQLite"),
@@ -470,7 +480,7 @@ def _ensure_local_projection_parents(
     )
     conn.execute(
         "INSERT OR IGNORE INTO owners (owner_id, client_id, operator_comment) VALUES (?, ?, ?)",
-        (_owner_id(account=account), LOCAL_CLIENT_ID, f"local account {account}"),
+        (_owner_id(account=account), host_client_id or LOCAL_CLIENT_ID, f"local account {account}"),
     )
     conn.execute(
         "INSERT OR IGNORE INTO peer_groups (peer_group_id, owner_id, name) VALUES (?, ?, ?)",
@@ -560,11 +570,15 @@ def _emit_vocabulary_transactions_for_metadata(
         ),
     )
     for transaction_type, payload in specs:
+        organization_id, client_id, principal_owner_id = local_host_scope(conn=conn)
         tx = create_transaction(
             transaction_id=_new_transaction_id(),
             transaction_type=transaction_type,
             origin_node_id=origin_node_id,
             created_at=now_utc_iso(),
+            organization_id=organization_id,
+            client_id=client_id,
+            owner_id=principal_owner_id,
             payload=payload,
         )
         submit_transaction(conn=conn, transaction=tx, policy=LOCAL_TRANSACTION_POLICY)

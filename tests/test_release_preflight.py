@@ -176,6 +176,13 @@ class ReleasePreflightTests(unittest.TestCase):
             with self.subTest(version=version, ref=ref):
                 self.assert_passes(self.run_preflight(version=version, ref=ref, private=private))
 
+    def test_branch_push_does_not_build_release_artifacts(self) -> None:
+        workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/release.yml").read_text()
+        trigger = workflow.split("permissions:", 1)[0]
+        self.assertIn("workflow_dispatch:", trigger)
+        self.assertIn('      - "v*"', trigger)
+        self.assertNotIn("branches:", trigger)
+
     def test_public_beta_branch_and_ancestral_tag_are_allowed(self) -> None:
         self.assert_passes(
             self.run_preflight(version="1.2.3b4", ref="refs/heads/beta", private=False)

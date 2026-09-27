@@ -3,6 +3,12 @@
 from __future__ import annotations
 
 STRINGS = {
+    "cli.host.help": "Organisationskontext eines gemeinsam genutzten Hosts verwalten",
+    "cli.host.configure_help": "Administrierte Host-Kennungen erstellen",
+    "cli.host.show_help": "Öffentliche Host-Kennungen anzeigen",
+    "cli.host.join_help": "Den Speicher dieses Unix-Benutzers dem Host-Kontext zuordnen",
+    "cli.host.register_help": "Zugeordneten Benutzer für administrierte Upgrades registrieren",
+    "cli.host.activate_help": "Gemeinsame Laufzeit aktivieren und registrierte Benutzer prüfen",
     "cli.rss.device_capacity_exhausted": "Die RSS-Gerätekapazität ist vollständig belegt. Bitten Sie den Betreiber, die Kapazität zu erhöhen oder ein Gerät zu entfernen. Lokale Konfiguration und Daemon bleiben erhalten.",
     "cli.rss.rss_authorization_pending": "Die lokale RSS-Konfiguration ist gespeichert, aber die RSS-Autorisierung ist nicht bestätigt. Der Daemon läuft weiter; prüfen Sie seckit status vor einem erneuten Registrierungsversuch.",
     "cli.upgrade.help": "Nach Secrets-Kit-Aktualisierungen suchen und sie installieren",

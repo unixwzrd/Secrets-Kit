@@ -9,6 +9,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from secrets_kit.cli.commands.rss import _installed_operator_url
 from secrets_kit.protocol.rss_auth import RSSAuthenticationError
 from secrets_kit.protocol.rss_provisioning import (
     _valid_peer,
@@ -53,6 +54,24 @@ class RSSProvisioningTest(unittest.TestCase):
         for patcher in reversed(self.paths):
             patcher.stop()
         self.temp.cleanup()
+
+    def test_shared_qa_runtime_uses_embedded_operator_origin(self) -> None:
+        runtime = self.root / "runtime"
+        runtime.mkdir()
+        (runtime / "seckit-environment").write_text("qa\n", encoding="utf-8")
+        origin = runtime / "seckit-rss-operator-url"
+        origin.write_text("https://qa.example.test\n", encoding="utf-8")
+        with mock.patch("secrets_kit.cli.commands.rss.sys.prefix", str(runtime)), mock.patch(
+            "secrets_kit.cli.commands.rss._safe_install_state",
+            return_value={"rss_operator_url": "https://previous-qa.example.test"},
+        ):
+            self.assertEqual(_installed_operator_url(), "https://qa.example.test")
+            origin.write_text("", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "origin is missing"):
+                _installed_operator_url()
+            origin.write_text("http://qa.example.test\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "invalid installed RSS operator origin"):
+                _installed_operator_url()
 
     def test_relay_peer_accepts_supported_hosts_and_tcp_ports(self) -> None:
         for host_protocol in ("dns4", "dns6", "ip4", "ip6"):

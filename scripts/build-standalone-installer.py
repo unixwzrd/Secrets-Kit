@@ -108,6 +108,8 @@ def build_installer(bundle: Path, output: Path, *, repository: str, ref: str,
         raise ValueError("Expected exact source commit")
     if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:(?:a|b|rc)[0-9]+)?", version):
         raise ValueError("Unsupported release version")
+    if re.search(r"(?:a|b|rc)[0-9]+$", version) and not rss_operator_url:
+        raise ValueError("Prerelease installer requires an RSS operator origin")
     if rss_operator_url:
         parsed = urlsplit(rss_operator_url)
         if (parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password

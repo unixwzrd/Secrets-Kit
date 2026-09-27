@@ -11,8 +11,10 @@ import getpass
 import json
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from secrets_kit.cli.io import _fatal
+from secrets_kit.cli.update_check import _safe_install_state
 from secrets_kit.daemon.client import DaemonError, request_daemon_status
 from secrets_kit.daemon.service import DaemonServiceError, install_service
 from secrets_kit.locale import msg
@@ -23,9 +25,40 @@ from secrets_kit.protocol.rss_auth import (
     import_rss_authentication_identity,
 )
 from secrets_kit.protocol.rss_provisioning import (
+    DEFAULT_RSS_OPERATOR_URL,
     complete_rss_enrollment,
     start_rss_checkout,
 )
+
+
+def _installed_operator_url() -> str:
+    """Resolve the verified installer origin only when Checkout is requested.
+
+    A shared generation carries its environment and origin beside the runtime;
+    unlike a per-user installation it does not write a user-owned receipt.
+    """
+    runtime = Path(sys.prefix)
+    environment_file = runtime / "seckit-environment"
+    if environment_file.is_file():
+        # The administrator-selected shared environment outranks a preserved
+        # per-user receipt from that user's previous installation.
+        environment = environment_file.read_text(encoding="utf-8").strip()
+        if environment not in {"dev", "qa", "production"}:
+            raise ValueError("invalid shared runtime environment")
+        origin_file = runtime / "seckit-rss-operator-url"
+        recorded = origin_file.read_text(encoding="utf-8").strip() if origin_file.is_file() else ""
+        if environment != "production" and not recorded:
+            raise ValueError("shared runtime RSS operator origin is missing")
+    else:
+        recorded = _safe_install_state().get("rss_operator_url")
+    if not recorded:
+        return DEFAULT_RSS_OPERATOR_URL
+    if not isinstance(recorded, str) or not recorded.startswith("https://"):
+        raise ValueError("invalid installed RSS operator origin")
+    parsed = urlsplit(recorded)
+    if not parsed.netloc or parsed.path not in ("", "/") or parsed.query or parsed.fragment:
+        raise ValueError("invalid installed RSS operator origin")
+    return recorded.rstrip("/")
 
 
 def _report_configuration(*, profile: Path) -> int:
@@ -71,10 +104,10 @@ def cmd_rss_checkout(*, args: argparse.Namespace) -> int:
             ).strip() or None
         checkout_url, receipt = start_rss_checkout(
             connection_units=args.connection_units,
-            operator_url=args.operator_url,
+            operator_url=args.operator_url or _installed_operator_url(),
             invite_code=invite_code,
         )
-    except (OSError, RSSAuthenticationError) as exc:
+    except (OSError, ValueError, RSSAuthenticationError) as exc:
         return _fatal(message=str(exc), code=1)
     print(json.dumps({"checkout_url": checkout_url, "receipt": str(receipt)}, sort_keys=True))
     return 0

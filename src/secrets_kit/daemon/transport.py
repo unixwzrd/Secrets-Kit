@@ -32,7 +32,12 @@ from typing import Any
 
 import psutil
 
-from secrets_kit.daemon.routing import RoutingTable, TransportRouteError, _is_wildcard_endpoint
+from secrets_kit.daemon.routing import (
+    PeerRoute,
+    RoutingTable,
+    TransportRouteError,
+    _is_wildcard_endpoint,
+)
 from secrets_kit.daemon.transports import (
     RouteObservation,
     TransportAdapter,
@@ -81,6 +86,19 @@ LOOPBACK_IPV4_ADDRESS = "127.0.0.1"
 
 class _RemoteDeliveryRejected(TransportError):
     """The remote runtime replied but did not accept the opaque envelope."""
+
+
+def _exception_origin(error: BaseException) -> str:
+    """Return one code location without logging exception text or payloads."""
+    while isinstance(error, BaseExceptionGroup) and error.exceptions:
+        error = error.exceptions[0]
+    frame = error.__traceback__
+    if frame is None:
+        return "unknown"
+    while frame.tb_next is not None:
+        frame = frame.tb_next
+    code = frame.tb_frame.f_code
+    return f"{os.path.basename(code.co_filename)}:{frame.tb_lineno}:{code.co_name}"
 
 
 @dataclass(frozen=True)
@@ -595,6 +613,7 @@ class PyLibP2PTransport:
         self._discovery_candidates: set[str] = set()
         self._candidate_infos: dict[str, Any] = {}
         self._mdns_candidate_infos: dict[str, Any] = {}
+        self._direct_bound_peers: set[str] = set()
         self._notified_candidate_endpoints: dict[str, str] = {}
         self._candidate_lock = threading.RLock()
         self._binding_inflight: set[str] = set()
@@ -608,6 +627,11 @@ class PyLibP2PTransport:
     def start(self, *, services: TransportServices) -> None:
         if self._thread is not None:
             return
+        if self._relay_peers:
+            credentials = self._relay_auth or load_rss_relay_credentials_from_environment()
+            if credentials is None:
+                raise TransportUnavailable("RSS relay authentication is not configured")
+            self._relay_auth = credentials
         self._services = services
         self._routing_table = services.routing_table
         self._stop_event.clear()
@@ -618,6 +642,7 @@ class PyLibP2PTransport:
         self._circuit_dial_endpoints.clear()
         with self._candidate_lock:
             self._mdns_candidate_infos.clear()
+            self._direct_bound_peers.clear()
             self._notified_candidate_endpoints.clear()
         self._thread = threading.Thread(target=self._run_thread, name="seckit-libp2p", daemon=True)
         self._thread.start()
@@ -765,7 +790,7 @@ class PyLibP2PTransport:
                     with self._candidate_lock:
                         self._delivery_retry_bindings.discard(retry_marker)
         except _RemoteDeliveryRejected:
-            self._routing_table.mark_contact(peer_id=peer_id)
+            self._routing_table.mark_contact(peer_id=peer_id, endpoint=destination.endpoint)
             return TransportReceipt(
                 delivered=False,
                 transport=self.name,
@@ -773,7 +798,8 @@ class PyLibP2PTransport:
                 error="remote runtime rejected delivery",
             )
         except Exception as exc:
-            self._routing_table.mark_unavailable(peer_id=peer_id)
+            self._routing_table.mark_unavailable(peer_id=peer_id, endpoint=destination.endpoint)
+            self._queue_failed_direct_fallback(destination=destination, token=token)
             self._record_routing_event(
                 event="route_unavailable",
                 node_id=peer_id,
@@ -787,17 +813,39 @@ class PyLibP2PTransport:
             )
         if result is not None:
             if result.delivered:
-                self._routing_table.mark_contact(peer_id=peer_id)
+                self._routing_table.mark_contact(peer_id=peer_id, endpoint=destination.endpoint)
             else:
-                self._routing_table.mark_unavailable(peer_id=peer_id)
+                self._routing_table.mark_unavailable(peer_id=peer_id, endpoint=destination.endpoint)
+                self._queue_failed_direct_fallback(destination=destination, token=token)
                 self._record_routing_event(
                     event="route_unavailable",
                     node_id=peer_id,
                     reason_type="undelivered_receipt",
                 )
             return result
-        self._routing_table.mark_contact(peer_id=peer_id)
+        self._routing_table.mark_contact(peer_id=peer_id, endpoint=destination.endpoint)
         return TransportReceipt(delivered=True, transport=self.name, endpoint=destination.endpoint)
+
+    def _queue_failed_direct_fallback(self, *, destination: PeerRoute, token: Any) -> None:
+        """On a failed direct delivery, retry the retained RSS candidate once."""
+        transport_peer_id = destination.transport_peer_id
+        if transport_peer_id is None or "/p2p-circuit/" in (destination.endpoint or ""):
+            return
+        with self._candidate_lock:
+            if transport_peer_id not in self._direct_bound_peers:
+                return
+            fallback = self._candidate_infos.get(transport_peer_id)
+            if fallback is None or "/p2p-circuit/" not in _peer_endpoint(peer_info=fallback):
+                return
+            self._direct_bound_peers.discard(transport_peer_id)
+            self._binding_states.pop(transport_peer_id, None)
+            self._notified_candidate_endpoints[transport_peer_id] = _peer_endpoint(
+                peer_info=fallback
+            )
+        try:
+            token.run_sync_soon(lambda: self._spawn_scope_task(self._connect_and_bind, fallback))
+        except RuntimeError:
+            pass
 
     def snapshot(self) -> TransportSnapshot:
         """Return libp2p state through the transport-neutral status contract."""
@@ -874,12 +922,18 @@ class PyLibP2PTransport:
                             trio=trio,
                         )
                     except Exception as exc:
-                        if not started_once:
+                        # A host that fails after publishing its first listener
+                        # still needs recovery; the normal-return path below is
+                        # not reached when a nursery child raises.
+                        with self._state_lock:
+                            listener_started = self._host_generation > 0
+                        if not (started_once or listener_started):
                             raise
                         self._record_routing_event(
                             event="listener_recovery_failed",
                             host=selected_host,
                             reason_type=type(exc).__name__,
+                            reason_origin=_exception_origin(exc),
                         )
                         retry_needed = True
                     else:
@@ -959,13 +1013,15 @@ class PyLibP2PTransport:
                                 )
                             if self._bootstrap:
                                 self._queue_bootstrap_candidates(multiaddr=multiaddr)
+                            # The listener is already bound. Local IPC and LAN
+                            # readiness must not wait on remote RSS authentication.
+                            self._ready.set()
                             if self._relay_peers:
                                 await self._start_relay_services(
                                     host=host,
                                     multiaddr=multiaddr,
                                     services=services,
                                 )
-                            self._ready.set()
                             await self._maintain_host_scope(
                                 host=host,
                                 selected_host=selected_host,
@@ -1068,6 +1124,7 @@ class PyLibP2PTransport:
             self._discovery_candidates.clear()
             self._candidate_infos.clear()
             self._mdns_candidate_infos.clear()
+            self._direct_bound_peers.clear()
             self._relay_candidate_ranks.clear()
             self._notified_candidate_endpoints.clear()
             self._binding_inflight.clear()
@@ -1110,6 +1167,10 @@ class PyLibP2PTransport:
             if transport_peer_id not in self._binding_inflight:
                 self._binding_states.pop(transport_peer_id, None)
                 self._notified_candidate_endpoints.pop(transport_peer_id, None)
+                self._direct_bound_peers.discard(transport_peer_id)
+                fallback = self._candidate_infos.get(transport_peer_id)
+            else:
+                fallback = None
         self._routing_table.mark_transport_unavailable(
             transport_peer_id=transport_peer_id
         )
@@ -1118,6 +1179,8 @@ class PyLibP2PTransport:
             transport_peer_id=transport_peer_id,
             reason_type="last_connection_closed",
         )
+        if fallback is not None:
+            self._spawn_scope_task(self._connect_and_bind, fallback)
 
     async def _transport_connected(self, *, transport_peer_id: str) -> None:
         """Bind one newly live connection when candidate endpoint evidence exists."""
@@ -1127,9 +1190,9 @@ class PyLibP2PTransport:
         ):
             return
         with self._candidate_lock:
-            candidate = self._candidate_infos.get(
+            candidate = self._mdns_candidate_infos.get(
                 transport_peer_id,
-                self._mdns_candidate_infos.get(transport_peer_id),
+                self._candidate_infos.get(transport_peer_id),
             )
         if candidate is None:
             host = self._host_object
@@ -1614,6 +1677,8 @@ class PyLibP2PTransport:
                 self._relay_candidate_ranks[peer_id] = relay_rank
                 self._discovery_candidates.add(peer_id)
                 self._candidate_infos[peer_id] = candidate
+                if peer_id in self._direct_bound_peers:
+                    continue
                 self._notified_candidate_endpoints[peer_id] = endpoint
             self._record_routing_event(
                 event="rss_route_discovered",
@@ -1808,7 +1873,7 @@ class PyLibP2PTransport:
             with self._candidate_lock:
                 peer_id = str(peer_info.peer_id)
                 self._mdns_candidate_infos[peer_id] = peer_info
-                retry_candidate = self._candidate_infos.get(peer_id, peer_info)
+                retry_candidate = peer_info
                 candidate_endpoint = _peer_endpoint(peer_info=retry_candidate)
                 if (
                     self._notified_candidate_endpoints.get(peer_id)
@@ -1834,10 +1899,7 @@ class PyLibP2PTransport:
                 with self._candidate_lock:
                     if self._host_object is not host or self._discovery_service is None:
                         return
-                    current = self._candidate_infos.get(
-                        peer_id,
-                        self._mdns_candidate_infos.get(peer_id),
-                    )
+                    current = self._mdns_candidate_infos.get(peer_id)
                     if current is not retry_candidate:
                         return
                 self._spawn_scope_task(self._connect_and_bind, retry_candidate)
@@ -1944,11 +2006,17 @@ class PyLibP2PTransport:
         endpoint = _peer_endpoint(peer_info=peer_info)
         with self._candidate_lock:
             selected_candidate = self._candidate_infos.get(transport_peer_id)
+            is_mdns_candidate = (
+                self._mdns_candidate_infos.get(transport_peer_id) is peer_info
+            )
             if (
                 transport_peer_id in self._relay_candidate_ranks
                 and selected_candidate is not None
                 and _peer_endpoint(peer_info=selected_candidate) != endpoint
+                and not is_mdns_candidate
             ):
+                return
+            if transport_peer_id in self._direct_bound_peers and not is_mdns_candidate:
                 return
             # Endpoint-specific binding state is insufficient here: primary and
             # secondary RSS callbacks identify the same destination peer.
@@ -1965,6 +2033,7 @@ class PyLibP2PTransport:
             owned_state = (endpoint, "inflight")
             self._binding_states[transport_peer_id] = owned_state
         phase = "connect"
+        bound_healthy = False
         self._record_routing_event(
             event="identity_binding_started",
             direction="outbound",
@@ -1998,6 +2067,16 @@ class PyLibP2PTransport:
                 )
                 self._circuit_dial_endpoints[transport_peer_id] = endpoint
             else:
+                if is_mdns_candidate and transport_peer_id in self._circuit_dial_endpoints:
+                    # Force a new LAN dial instead of reusing the cached circuit.
+                    await host.get_network().close_peer(peer_info.peer_id)
+                    import multiaddr
+
+                    _replace_selected_peerstore_address(
+                        peerstore=host.get_peerstore(),
+                        peer_id=peer_info.peer_id,
+                        address=multiaddr.Multiaddr(endpoint),
+                    )
                 await host.connect(peer_info)
                 self._record_routing_event(
                     event="transport_connected",
@@ -2019,6 +2098,12 @@ class PyLibP2PTransport:
                 )
             phase = "open_binding_stream"
             stream = await host.new_stream(peer_info.peer_id, [IDENTITY_BINDING_PROTOCOL])
+            if (
+                is_mdns_candidate
+                and transport_peer_id in self._relay_candidate_ranks
+                and not _proven_direct_connection(stream=stream)
+            ):
+                raise TransportError("mDNS candidate did not establish a direct connection")
             challenge = secrets.token_hex(32)
             phase = "read_remote_claim"
             await stream.write(_frame(_json_bytes({"version": 1, "challenge": challenge})))
@@ -2051,6 +2136,33 @@ class PyLibP2PTransport:
             if accepted.get("status") != "accepted":
                 raise TransportError("transport binding was not accepted")
             phase = "install_route"
+            current_route = self._routing_table.discovered(
+                peer_id=remote_node_id, adapter=self.name
+            )
+            with self._candidate_lock:
+                direct_candidate = self._mdns_candidate_infos.get(transport_peer_id)
+                direct_won = (
+                    not is_mdns_candidate
+                    and direct_candidate is not None
+                    and current_route is not None
+                    and current_route.transport_peer_id == transport_peer_id
+                    and current_route.connected
+                    and current_route.reachable
+                    and current_route.endpoint == _peer_endpoint(peer_info=direct_candidate)
+                )
+                if direct_won:
+                    self._direct_bound_peers.add(transport_peer_id)
+                    if self._binding_states.get(transport_peer_id) is owned_state:
+                        self._binding_states[transport_peer_id] = (
+                            str(current_route.endpoint), "healthy"
+                        )
+            if direct_won:
+                self._record_routing_event(
+                    event="rss_route_superseded_by_direct",
+                    transport_peer_id=transport_peer_id,
+                    node_id=remote_node_id,
+                )
+                return
             route = self._routing_table.install_discovered(
                 peer_id=remote_node_id,
                 endpoint=endpoint,
@@ -2061,6 +2173,11 @@ class PyLibP2PTransport:
             with self._candidate_lock:
                 if self._binding_states.get(transport_peer_id) is owned_state:
                     self._binding_states[transport_peer_id] = (endpoint, "healthy")
+                    if is_mdns_candidate:
+                        self._direct_bound_peers.add(transport_peer_id)
+                    else:
+                        self._direct_bound_peers.discard(transport_peer_id)
+            bound_healthy = True
             self._record_route_available(
                 direction="outbound",
                 transport_peer_id=transport_peer_id,
@@ -2110,7 +2227,18 @@ class PyLibP2PTransport:
             pending_candidate = None
             with self._candidate_lock:
                 self._binding_inflight.discard(transport_peer_id)
-                selected_candidate = self._candidate_infos.get(transport_peer_id)
+                if is_mdns_candidate and not bound_healthy:
+                    fallback = self._candidate_infos.get(transport_peer_id)
+                    if fallback is not None:
+                        self._notified_candidate_endpoints[transport_peer_id] = (
+                            _peer_endpoint(peer_info=fallback)
+                        )
+                selected_candidate = (
+                    self._candidate_infos.get(transport_peer_id)
+                    if is_mdns_candidate and not bound_healthy
+                    else self._mdns_candidate_infos.get(transport_peer_id)
+                    or self._candidate_infos.get(transport_peer_id)
+                )
                 if selected_candidate is not None:
                     selected_endpoint = _peer_endpoint(
                         peer_info=selected_candidate
@@ -2261,11 +2389,31 @@ class PyLibP2PTransport:
                         peer_id=remote_node_id,
                         adapter=self.name,
                     )
+                    with self._candidate_lock:
+                        direct_candidate = self._mdns_candidate_infos.get(
+                            remote_transport_id
+                        )
+                    authenticated_direct = (
+                        direct_candidate is not None
+                        and _proven_direct_connection(stream=stream)
+                    )
+                    if authenticated_direct:
+                        endpoint = _peer_endpoint(peer_info=direct_candidate)
                     if (
+                        current is not None
+                        and current.transport_peer_id == remote_transport_id
+                        and current.connected
+                        and current.reachable
+                        and remote_transport_id in self._direct_bound_peers
+                        and "/p2p-circuit/" in endpoint
+                    ):
+                        endpoint = str(current.endpoint)
+                    elif (
                         current is not None
                         and current.transport_peer_id == remote_transport_id
                         and "/p2p-circuit/" in current.endpoint
                         and "/p2p-circuit/" not in endpoint
+                        and not authenticated_direct
                     ):
                         endpoint = str(current.endpoint)
                     elif "/p2p-circuit/" not in endpoint and _proven_relayed_circuit(
@@ -2278,7 +2426,9 @@ class PyLibP2PTransport:
                             ),
                             transport_peer_id=remote_transport_id,
                         )
+                    retained_direct = False
                     if endpoint:
+                        incoming_endpoint = endpoint
                         route = self._routing_table.install_discovered(
                             peer_id=remote_node_id,
                             endpoint=endpoint,
@@ -2286,6 +2436,15 @@ class PyLibP2PTransport:
                             adapter=self.name,
                             source="libp2p_discovery",
                         )
+                        # The route table may retain an authenticated direct path
+                        # when this inbound binding arrived over an RSS circuit.
+                        retained_direct = (
+                            route.endpoint != incoming_endpoint
+                            and "/p2p-circuit/" in incoming_endpoint
+                            and route.endpoint is not None
+                            and "/p2p-circuit/" not in route.endpoint
+                        )
+                        endpoint = str(route.endpoint)
                         self._record_route_available(
                             direction="inbound",
                             transport_peer_id=remote_transport_id,
@@ -2300,6 +2459,8 @@ class PyLibP2PTransport:
                                 endpoint,
                                 "healthy",
                             )
+                            if authenticated_direct or retained_direct:
+                                self._direct_bound_peers.add(remote_transport_id)
                     await stream.write(
                         _frame(_json_bytes({"version": 1, "status": "accepted"}))
                     )
@@ -2617,6 +2778,20 @@ def _proven_relayed_circuit(*, stream: Any, transport_peer_id: str) -> bool:
         "/p2p-circuit" in str(address) and str(address).endswith(suffix)
         for address in observed
     )
+
+
+def _proven_direct_connection(*, stream: Any) -> bool:
+    """Use libp2p's observed connection type, never Identify, as direct-route proof."""
+    swarm_conn = getattr(stream, "swarm_conn", None)
+    connection_type = getattr(swarm_conn, "get_connection_type", None)
+    if not callable(connection_type):
+        return False
+    try:
+        from libp2p.connection_types import ConnectionType
+
+        return bool(connection_type() == ConnectionType.DIRECT)
+    except Exception:
+        return False
 
 
 def _selected_circuit_for_peer(*, selected: str, transport_peer_id: str) -> str:

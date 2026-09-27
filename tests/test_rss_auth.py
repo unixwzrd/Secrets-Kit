@@ -656,6 +656,8 @@ class RSSAuthenticationProtocolTest(unittest.TestCase):
         from secrets_kit.daemon.transport import TransportServices
 
         allow = threading.Event()
+        denied = threading.Event()
+        initial_relay_start_complete = threading.Event()
         reserved = threading.Event()
         adapter = PyLibP2PTransport(
             host="127.0.0.1", requested_port=0, discovery=False,
@@ -668,6 +670,7 @@ class RSSAuthenticationProtocolTest(unittest.TestCase):
             adapter._relay_endpoint_states[peer] = "authenticated" if allow.is_set() else "failed:denied"
             adapter._relay_connected = int(allow.is_set())
             if not allow.is_set():
+                denied.set()
                 raise TransportUnavailable("no configured RSS endpoint authenticated")
             return self.credentials
 
@@ -676,6 +679,14 @@ class RSSAuthenticationProtocolTest(unittest.TestCase):
             self.assertIsNotNone(adapter._relay_discovery_service.get_relay_info(peer))
             reserved.set()
             return True
+
+        original_start_relay_services = adapter._start_relay_services
+
+        async def start_relay_services(**kwargs):
+            try:
+                await original_start_relay_services(**kwargs)
+            finally:
+                initial_relay_start_complete.set()
 
         services = TransportServices(
             frame_handler=lambda *_: (b"{}", True), routing_table=RoutingTable(),
@@ -687,10 +698,14 @@ class RSSAuthenticationProtocolTest(unittest.TestCase):
             adapter, "_authenticate_relay_targets", side_effect=authenticate
         ), mock.patch.object(RelayDiscovery, "discover_relays", new=mock.AsyncMock()), mock.patch.object(
             RelayDiscovery, "make_reservation", side_effect=reserve
-        ) as reservation:
+        ) as reservation, mock.patch.object(
+            adapter, "_start_relay_services", side_effect=start_relay_services
+        ):
             try:
                 adapter.start(services=services)
                 self.assertTrue(adapter._thread.is_alive())
+                self.assertTrue(denied.wait(5), "initial authentication was not attempted")
+                self.assertTrue(initial_relay_start_complete.wait(5), "initial relay setup did not complete")
                 self.assertEqual(adapter.metadata()["relay_connected"], 0)
                 reservation.assert_not_awaited()
                 allow.set()

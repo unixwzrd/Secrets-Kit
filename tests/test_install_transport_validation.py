@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from secrets_kit.install_transport_validation import (
     TransportDependencyError,
     installed_versions,
+    verify_libp2p_startup,
     verify_linux_linkage,
     verify_macos_linkage,
 )
@@ -100,6 +103,38 @@ class InstallTransportValidationTests(unittest.TestCase):
         ):
             observed = verify_linux_linkage(extensions=(extension,))
         self.assertEqual(observed[str(extension)], output.strip())
+
+    def test_libp2p_probe_uses_disposable_identity_not_inherited_runtime(self) -> None:
+        observed: dict[str, str] = {}
+
+        class FakeTransport:
+            def __init__(self, **kwargs):
+                _ = kwargs
+
+            def start(self, **kwargs):
+                _ = kwargs
+                observed["runtime"] = os.environ["SECKIT_DAEMON_RUNTIME_DIR"]
+                (Path(observed["runtime"]) / "probe-key").write_text("synthetic", encoding="utf-8")
+
+            def snapshot(self):
+                return SimpleNamespace(
+                    running=True, transport_identity="synthetic-peer", tcp_port=12345,
+                    transport="libp2p", as_dict=lambda: {"security_protocols": ["/noise"]},
+                )
+
+            def stop(self):
+                pass
+
+        with tempfile.TemporaryDirectory() as original:
+            original_key = Path(original) / "libp2p-identity.key"
+            original_key.write_text("existing", encoding="utf-8")
+            with mock.patch.dict(os.environ, {"SECKIT_DAEMON_RUNTIME_DIR": original}):
+                with mock.patch("secrets_kit.daemon.transport.PyLibP2PTransport", FakeTransport):
+                    self.assertEqual(verify_libp2p_startup()["peer_id"], "synthetic-peer")
+                self.assertEqual(os.environ["SECKIT_DAEMON_RUNTIME_DIR"], original)
+            self.assertEqual(original_key.read_text(encoding="utf-8"), "existing")
+            self.assertNotEqual(observed["runtime"], original)
+            self.assertFalse(Path(observed["runtime"]).exists())
 
 
 if __name__ == "__main__":

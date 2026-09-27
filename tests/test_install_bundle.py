@@ -107,7 +107,8 @@ printf 'VALIDATED|%s|%s|%s|%s|%s\\n' \\
 
     def build(self, **kwargs):
         options = dict(repository="example/private", ref=f"refs/tags/v{self.version}",
-                       commit=self.commit, version=self.version)
+                       commit=self.commit, version=self.version,
+                       rss_operator_url="https://dev.example.test")
         options.update(kwargs)
         self.builder.build_installer(self.bundle, self.output, **options)
 
@@ -200,6 +201,10 @@ printf 'VALIDATED|%s|%s|%s|%s|%s\\n' \\
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 self.build(rss_operator_url=invalid)
 
+    def test_prerelease_installer_requires_operator_origin(self):
+        with self.assertRaisesRegex(ValueError, "requires an RSS operator origin"):
+            self.build(rss_operator_url="")
+
     def test_public_stable_repository_without_source_edits(self):
         self.version = "2.3.4"
         self.make_assets()
@@ -274,6 +279,23 @@ printf 'VALIDATED|%s|%s|%s|%s|%s\\n' \\
         )
         self.assertEqual(qualified, [*base, "--safe", "--shell-profile-force"])
         self.assertEqual(qualified.count("--shell-profile-force"), 1)
+
+    def test_pinned_installer_forwards_shared_host_mode_without_profile_edits(self):
+        self.build()
+        base = ["--ref", f"v{self.version}", "--yes"]
+        options = ["--system", "--prefix", "/opt/seckit/dev", "--environment", "dev"]
+        for streamed in (False, True):
+            with self.subTest(streamed=streamed):
+                forwarded = self.forwarded_install_args(
+                    self.run_installer(*options, streamed=streamed)
+                )
+                self.assertEqual(forwarded, [*base, *options])
+                self.assertNotIn("--shell-profile-force", forwarded)
+        for options in (("--prefix",), ("--environment",)):
+            with self.subTest(options=options):
+                result = self.run_installer(*options)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("requires a value", result.stderr)
 
     def test_generated_installer_manages_real_profile_in_disposable_home(self):
         self.make_assets_with_real_validator(engine_tail='''
@@ -461,7 +483,8 @@ clear_shell_profile_backup
         env = dict(os.environ, GITHUB_REPOSITORY="other/qa", GITHUB_REF="refs/heads/testing",
                    GITHUB_SHA=self.commit)
         result = subprocess.run([sys.executable, str(builder), str(self.bundle), str(self.output),
-                                 "--project", str(project)], env=env, capture_output=True,
+                                 "--project", str(project),
+                                 "--rss-operator-url", "https://dev.example.test"], env=env, capture_output=True,
                                 text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
         origin = json.loads((self.root / "release-origin.json").read_text())

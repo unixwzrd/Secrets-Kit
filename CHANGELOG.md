@@ -1,10 +1,14 @@
 # Secrets-Kit Changelog
 
 **Created**: 2026-03-10  
-**Updated**: 2026-05-13
+**Updated**: 2026-09-26
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## 2.0.1b17 — public beta candidate
+
+- Add optional administrator-managed shared code installations with separate per-user stores, identities and daemons. Users may opt in to a shared organization/client context without rewriting existing secrets or peer authorization. Improve direct-peer routing and make local daemon startup independent of RSS authentication latency while preserving RSS fallback and access checks.
 
 ### 2026-05-13 — v1.2.3 security scan hardening for CLI output, launchd smoke paths, and GitHub Actions
 

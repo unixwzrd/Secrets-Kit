@@ -37,6 +37,7 @@ from secrets_kit.cli.update_check import (
     release_installer_asset,
     update_context,
 )
+from secrets_kit.host_context import joined_host_membership
 
 
 def _flag(args: argparse.Namespace, name: str) -> bool:
@@ -302,6 +303,55 @@ def _matching_remote_receipt(*, host: str, args: argparse.Namespace) -> bool:
     )
 
 
+def _shared_loopback_launcher(*, host: str, args: argparse.Namespace) -> Path | None:
+    """Recognize two explicitly joined users of one already-active shared install.
+
+    This is a read-only probe. A mismatch fails closed instead of installing a
+    second, per-user runtime over an opted-in shared-host account.
+    """
+    if host.partition("@")[2] not in {"localhost", "127.0.0.1", "::1"}:
+        return None
+    if getattr(args, "ref", None) or getattr(args, "install_url", None) or any(
+        _flag(args, name) for name in ("upgrade", "repair", "dev", "install_only")
+    ):
+        return None
+    configured = os.environ.get("SECKIT_LAUNCHER_PATH")
+    if not configured:
+        return None
+    launcher = Path(configured)
+    if launcher.name != "seckit" or launcher.parent.name != "bin" or not launcher.is_file():
+        return None
+    prefix = launcher.parent.parent
+    membership = joined_host_membership(prefix=prefix)
+    remote_command = (
+        f"{shlex.quote(str(launcher))} --version && "
+        f"{shlex.quote(str(launcher))} host show --prefix {shlex.quote(str(prefix))} --joined"
+    )
+    completed = subprocess.run(
+        ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host, remote_command],
+        capture_output=True, text=True, check=False, timeout=25,
+    )
+    if completed.returncode:
+        raise ValueError("shared localhost target is not joined; no per-user installer was run")
+    lines = completed.stdout.splitlines()
+    try:
+        remote = json.loads(lines[1]) if len(lines) == 2 else None
+    except json.JSONDecodeError as exc:
+        raise ValueError("shared localhost target returned invalid membership") from exc
+    if (
+        lines[0] != f"seckit {__version__}"
+        or not isinstance(remote, dict)
+        or any(
+            remote.get(field) != membership.get(field)
+            for field in ("installation_id", "environment", "organization_id", "client_id")
+        )
+        or remote.get("unix_username") != host.partition("@")[0]
+        or remote.get("principal_owner_id") == membership.get("principal_owner_id")
+    ):
+        raise ValueError("shared localhost target differs from the joined installation; no installer was run")
+    return launcher
+
+
 class _PrivateRedirect(urllib.request.HTTPRedirectHandler):
     """Do not forward a GitHub credential to a release-asset redirect host."""
 
@@ -407,7 +457,18 @@ def cmd_install(*, args: argparse.Namespace) -> int:
         pair_after_install = not any(
             _flag(args, name) for name in ("upgrade", "repair", "no_init", "install_only")
         )
+        try:
+            shared_launcher = (
+                _shared_loopback_launcher(host=remote_host, args=args)
+                if pair_after_install else None
+            )
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            print(f"seckit install: shared-host check failed: {exc}", file=sys.stderr)
+            return 1
         if _flag(args, "dry_run"):
+            if shared_launcher is not None:
+                print(f"Shared installation already active: {shared_launcher}; peer authorization would be checked over SSH.")
+                return 0
             command = _remote_ssh_command(host=remote_host, args=args)
             print(" ".join(shlex.quote(part) for part in command))
             return 0
@@ -418,6 +479,14 @@ def cmd_install(*, args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
             return 1
+        if shared_launcher is not None:
+            try:
+                pair_installed_peer(host=remote_host, shared_launcher=shared_launcher)
+                verify_authorized_route(host=remote_host, shared_launcher=shared_launcher)
+            except (OSError, ValueError, subprocess.SubprocessError, EOFError) as exc:
+                print(f"seckit install: shared-host peer setup incomplete: {exc}", file=sys.stderr)
+                return 1
+            return 0
         if pair_after_install and _matching_remote_receipt(host=remote_host, args=args):
             try:
                 pair_installed_peer(host=remote_host)
