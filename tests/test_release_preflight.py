@@ -176,6 +176,52 @@ class ReleasePreflightTests(unittest.TestCase):
             with self.subTest(version=version, ref=ref):
                 self.assert_passes(self.run_preflight(version=version, ref=ref, private=private))
 
+    def test_public_beta_release_helper_derives_tag_and_requires_current_links(self) -> None:
+        for name in ("prepare-release-tag.sh", "sync-release-metadata.py"):
+            source = Path(__file__).resolve().parents[1] / "scripts" / name
+            shutil.copy2(source, self.root / "scripts" / name)
+        remote_temp = tempfile.TemporaryDirectory(prefix="seckit-tag-remote-")
+        self.addCleanup(remote_temp.cleanup)
+        remote = Path(remote_temp.name) / "Secrets-Kit.git"
+        subprocess.run(["git", "init", "--bare", "-q", str(remote)], check=True)
+        self.git("remote", "add", "origin", str(remote))
+        self.git("switch", "-c", "beta")
+        self.write_version("1.2.3b4")
+        (self.root / "CHANGELOG.md").write_text("## 1.2.3b4 — public beta candidate\n")
+        readme = self.root / "README.md"
+        readme.write_text(
+            "For the current public beta (`v1.2.3b3`)\n"
+            + "https://example.invalid/releases/download/v1.2.3b3/install.sh\n" * 2
+        )
+        self.git("add", ".")
+        self.git("commit", "-qm", "beta candidate")
+        self.git("push", "-q", "origin", "beta")
+
+        def helper(mode: str) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                ["bash", "scripts/prepare-release-tag.sh", mode],
+                cwd=self.root, capture_output=True, text=True, timeout=10,
+            )
+
+        self.assert_fails(helper("--check"))
+        self.assert_passes(helper("--sync-metadata"))
+        self.assertIn("current public beta (`v1.2.3b4`)", readme.read_text())
+        self.assertEqual(readme.read_text().count("/releases/download/v1.2.3b4/install.sh"), 2)
+        self.assert_passes(helper("--sync-metadata"))
+        self.assert_fails(helper("--check"))  # Edited metadata must be reviewed and committed.
+        self.git("add", "README.md")
+        self.git("commit", "-qm", "qualify beta installer links")
+        self.assert_fails(helper("--check"))  # Local commit is not yet the remote beta head.
+        self.assert_passes(helper("--push-branch"))
+        self.assert_passes(helper("--check"))
+        self.assertEqual(self.git("tag", "--list").stdout, "")
+
+    def test_tag_push_does_not_repeat_public_branch_ci_matrix(self) -> None:
+        workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml").read_text()
+        trigger = workflow.split("permissions:", 1)[0]
+        self.assertIn("  push:\n    branches:\n      - beta\n      - main\n", trigger)
+        self.assertNotIn("tags:", trigger)
+
     def test_branch_push_does_not_build_release_artifacts(self) -> None:
         workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/release.yml").read_text()
         trigger = workflow.split("permissions:", 1)[0]

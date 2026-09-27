@@ -13,10 +13,29 @@ import json
 import shlex
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
 from secrets_kit.crypto.codecs import decode_b64url
+
+
+def _local_seckit_command(*, shared_launcher: Path | None) -> str:
+    """Use the invoked client for local peer work, even beside an older per-user install."""
+    if shared_launcher is not None:
+        return str(shared_launcher)
+    invoked = Path(sys.argv[0])
+    if invoked.name == "seckit":
+        if invoked.is_file():
+            return str(invoked)
+        resolved = shutil.which("seckit")
+        if resolved:
+            return resolved
+    launcher = Path.home() / ".local/bin/seckit"
+    executable = str(launcher) if launcher.is_file() else shutil.which("seckit")
+    if not executable:
+        raise ValueError("local Secrets Kit command is unavailable")
+    return executable
 
 
 def _peer_command(
@@ -25,11 +44,7 @@ def _peer_command(
 ) -> dict[str, Any] | list[dict[str, Any]]:
     """Run one bounded peer CLI operation and parse JSON output when present."""
     if host is None:
-        launcher = shared_launcher or Path.home() / ".local/bin/seckit"
-        executable = str(launcher) if launcher.is_file() else shutil.which("seckit")
-        if not executable:
-            raise ValueError("local Secrets Kit command is unavailable")
-        argv = [executable, "peer", *parts]
+        argv = [_local_seckit_command(shared_launcher=shared_launcher), "peer", *parts]
     else:
         remote_launcher = shlex.quote(str(shared_launcher)) if shared_launcher else '"$HOME/.local/bin/seckit"'
         remote = remote_launcher + " peer " + " ".join(shlex.quote(part) for part in parts)
@@ -163,11 +178,7 @@ def pair_installed_peer(*, host: str, shared_launcher: Path | None = None) -> No
 def _status_command(*, host: str | None, shared_launcher: Path | None = None) -> dict[str, Any]:
     """Read one bounded daemon snapshot without modifying peer or route state."""
     if host is None:
-        launcher = shared_launcher or Path.home() / ".local/bin/seckit"
-        executable = str(launcher) if launcher.is_file() else shutil.which("seckit")
-        if not executable:
-            raise ValueError("local Secrets Kit command is unavailable")
-        argv = [executable, "status", "--json"]
+        argv = [_local_seckit_command(shared_launcher=shared_launcher), "status", "--json"]
     else:
         remote_launcher = shlex.quote(str(shared_launcher)) if shared_launcher else '"$HOME/.local/bin/seckit"'
         argv = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host,
@@ -184,11 +195,7 @@ def _status_command(*, host: str | None, shared_launcher: Path | None = None) ->
 def _wait_route_command(*, host: str | None, peer_id: str, shared_launcher: Path | None = None) -> None:
     """Wait for the daemon's authenticated route event, never poll status."""
     if host is None:
-        launcher = shared_launcher or Path.home() / ".local/bin/seckit"
-        executable = str(launcher) if launcher.is_file() else shutil.which("seckit")
-        if not executable:
-            raise ValueError("local Secrets Kit command is unavailable")
-        argv = [executable, "internal", "wait-route", peer_id]
+        argv = [_local_seckit_command(shared_launcher=shared_launcher), "internal", "wait-route", peer_id]
     else:
         remote_launcher = shlex.quote(str(shared_launcher)) if shared_launcher else '"$HOME/.local/bin/seckit"'
         argv = [

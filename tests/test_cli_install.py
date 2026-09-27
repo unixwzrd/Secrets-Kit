@@ -30,6 +30,9 @@ from secrets_kit.cli.commands.install_cmd import (
 )
 from secrets_kit.cli.commands.install_peer import (
     _identity_summary,
+    _peer_command,
+    _status_command,
+    _wait_route_command,
     pair_installed_peer,
     verify_authorized_route,
 )
@@ -41,6 +44,30 @@ class CliInstallTest(unittest.TestCase):
                                      return_value=("example/installed", "prerelease")))
         self.enterContext(mock.patch("secrets_kit.cli.commands.install_cmd._safe_install_state",
                                      return_value={"ref": "v2.0.1a22"}))
+
+    def test_peer_helpers_use_invoked_shared_client_over_stale_user_launcher(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            current = root / "shared/bin/seckit"
+            current.parent.mkdir(parents=True)
+            current.write_text("shared")
+            stale = root / "home/.local/bin/seckit"
+            stale.parent.mkdir(parents=True)
+            stale.write_text("old per-user install")
+            commands: list[list[str]] = []
+
+            def run(argv: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+                commands.append(argv)
+                output = "[]" if "peer" in argv else '{"daemon":{}}'
+                return subprocess.CompletedProcess(argv, 0, output, "")
+
+            with mock.patch("secrets_kit.cli.commands.install_peer.sys.argv", [str(current), "install"]), \
+                 mock.patch("secrets_kit.cli.commands.install_peer.Path.home", return_value=root / "home"), \
+                 mock.patch("secrets_kit.cli.commands.install_peer.subprocess.run", side_effect=run):
+                self.assertEqual(_peer_command(host=None, parts=["list", "--json"]), [])
+                self.assertEqual(_status_command(host=None), {"daemon": {}})
+                _wait_route_command(host=None, peer_id="node:remote")
+            self.assertEqual([argv[0] for argv in commands], [str(current)] * 3)
 
     def test_shared_localhost_install_uses_joined_launcher(self) -> None:
         membership = {

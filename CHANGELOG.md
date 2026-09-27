@@ -1,10 +1,14 @@
 # Secrets-Kit Changelog
 
 **Created**: 2026-03-10  
-**Updated**: 2026-09-26
+**Updated**: 2026-09-27
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## 2.0.1b18 — public beta candidate
+
+- Preserve the invoked shared-host client during SSH peer and route verification when an older per-user launcher remains installed. This fixes a preserving reinstall/upgrade failure without changing peer authorization or RSS enrollment.
 
 ## 2.0.1b17 — public beta candidate
 
