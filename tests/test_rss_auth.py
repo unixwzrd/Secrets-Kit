@@ -949,12 +949,32 @@ class RSSAuthenticationProtocolTest(unittest.TestCase):
             with self.subTest(status=status), mock.patch(
                 "secrets_kit.cli.commands.rss.request_daemon_status", return_value=status
             ), mock.patch("secrets_kit.cli.commands.rss._fatal", return_value=1):
-                self.assertEqual(_report_configuration(profile=Path("/protected/profile")), expected)
+                self.assertEqual(_report_configuration(profile=Path("/protected/profile"), wait_seconds=0), expected)
         with mock.patch(
             "secrets_kit.cli.commands.rss.request_daemon_status", side_effect=DaemonError("private error")
         ), mock.patch("secrets_kit.cli.commands.rss._fatal", return_value=1) as fatal:
-            self.assertEqual(_report_configuration(profile=Path("/protected/profile")), 1)
+            self.assertEqual(_report_configuration(profile=Path("/protected/profile"), wait_seconds=0), 1)
             self.assertNotIn("private error", fatal.call_args.kwargs["message"])
+
+    def test_configuration_report_waits_for_local_daemon_authentication(self) -> None:
+        from secrets_kit.cli.commands.rss import _report_configuration
+
+        with (
+            mock.patch(
+                "secrets_kit.cli.commands.rss.request_daemon_status",
+                side_effect=[
+                    {"rss": {"authenticated_relays": 0}},
+                    {"rss": {"authenticated_relays": 2}},
+                ],
+            ) as status,
+            mock.patch("secrets_kit.cli.commands.rss.time.sleep") as sleep,
+            mock.patch("builtins.print") as output,
+        ):
+            code = _report_configuration(profile=Path("/protected/profile"))
+        self.assertEqual(code, 0)
+        self.assertEqual(status.call_count, 2)
+        sleep.assert_called_once()
+        self.assertTrue(json.loads(output.call_args.args[0])["rss_authenticated"])
 
     def test_capacity_feedback_is_allowlisted_and_never_overrides_success(self) -> None:
         from secrets_kit.cli.commands.rss import _report_configuration
@@ -970,7 +990,7 @@ class RSSAuthenticationProtocolTest(unittest.TestCase):
             with self.subTest(error=error, count=count), mock.patch(
                 "secrets_kit.cli.commands.rss.request_daemon_status", return_value=status
             ), mock.patch("secrets_kit.cli.commands.rss._fatal", return_value=1), mock.patch("builtins.print") as output:
-                code = _report_configuration(profile=Path("/protected/profile"))
+                code = _report_configuration(profile=Path("/protected/profile"), wait_seconds=0)
                 result = json.loads(output.call_args.args[0])
                 self.assertEqual(result.get("error"), expected)
                 self.assertEqual(code, int(expected is not None))

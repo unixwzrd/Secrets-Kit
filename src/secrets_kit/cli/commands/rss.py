@@ -10,6 +10,7 @@ import argparse
 import getpass
 import json
 import sys
+import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -61,30 +62,39 @@ def _installed_operator_url() -> str:
     return recorded.rstrip("/")
 
 
-def _report_configuration(*, profile: Path) -> int:
+def _report_configuration(*, profile: Path, wait_seconds: float = 12.0) -> int:
     """Report local configuration separately from daemon-observed RSS authentication.
 
-    Reads same-user daemon status once with a bounded timeout. Never retries
-    enrollment, changes credentials, or prints arbitrary provider errors.
+    Waits briefly on same-user daemon status after its service reload. This is
+    a bounded local readiness check, not a network enrollment retry; it never
+    changes credentials or prints arbitrary provider errors.
     """
-    try:
-        status = request_daemon_status()
-    except (DaemonError, OSError):
-        status = {}
-    rss = status.get("rss", {})
-    count = rss.get("authenticated_relays", 0) if isinstance(rss, dict) else 0
-    authenticated = type(count) is int and count > 0
-    error = "rss_authorization_pending"
-    routing = status.get("routing", {})
-    discovery = routing.get("discovery", {}) if isinstance(routing, dict) else {}
-    events = discovery.get("events", []) if isinstance(discovery, dict) else []
-    if isinstance(events, list) and any(
-        isinstance(event, dict)
-        and event.get("event") == "rss_authentication_failed"
-        and event.get("error") == "RSS device capacity is fully provisioned"
-        for event in events
-    ):
-        error = "device_capacity_exhausted"
+    deadline = time.monotonic() + max(0.0, wait_seconds)
+    while True:
+        try:
+            status = request_daemon_status()
+        except (DaemonError, OSError):
+            status = {}
+        rss = status.get("rss", {})
+        count = rss.get("authenticated_relays", 0) if isinstance(rss, dict) else 0
+        authenticated = type(count) is int and count > 0
+        error = "rss_authorization_pending"
+        routing = status.get("routing", {})
+        discovery = routing.get("discovery", {}) if isinstance(routing, dict) else {}
+        events = discovery.get("events", []) if isinstance(discovery, dict) else []
+        if isinstance(events, list) and any(
+            isinstance(event, dict)
+            and event.get("event") == "rss_authentication_failed"
+            and event.get("error") == "RSS device capacity is fully provisioned"
+            for event in events
+        ):
+            error = "device_capacity_exhausted"
+        if authenticated or error == "device_capacity_exhausted":
+            break
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        time.sleep(min(1.0, remaining))
     result = {"configured": True, "profile": str(profile), "rss_authenticated": authenticated}
     if not authenticated:
         result["error"] = error

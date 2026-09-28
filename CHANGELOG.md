@@ -4,6 +4,10 @@ Customer-facing changes. This file is derived from the authoritative public chan
 
 ## Unreleased
 
+## 2.0.1b21 — public beta
+
+- Promote the tagged DEV a61 bounded RSS authorization-readiness wait. A successful enrollment now reports success when the managed daemon authenticates shortly after provisioning; enrollment is not retried and credentials are unchanged. Installed QA qualification passed before public-beta promotion.
+
 ## 2.0.1b20 — public beta
 
 - Promote the tagged DEV a60 shared-host release-origin fix and release gate. The active shared generation supplies verified remote-install provenance; inactive generations are rejected. Installed QA qualification passed before public-beta promotion.
