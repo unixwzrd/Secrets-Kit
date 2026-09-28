@@ -1,5 +1,6 @@
 """Subprocess tests for the fail-closed CI release-channel preflight."""
 
+import hashlib
 import json
 import os
 import shutil
@@ -200,13 +201,14 @@ class ReleasePreflightTests(unittest.TestCase):
         self.git("switch", "-c", "dev-next-candidate")
         self.assert_passes(helper("--check"))
         self.git("switch", "dev")
-        self.assert_passes(helper("--create"))
-        self.assertEqual(self.git("tag", "--list").stdout.strip(), "v1.2.3a4")
         self.assert_fails(helper("--create"))
+        self.assertEqual(self.git("tag", "--list").stdout, "")
 
     def test_release_helper_pushes_once_and_waits_for_exact_ci_before_tag(self) -> None:
         source = Path(__file__).resolve().parents[1] / "scripts" / "prepare-release-tag.sh"
         shutil.copy2(source, self.root / "scripts" / source.name)
+        verifier = Path(__file__).resolve().parents[1] / "scripts" / "verify-release-qualification.py"
+        shutil.copy2(verifier, self.root / "scripts" / verifier.name)
         remote_temp = tempfile.TemporaryDirectory(prefix="seckit-tag-remote-")
         self.addCleanup(remote_temp.cleanup)
         remote = Path(remote_temp.name) / "Secrets-Kit-Private.git"
@@ -223,12 +225,12 @@ class ReleasePreflightTests(unittest.TestCase):
         self.git("commit", "-qm", "reviewed update")
         head = self.git("rev-parse", "HEAD").stdout.strip()
 
-        def helper(mode: str, *, path: str | None = None) -> subprocess.CompletedProcess[str]:
+        def helper(mode: str, *, path: str | None = None, evidence: Path | None = None) -> subprocess.CompletedProcess[str]:
             env = dict(os.environ)
             if path is not None:
                 env["PATH"] = path + os.pathsep + env.get("PATH", "")
             return subprocess.run(
-                ["bash", "scripts/prepare-release-tag.sh", mode],
+                ["bash", "scripts/prepare-release-tag.sh", mode, *([str(evidence)] if evidence else [])],
                 cwd=self.root, env=env, capture_output=True, text=True, timeout=10,
             )
 
@@ -244,18 +246,70 @@ class ReleasePreflightTests(unittest.TestCase):
         fake_gh.chmod(0o755)
         self.assert_fails(helper("--publish", path=str(fake_bin)))
         self.assertEqual(self.git("tag", "--list").stdout, "")
+        artifact = self.root / "artifact"
+        artifact.mkdir()
+        (artifact / "install.sh").write_text("verified installer\n")
+        (artifact / "release-origin.json").write_text(json.dumps({
+            "repository": "unixwzrd/Secrets-Kit-Private", "source_ref": "refs/heads/dev",
+            "source_commit": head, "install_ref": head,
+            "version": "1.2.3a4", "channel": "prerelease",
+        }))
+        (artifact / "manifest.sha256").write_text("".join(
+            f"{hashlib.sha256((artifact / name).read_bytes()).hexdigest()}  {name}\n"
+            for name in ("install.sh", "release-origin.json")
+        ))
+        checks = {}
+        for name in ("artifact_verified", "installed_health", "installed_sync"):
+            (self.root / f"{name}.log").write_text("PASS\n")
+            checks[name] = {"result": "PASS", "evidence": f"{name}.log"}
+        report = self.root / "qualification.json"
+        qualification = {
+            "schema": 1,
+            "artifact": {"directory": str(artifact)},
+            "checks": checks,
+        }
+        report.write_text(json.dumps(qualification))
+        self.assert_fails(helper("--publish", path=str(fake_bin), evidence=report))
+        self.assertEqual(self.git("tag", "--list").stdout, "")
         fake_gh.write_text(
             "#!/bin/sh\nprintf '%s\\n' '" + json.dumps([
                 {"headSha": head, "conclusion": "success", "event": "push"}
             ]) + "'\n"
         )
-        self.assert_passes(helper("--publish", path=str(fake_bin)))
+        origin = artifact / "release-origin.json"
+        original_origin = origin.read_text()
+        origin.write_text(original_origin.replace(head, self.base_commit))
+        (artifact / "manifest.sha256").write_text("".join(
+            f"{hashlib.sha256((artifact / name).read_bytes()).hexdigest()}  {name}\n"
+            for name in ("install.sh", "release-origin.json")
+        ))
+        self.assert_fails(helper("--publish", path=str(fake_bin), evidence=report))
+        origin.write_text(original_origin)
+        (artifact / "manifest.sha256").write_text("".join(
+            f"{hashlib.sha256((artifact / name).read_bytes()).hexdigest()}  {name}\n"
+            for name in ("install.sh", "release-origin.json")
+        ))
+        qualification["checks"]["installed_sync"]["result"] = "FAIL"
+        report.write_text(json.dumps(qualification))
+        self.assert_fails(helper("--publish", path=str(fake_bin), evidence=report))
+        qualification["checks"]["installed_sync"]["result"] = "PASS"
+        report.write_text(json.dumps(qualification))
+        self.assert_passes(helper("--publish", path=str(fake_bin), evidence=report))
         self.assertEqual(self.git("rev-parse", "refs/tags/v1.2.3a4^{commit}").stdout.strip(), head)
         self.assertEqual(
             self.git("ls-remote", "--refs", "--tags", "origin", "refs/tags/v1.2.3a4").stdout.split()[1],
             "refs/tags/v1.2.3a4",
         )
-        self.assert_fails(helper("--publish", path=str(fake_bin)))
+        self.assert_fails(helper("--publish", path=str(fake_bin), evidence=report))
+        tagged = json.loads((artifact / "release-origin.json").read_text())
+        tagged["source_ref"] = "refs/tags/v1.2.3a4"
+        tagged["install_ref"] = "v1.2.3a4"
+        (artifact / "release-origin.json").write_text(json.dumps(tagged))
+        (artifact / "manifest.sha256").write_text("".join(
+            f"{hashlib.sha256((artifact / name).read_bytes()).hexdigest()}  {name}\n"
+            for name in ("install.sh", "release-origin.json")
+        ))
+        self.assert_passes(helper("--verify-tag", evidence=report))
 
     def test_public_beta_helper_rejects_stale_installer_links(self) -> None:
         source = Path(__file__).resolve().parents[1] / "scripts" / "prepare-release-tag.sh"
@@ -289,6 +343,85 @@ class ReleasePreflightTests(unittest.TestCase):
         self.git("commit", "-qm", "qualify beta installer links")
         self.git("push", "-q", "origin", "beta")
         self.assert_passes(subprocess.run(command, cwd=self.root, capture_output=True, text=True, timeout=10))
+
+    def test_public_beta_candidate_and_tagged_handoff_have_separate_checks(self) -> None:
+        source = Path(__file__).resolve().parents[1] / "scripts" / "verify-release-qualification.py"
+        shutil.copy2(source, self.root / "scripts" / source.name)
+        artifact = self.root / "artifact"
+        artifact.mkdir()
+        installer = artifact / "install.sh"
+        installer.write_text("beta installer\n")
+        commit = self.base_commit
+        (artifact / "release-origin.json").write_text(json.dumps({
+            "repository": "unixwzrd/Secrets-Kit", "source_ref": "refs/heads/beta",
+            "source_commit": commit, "install_ref": commit,
+            "version": "1.2.3b4", "channel": "prerelease",
+        }))
+        (artifact / "manifest.sha256").write_text("".join(
+            f"{hashlib.sha256((artifact / name).read_bytes()).hexdigest()}  {name}\n"
+            for name in ("install.sh", "release-origin.json")
+        ))
+        report = self.root / "qualification.json"
+        qualification = {
+            "schema": 1,
+            "artifact": {"directory": str(artifact)},
+            "checks": {},
+        }
+        command = ["python3", "scripts/verify-release-qualification.py", "--evidence", str(report),
+                   "--version", "1.2.3b4", "--channel", "beta", "--repository", "public", "--commit", commit]
+
+        def check() -> subprocess.CompletedProcess[str]:
+            report.write_text(json.dumps(qualification))
+            return subprocess.run(command, cwd=self.root, capture_output=True, text=True, timeout=10)
+
+        self.assert_fails(check())
+        for name in ("artifact_verified", "installed_health", "installed_sync", "qa_tag_customer_workflow"):
+            (self.root / f"{name}.log").write_text("PASS\n")
+            qualification["checks"][name] = {"result": "PASS", "evidence": f"{name}.log"}
+        self.assert_passes(check())
+        origin_path = artifact / "release-origin.json"
+        valid_origin = json.loads(origin_path.read_text())
+        for changed_field, invalid_value in (("channel", "beta"), ("install_ref", "wrong-ref")):
+            invalid_origin = {**valid_origin, changed_field: invalid_value}
+            origin_path.write_text(json.dumps(invalid_origin))
+            (artifact / "manifest.sha256").write_text("".join(
+                f"{hashlib.sha256((artifact / name).read_bytes()).hexdigest()}  {name}\n"
+                for name in ("install.sh", "release-origin.json")
+            ))
+            self.assert_fails(check())
+        origin_path.write_text(json.dumps(valid_origin))
+        (artifact / "manifest.sha256").write_text("".join(
+            f"{hashlib.sha256((artifact / name).read_bytes()).hexdigest()}  {name}\n"
+            for name in ("install.sh", "release-origin.json")
+        ))
+        self.assert_passes(check())
+        qualification["checks"].pop("qa_tag_customer_workflow")
+        self.assert_fails(check())
+        qualification["checks"]["qa_tag_customer_workflow"] = {
+            "result": "PASS", "evidence": "qa_tag_customer_workflow.log"}
+        installer.write_text("changed after qualification\n")
+        self.assert_fails(check())
+        installer.write_text("beta installer\n")
+        origin = json.loads((artifact / "release-origin.json").read_text())
+        origin["source_ref"] = "refs/tags/v1.2.3b4"
+        origin["install_ref"] = "v1.2.3b4"
+        (artifact / "release-origin.json").write_text(json.dumps(origin))
+        (artifact / "manifest.sha256").write_text("".join(
+            f"{hashlib.sha256((artifact / name).read_bytes()).hexdigest()}  {name}\n"
+            for name in ("install.sh", "release-origin.json")
+        ))
+        tagged_command = [*command, "--phase", "tagged"]
+
+        def tagged_check() -> subprocess.CompletedProcess[str]:
+            report.write_text(json.dumps(qualification))
+            return subprocess.run(tagged_command, cwd=self.root, capture_output=True, text=True, timeout=10)
+
+        self.assert_fails(tagged_check())
+        for name in ("fresh_first_machine", "ssh_install_user_host", "ssh_install_at_host",
+                     "fresh_peer_authorization", "bidirectional_sync", "preserving_reinstall"):
+            (self.root / f"{name}.log").write_text("PASS\n")
+            qualification["checks"][name] = {"result": "PASS", "evidence": f"{name}.log"}
+        self.assert_passes(tagged_check())
 
     def test_public_beta_sync_promotes_private_readme_snapshot(self) -> None:
         source = Path(__file__).resolve().parents[1] / "scripts" / "sync-release-metadata.py"

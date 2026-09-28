@@ -4,6 +4,10 @@ Customer-facing changes. This file is derived from the authoritative public chan
 
 ## Unreleased
 
+## 2.0.1b20 — public beta
+
+- Promote the tagged DEV a60 shared-host release-origin fix and release gate. The active shared generation supplies verified remote-install provenance; inactive generations are rejected. Installed QA qualification passed before public-beta promotion.
+
 ## 2.0.1b19 — public beta
 
 - Promote the DEV a58 release-process and documentation corrections without changing the qualified a56 client runtime. Derive installer operator origin from repository/ref, compare product inputs before each promotion, and remove stale fixed release tags from channel-neutral installation and Hermes integration instructions. Installed QA qualification passed before public-beta promotion.

@@ -24,6 +24,7 @@ from secrets_kit.cli.commands.install_cmd import (
     _prepare_remote_install,
     _remote_ssh_command,
     _remote_version_pin_env,
+    _selected_release_state,
     _shared_loopback_launcher,
     _verified_remote_installer,
     cmd_install,
@@ -44,6 +45,22 @@ class CliInstallTest(unittest.TestCase):
                                      return_value=("example/installed", "prerelease")))
         self.enterContext(mock.patch("secrets_kit.cli.commands.install_cmd._safe_install_state",
                                      return_value={"ref": "v2.0.1a22"}))
+
+    def test_shared_generation_ref_overrides_stale_user_receipt(self) -> None:
+        with mock.patch(
+            "secrets_kit.cli.commands.install_cmd._shared_release_state",
+            return_value={"ref": "v2.0.1b19", "github_repo": "unixwzrd/Secrets-Kit"},
+        ):
+            self.assertEqual(_selected_release_state()["ref"], "v2.0.1b19")
+            with mock.patch(
+                "secrets_kit.cli.commands.install_cmd.release_installer_asset",
+                return_value=("https://api.github.com/repos/unixwzrd/Secrets-Kit/releases/assets/7", "sha256:" + "a" * 64),
+            ) as asset, mock.patch(
+                "secrets_kit.cli.commands.install_cmd.download_release_installer",
+                return_value=Path("/tmp/verified-install.sh"),
+            ):
+                _verified_remote_installer(args=argparse.Namespace(ref=None))
+            asset.assert_called_once_with(repository="example/installed", reference="v2.0.1b19")
 
     def test_peer_helpers_use_invoked_shared_client_over_stale_user_launcher(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -499,6 +516,7 @@ rmdir "$PACKAGE_CACHE_DIR"
         function = script.split("write_install_state() {", 1)[1].split("\n}\n", 1)[0]
         self.assertIn('"github_repo": "$(_json_escape "${SECKIT_GITHUB_REPO}")"', function)
         self.assertIn('"release_channel": "$(_json_escape "${SECKIT_RELEASE_CHANNEL}")"', function)
+
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
             runtime = root / "runtime"
@@ -525,6 +543,36 @@ write_install_state
             receipt = json.loads(state.read_text())
             self.assertEqual(receipt["github_repo"], "example/private")
             self.assertEqual(receipt["release_channel"], "prerelease")
+
+    def test_shared_stage_records_bundle_origin_without_user_receipt(self) -> None:
+        script = (Path(__file__).resolve().parents[1] / "install.sh").read_text()
+        function = script.split("write_shared_release_origin() {", 1)[1].split("\n}\n", 1)[0]
+        self.assertIn("shared installation requires a verified repository-bound bundle", function)
+        self.assertIn('"${TARGET_RUNTIME}/seckit-release-origin.json"', function)
+        self.assertIn('"source_commit": "$(_json_escape "${SECKIT_SOURCE_COMMIT}")"', function)
+        self.assertIn('"verified": true', function)
+        with tempfile.TemporaryDirectory() as raw:
+            runtime = Path(raw)
+            probe = f'''
+TARGET_RUNTIME={runtime!s}
+SECKIT_VERIFIED_BUNDLE_VERSION=2.0.1b19
+SYSTEM_ENVIRONMENT=qa
+SECKIT_GITHUB_REPO=unixwzrd/Secrets-Kit
+SECKIT_REF=v2.0.1b19
+SECKIT_RELEASE_CHANNEL=prerelease
+SECKIT_SOURCE_COMMIT={'a' * 40}
+SECKIT_SOURCE_REF=refs/tags/v2.0.1b19
+write_shared_release_origin
+'''
+            result = subprocess.run(
+                ["bash"], input=script.partition('\nmain "$@"')[0] + probe,
+                text=True, capture_output=True, check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            origin = json.loads((runtime / "seckit-release-origin.json").read_text())
+            self.assertEqual(origin["github_repo"], "unixwzrd/Secrets-Kit")
+            self.assertEqual(origin["ref"], "v2.0.1b19")
+            self.assertIs(origin["verified"], True)
 
     def test_install_preserves_older_and_unknown_runtime_generations(self) -> None:
         """Upgrade retention must never remove unbacked legacy or edited files."""

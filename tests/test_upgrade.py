@@ -15,9 +15,11 @@ from secrets_kit.cli.commands.status import cmd_status
 from secrets_kit.cli.commands.upgrade import cmd_upgrade
 from secrets_kit.cli.parser import build_parser
 from secrets_kit.cli.update_check import (
+    _shared_release_state,
     cached_update_available,
     check_for_update,
     download_release_installer,
+    update_context,
 )
 from secrets_kit.cli.update_service import (
     _linux_definitions,
@@ -54,6 +56,68 @@ def _release(tag: str, *, prerelease: bool) -> dict[str, object]:
 
 
 class UpgradeTests(unittest.TestCase):
+    def test_shared_release_origin_overrides_stale_user_receipt(self) -> None:
+        def allow_fixture_component(path: Path, *, directory: bool) -> None:
+            try:
+                path.lstat()
+            except OSError as exc:
+                raise ValueError("unsafe_shared_release_origin") from exc
+            if (directory and not path.is_dir()) or (not directory and not path.is_file()):
+                raise ValueError("unsafe_shared_release_origin")
+
+        with tempfile.TemporaryDirectory() as raw:
+            runtime = Path(raw) / "runtime"
+            generation = runtime / "runtime-001"
+            generation.mkdir(parents=True)
+            current = runtime / "current"
+            current.symlink_to(generation)
+            (generation / "seckit-environment").write_text("qa\n")
+            origin = {
+                "version": "2.0.1b19", "environment": "qa",
+                "github_repo": "unixwzrd/Secrets-Kit", "ref": "v2.0.1b19",
+                "release_channel": "prerelease", "source_commit": "a" * 40,
+                "source_ref": "refs/tags/v2.0.1b19", "verified": True,
+            }
+            (generation / "seckit-release-origin.json").write_text(json.dumps(origin))
+            with mock.patch("secrets_kit.cli.update_check.__version__", "2.0.1b19"), \
+                 mock.patch("secrets_kit.cli.update_check.sys.prefix", str(current)), \
+                 mock.patch("secrets_kit.cli.update_check._require_admin_owned", side_effect=allow_fixture_component), \
+                 mock.patch("secrets_kit.cli.update_check._require_admin_link"), \
+                 mock.patch("secrets_kit.cli.update_check._safe_install_state", side_effect=AssertionError("stale receipt read")), \
+                 mock.patch.dict(os.environ, {"SECKIT_GITHUB_REPO": "attacker/stale", "SECKIT_RELEASE_CHANNEL": "release"}):
+                self.assertEqual(_shared_release_state()["ref"], "v2.0.1b19")
+                self.assertEqual(_shared_release_state(runtime=generation)["ref"], "v2.0.1b19")
+                self.assertEqual(update_context(), ("unixwzrd/Secrets-Kit", "prerelease"))
+                with mock.patch("secrets_kit.cli.update_check.sys.prefix", str(generation)):
+                    self.assertEqual(update_context(), ("unixwzrd/Secrets-Kit", "prerelease"))
+                inactive = runtime / "runtime-002"
+                inactive.mkdir()
+                current.unlink()
+                current.symlink_to(inactive)
+                with self.assertRaisesRegex(ValueError, "unsafe_shared_release_origin"):
+                    _shared_release_state(runtime=generation)
+                current.unlink()
+                current.symlink_to(generation)
+                origin["verified"] = False
+                (generation / "seckit-release-origin.json").write_text(json.dumps(origin))
+                with self.assertRaisesRegex(ValueError, "invalid_shared_release_origin"):
+                    update_context()
+                (generation / "seckit-release-origin.json").unlink()
+                with self.assertRaisesRegex(ValueError, "unsafe_shared_release_origin"):
+                    update_context()
+
+    def test_untrusted_shared_release_origin_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            runtime = Path(raw) / "runtime"
+            generation = runtime / "runtime-001"
+            generation.mkdir(parents=True)
+            current = runtime / "current"
+            current.symlink_to(generation)
+            (generation / "seckit-environment").write_text("qa\n")
+            (generation / "seckit-release-origin.json").write_text("{}")
+            with self.assertRaisesRegex(ValueError, "unsafe_shared_release_origin"):
+                _shared_release_state(runtime=current)
+
     def test_missing_receipt_does_not_guess_public_repository(self) -> None:
         with tempfile.TemporaryDirectory() as raw, mock.patch.dict(os.environ, {"SECKIT_GITHUB_REPO": ""}):
             result = check_for_update(refresh=True, home=Path(raw))

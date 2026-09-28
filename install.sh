@@ -1489,6 +1489,27 @@ configure_system_install() {
   NO_SHELL_PROFILE=1
 }
 
+write_shared_release_origin() {
+  [[ -n "${SECKIT_VERIFIED_BUNDLE_VERSION}" && "${SECKIT_SOURCE_COMMIT}" =~ ^[a-f0-9]{40}$ ]] \
+    || install_die "shared installation requires a verified repository-bound bundle"
+  case "${SECKIT_SOURCE_REF}" in
+    refs/heads/*|refs/tags/*) ;;
+    *) install_die "shared bundle has no valid source ref" ;;
+  esac
+  cat > "${TARGET_RUNTIME}/seckit-release-origin.json" <<EOF_ORIGIN
+{
+  "version": "$(_json_escape "${SECKIT_VERIFIED_BUNDLE_VERSION}")",
+  "environment": "$(_json_escape "${SYSTEM_ENVIRONMENT}")",
+  "github_repo": "$(_json_escape "${SECKIT_GITHUB_REPO}")",
+  "ref": "$(_json_escape "${SECKIT_REF}")",
+  "release_channel": "$(_json_escape "${SECKIT_RELEASE_CHANNEL}")",
+  "source_commit": "$(_json_escape "${SECKIT_SOURCE_COMMIT}")",
+  "source_ref": "$(_json_escape "${SECKIT_SOURCE_REF}")",
+  "verified": true
+}
+EOF_ORIGIN
+}
+
 stage_system_runtime() {
   install_log "Staging ${SYSTEM_ENVIRONMENT} shared code under ${SYSTEM_PREFIX}; no user store or daemon will change."
   if [[ "${DRY_RUN}" -eq 1 ]]; then
@@ -1525,6 +1546,7 @@ stage_system_runtime() {
   "${TARGET_RUNTIME}/bin/seckit" --version >/dev/null \
     || install_die "shared runtime CLI version probe failed"
   printf '%s\n' "${SYSTEM_ENVIRONMENT}" > "${TARGET_RUNTIME}/seckit-environment"
+  write_shared_release_origin
   if [[ -n "${SECKIT_RSS_OPERATOR_URL}" ]]; then
     printf '%s\n' "${SECKIT_RSS_OPERATOR_URL}" > "${TARGET_RUNTIME}/seckit-rss-operator-url"
   elif [[ "${SYSTEM_ENVIRONMENT}" != production ]]; then

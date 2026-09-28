@@ -33,6 +33,7 @@ from secrets_kit.cli.update_check import (
     MAX_INSTALLER_BYTES,
     _github_token,
     _safe_install_state,
+    _shared_release_state,
     download_release_installer,
     release_installer_asset,
     update_context,
@@ -44,13 +45,19 @@ def _flag(args: argparse.Namespace, name: str) -> bool:
     return bool(getattr(args, name, False))
 
 
+def _selected_release_state() -> dict[str, object]:
+    """Prefer verified active shared code over a preserved per-user receipt."""
+    shared = _shared_release_state()
+    return shared if shared is not None else _safe_install_state()
+
+
 def _installer_url(*, args: argparse.Namespace) -> str:
     """Select this installation's repository/tag, never a hard-coded branch."""
     explicit = getattr(args, "install_url", None)
     if explicit:
         return str(explicit)
     repository, _ = update_context()
-    reference = getattr(args, "ref", None) or _safe_install_state().get("ref") or _current_ref()
+    reference = getattr(args, "ref", None) or _selected_release_state().get("ref") or _current_ref()
     if not isinstance(reference, str) or not re.fullmatch(r"v?[0-9]+\.[0-9]+\.[0-9]+(?:(?:a|b|rc)[0-9]+)?", reference):
         raise ValueError("branch_build_requires_explicit_installer_url")
     return f"https://github.com/{repository}/releases/download/{reference}/install.sh"
@@ -63,7 +70,7 @@ def _verified_remote_installer(*, args: argparse.Namespace) -> Path:
     initiating machine; the target does not need repository access.
     """
     repository, _ = update_context()
-    reference = getattr(args, "ref", None) or _safe_install_state().get("ref") or _current_ref()
+    reference = getattr(args, "ref", None) or _selected_release_state().get("ref") or _current_ref()
     if not isinstance(reference, str) or not re.fullmatch(
         r"v[0-9]+\.[0-9]+\.[0-9]+(?:(?:a|b|rc)[0-9]+)?", reference
     ):
@@ -277,7 +284,7 @@ def _matching_remote_receipt(*, host: str, args: argparse.Namespace) -> bool:
         return False
     try:
         repository, _ = update_context()
-        reference = getattr(args, "ref", None) or _safe_install_state().get("ref") or _current_ref()
+        reference = getattr(args, "ref", None) or _selected_release_state().get("ref") or _current_ref()
     except ValueError:
         return False
     if not isinstance(reference, str) or not re.fullmatch(
@@ -441,7 +448,7 @@ def cmd_install(*, args: argparse.Namespace) -> int:
             print("seckit install: --receipt-json is local only", file=sys.stderr)
             return 2
         try:
-            state = _safe_install_state()
+            state = _selected_release_state()
         except ValueError as exc:
             print(f"seckit install: invalid installed release receipt: {exc}", file=sys.stderr)
             return 1

@@ -12,6 +12,7 @@ import os
 import re
 import stat
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.error
@@ -65,10 +66,106 @@ def _safe_install_state(*, home: Path | None = None) -> dict[str, Any]:
     return value
 
 
+def _require_admin_owned(path: Path, *, directory: bool) -> None:
+    """Reject writable, non-root, or unexpected shared-runtime path components."""
+    try:
+        info = path.lstat()
+    except OSError as exc:
+        raise ValueError("unsafe_shared_release_origin") from exc
+    expected_kind = stat.S_ISDIR if directory else stat.S_ISREG
+    if not expected_kind(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
+        raise ValueError("unsafe_shared_release_origin")
+
+
+def _require_admin_link(path: Path) -> None:
+    """Require the active generation selector to be an administrator-owned link."""
+    try:
+        info = path.lstat()
+    except OSError as exc:
+        raise ValueError("unsafe_shared_release_origin") from exc
+    if not stat.S_ISLNK(info.st_mode) or info.st_uid != 0:
+        raise ValueError("unsafe_shared_release_origin")
+
+
+def _shared_release_state(*, runtime: Path | None = None) -> dict[str, Any] | None:
+    """Read release identity only from the active administrator-owned generation.
+
+    A shared user may retain an older per-user receipt. The active shared code,
+    not that receipt, owns repository and version selection for remote installs.
+    The launcher executes the physical generation, so require it to match the
+    administrator-owned current link before trusting the embedded origin.
+    """
+    installed = runtime or Path(sys.prefix)
+    environment = installed / "seckit-environment"
+    origin = installed / "seckit-release-origin.json"
+    if not any(path.exists() or path.is_symlink() for path in (environment, origin)):
+        return None
+    if installed.parent.name != "runtime":
+        raise ValueError("unsafe_shared_release_origin")
+    if installed.name == "current":
+        current = installed
+    elif installed.name.startswith("runtime-"):
+        current = installed.parent / "current"
+    else:
+        raise ValueError("unsafe_shared_release_origin")
+    prefix = current.parent.parent
+    component = Path("/")
+    for name in prefix.parts[1:]:
+        component /= name
+        _require_admin_owned(component, directory=True)
+    _require_admin_owned(current.parent, directory=True)
+    _require_admin_link(current)
+    try:
+        generation = current.resolve(strict=True)
+        installed_generation = installed.resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        raise ValueError("unsafe_shared_release_origin") from exc
+    if (generation.parent != current.parent.resolve(strict=True)
+            or not generation.name.startswith("runtime-")
+            or installed_generation != generation):
+        raise ValueError("unsafe_shared_release_origin")
+    _require_admin_owned(generation, directory=True)
+    _require_admin_owned(generation / environment.name, directory=False)
+    _require_admin_owned(generation / origin.name, directory=False)
+    try:
+        payload = json.loads(origin.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ValueError("invalid_shared_release_origin") from exc
+    if not isinstance(payload, dict) or payload.get("verified") is not True:
+        raise ValueError("invalid_shared_release_origin")
+    if payload.get("version") != __version__:
+        raise ValueError("shared_release_version_mismatch")
+    try:
+        installed_environment = environment.read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        raise ValueError("invalid_shared_release_origin") from exc
+    if payload.get("environment") != installed_environment:
+        raise ValueError("shared_release_environment_mismatch")
+    source_ref = payload.get("source_ref")
+    source_commit = payload.get("source_commit")
+    if (not isinstance(source_commit, str)
+            or not re.fullmatch(r"[0-9a-f]{40}", source_commit)
+            or not isinstance(source_ref, str)
+            or not (source_ref == f"refs/tags/v{__version__}"
+                    or source_ref.startswith("refs/heads/"))):
+        raise ValueError("invalid_shared_release_origin")
+    ref = payload.get("ref")
+    if ref != (f"v{__version__}" if source_ref.startswith("refs/tags/") else source_commit):
+        raise ValueError("invalid_shared_release_origin")
+    repo = payload.get("github_repo")
+    channel = payload.get("release_channel")
+    if (not isinstance(repo, str) or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo)
+            or not isinstance(ref, str) or not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+(?:(?:a|b|rc)[0-9]+)?|[0-9a-f]{40}", ref)
+            or channel not in {"release", "prerelease"}):
+        raise ValueError("invalid_shared_release_origin")
+    return payload
+
+
 def _release_context(*, home: Path | None = None) -> tuple[str, str]:
     """Resolve repository and channel from explicit environment or install receipt."""
-    state = _safe_install_state(home=home)
-    repo = os.environ.get("SECKIT_GITHUB_REPO", "").strip()
+    shared = _shared_release_state()
+    state = shared if shared is not None else _safe_install_state(home=home)
+    repo = "" if shared is not None else os.environ.get("SECKIT_GITHUB_REPO", "").strip()
     if not repo:
         recorded = state.get("github_repo")
         if isinstance(recorded, str) and recorded.strip():
@@ -80,7 +177,7 @@ def _release_context(*, home: Path | None = None) -> tuple[str, str]:
                 repo = match.group(1)
             else:
                 raise ValueError("unknown_install_repository")
-    channel = os.environ.get("SECKIT_RELEASE_CHANNEL", "").strip()
+    channel = "" if shared is not None else os.environ.get("SECKIT_RELEASE_CHANNEL", "").strip()
     if not channel:
         recorded_channel = state.get("release_channel")
         if recorded_channel in {"release", "prerelease"}:

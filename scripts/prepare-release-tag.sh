@@ -2,8 +2,8 @@
 # Derive release metadata from pyproject.toml and publish only after qualification.
 # --sync-metadata updates only current public-beta README installer links.
 # --push-branch triggers one branch CI run; --publish requires its exact SHA to
-# pass before pushing an immutable annotated tag. Installed qualification is a
-# separate maintainer gate between those two commands.
+# pass before pushing an immutable annotated tag. --publish also verifies the
+# exact branch artifact and retained installed-qualification evidence.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -12,9 +12,14 @@ cd "$ROOT"
 die() { printf 'prepare-release-tag: %s\n' "$*" >&2; exit 1; }
 
 mode="${1:---check}"
-[[ "$mode" == "--sync-metadata" || "$mode" == "--check" || "$mode" == "--create" || "$mode" == "--push-branch" || "$mode" == "--publish" ]] \
-  || die "usage: scripts/prepare-release-tag.sh [--sync-metadata|--check|--create|--push-branch|--publish]"
-[[ $# -le 1 ]] || die "usage: scripts/prepare-release-tag.sh [--sync-metadata|--check|--create|--push-branch|--publish]"
+[[ "$mode" == "--sync-metadata" || "$mode" == "--check" || "$mode" == "--push-branch" || "$mode" == "--publish" || "$mode" == "--verify-tag" ]] \
+  || die "usage: scripts/prepare-release-tag.sh [--sync-metadata|--check|--push-branch|--publish EVIDENCE.json|--verify-tag EVIDENCE.json]"
+[[ $# -le 2 ]] || die "usage: scripts/prepare-release-tag.sh [--sync-metadata|--check|--push-branch|--publish EVIDENCE.json|--verify-tag EVIDENCE.json]"
+if [[ "$mode" == "--publish" || "$mode" == "--verify-tag" ]]; then
+  [[ $# -eq 2 ]] || die "$mode requires an installed qualification evidence file"
+else
+  [[ $# -le 1 ]] || die "only --publish and --verify-tag accept an evidence file"
+fi
 
 version="$(python3 -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')" \
   || die "cannot read project.version from pyproject.toml"
@@ -83,21 +88,32 @@ fi
   || die "HEAD differs from origin/$channel; push and qualify the branch first"
 remote_tag="$(git ls-remote --refs --tags origin "refs/tags/$tag")" \
   || die "cannot verify remote tag $tag"
-[[ -z "$remote_tag" ]] \
-  || die "$tag already exists on origin"
+if [[ "$mode" == "--verify-tag" ]]; then
+  [[ -n "$remote_tag" ]] || die "$tag has not been published"
+else
+  [[ -z "$remote_tag" ]] || die "$tag already exists on origin"
+fi
 
 local_tag_exists=false
 if git show-ref --verify --quiet "refs/tags/$tag"; then
-  [[ "$mode" == "--publish" ]] || die "$tag already exists locally"
+  [[ "$mode" == "--publish" || "$mode" == "--verify-tag" ]] || die "$tag already exists locally"
   [[ "$(git rev-parse "refs/tags/$tag^{commit}")" == "$head_commit" ]] \
     || die "local $tag does not point at HEAD"
   [[ "$(git cat-file -t "refs/tags/$tag")" == "tag" ]] \
     || die "local $tag is not annotated"
   local_tag_exists=true
 fi
+if [[ "$mode" == "--verify-tag" ]]; then
+  [[ "$local_tag_exists" == true ]] || die "local annotated $tag is missing"
+  [[ "${remote_tag%%$'\t'*}" == "$(git rev-parse "refs/tags/$tag")" ]] \
+    || die "remote $tag differs from the local annotated tag"
+fi
 
 printf 'Verified %s at %s on origin/%s\n' "$tag" "$head_commit" "$channel"
 if [[ "$mode" == "--publish" ]]; then
+  python3 scripts/verify-release-qualification.py --evidence "$2" \
+    --version "$version" --channel "$channel" --repository "$repository" --commit "$head_commit" \
+    || die "exact-artifact installed qualification is missing or failed; do not publish"
   command -v gh >/dev/null 2>&1 || die "gh is required to verify exact-commit CI"
   command -v jq >/dev/null 2>&1 || die "jq is required to verify exact-commit CI"
   runs="$(gh run list --workflow ci.yml --branch "$channel" --commit "$head_commit" --json headSha,conclusion,event --limit 20)" \
@@ -109,7 +125,9 @@ if [[ "$mode" == "--publish" ]]; then
   fi
   git push origin "refs/tags/$tag"
   printf 'Published %s at %s; verify the tag-triggered release artifacts before handoff.\n' "$tag" "$head_commit"
-elif [[ "$mode" == "--create" ]]; then
-  git tag -a "$tag" -m "Secrets Kit $tag"
-  printf 'Created local tag %s; push it only after release approval.\n' "$tag"
+elif [[ "$mode" == "--verify-tag" ]]; then
+  python3 scripts/verify-release-qualification.py --phase tagged --evidence "$2" \
+    --version "$version" --channel "$channel" --repository "$repository" --commit "$head_commit" \
+    || die "tagged-asset qualification is missing or failed; do not hand off"
+  printf 'Qualified tagged assets for %s at %s; review the exact tester guide before handoff.\n' "$tag" "$head_commit"
 fi
