@@ -128,6 +128,34 @@ def complete_rss_enrollment() -> Path:
         raise RSSAuthenticationError("orphaned RSS Enrollment Token requires recovery")
 
     result = _post_json(url=f"{operator_url}/v1/provisioning/ret", value=request)
+    return configure_rss_provisioning_bundle(bundle=result, expected_operator_url=operator_url)
+
+
+def configure_rss_provisioning_bundle(
+    *, bundle: Mapping[str, object], expected_operator_url: str
+) -> Path:
+    """Accept a one-use RET on the destination user without copying an RSS key."""
+    operator_url = _https_base(value=expected_operator_url)
+    profile_path = rss_client_profile_path()
+    if _path_present(path=profile_path):
+        raise RSSAuthenticationError("RSS device is already configured; existing identity preserved")
+    state_path = rss_provisioning_state_path()
+    token_path = profile_path.with_name("rss-enrollment-token")
+    if _path_present(path=state_path) and _path_present(path=token_path):
+        state = _read_object(path=state_path)
+        entitlement_id, enrollment_url, relay_peers = _validate_public_state(
+            state, expected_operator_url=operator_url
+        )
+        if bundle.get("entitlement_id") != entitlement_id:
+            raise RSSAuthenticationError("pending RSS entitlement differs; existing state preserved")
+        return _configure_from_state(
+            token_path=token_path, entitlement_id=entitlement_id,
+            enrollment_url=enrollment_url, relay_peers=relay_peers,
+            state_path=state_path,
+        )
+    if _path_present(path=state_path) or _path_present(path=token_path):
+        raise RSSAuthenticationError("RSS provisioning is incomplete; existing state preserved")
+    result = bundle
     required = {
         "protocol",
         "entitlement_id",
@@ -357,6 +385,7 @@ def _path_present(*, path: Path) -> bool:
 __all__ = [
     "DEFAULT_RSS_OPERATOR_URL",
     "complete_rss_enrollment",
+    "configure_rss_provisioning_bundle",
     "rss_checkout_receipt_path",
     "rss_provisioning_state_path",
     "start_rss_checkout",

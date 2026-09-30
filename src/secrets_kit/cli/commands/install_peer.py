@@ -18,6 +18,11 @@ from pathlib import Path
 from typing import Any
 
 from secrets_kit.crypto.codecs import decode_b64url
+from secrets_kit.protocol.rss_admin import admin_action
+from secrets_kit.protocol.rss_auth import (
+    RSSAuthenticationError,
+    load_rss_relay_credentials_from_environment,
+)
 
 
 def _local_seckit_command(*, shared_launcher: Path | None) -> str:
@@ -190,6 +195,69 @@ def _status_command(*, host: str | None, shared_launcher: Path | None = None) ->
     if not isinstance(value, dict):
         raise ValueError("daemon status returned an invalid JSON object")
     return value
+
+
+def enroll_installed_rss_peer(*, host: str, shared_launcher: Path | None = None) -> None:
+    """Give one new SSH-installed peer its own RSS key and one-use enrollment token.
+
+    Existing remote RSS identity is preserved. The token travels only through
+    the authenticated SSH stdin channel, never a command argument or log.
+    """
+    local = load_rss_relay_credentials_from_environment()
+    if local is None:
+        return
+    if local.enrollment_token is not None:
+        raise ValueError("enroll this RSS device before adding another")
+    launcher = shlex.quote(str(shared_launcher)) if shared_launcher else '"$HOME/.local/bin/seckit"'
+    command = [
+        "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host,
+        f"{launcher} rss local-status",
+    ]
+    observed = subprocess.run(command, capture_output=True, text=True, check=False, timeout=30)
+    if observed.returncode:
+        raise ValueError("remote RSS status is unavailable; no token issued")
+    try:
+        state = json.loads(observed.stdout)
+    except json.JSONDecodeError as exc:
+        raise ValueError("remote RSS status is invalid; no token issued") from exc
+    if not isinstance(state, dict) or type(state.get("configured")) is not bool:
+        raise ValueError("remote RSS status is invalid; no token issued")
+    if state["configured"]:
+        if state.get("entitlement_id") != local.entitlement_id:
+            raise ValueError("remote RSS identity belongs to another entitlement; preserved")
+        if state.get("enrolled") is not True:
+            resumed = subprocess.run(
+                command[:-1] + [f"{launcher} rss enroll"],
+                capture_output=True, text=True, check=False, timeout=90,
+            )
+            if resumed.returncode:
+                raise ValueError("remote RSS enrollment remains pending; rerun after checking payment and connectivity")
+            print("Pending remote RSS enrollment resumed without replacing its identity.")
+            return
+        print("Existing remote RSS device preserved; no new enrollment token issued.")
+        return
+    try:
+        status, bundle = admin_action(action="device.ret", parameters={})
+        if status == 409 and bundle.get("reason") == "device_capacity_exhausted":
+            portal_status, portal = admin_action(action="billing.portal", parameters={})
+            link = portal.get("portal_url") if portal_status == 200 else None
+            capacity = bundle.get("capacity")
+            raise ValueError(
+                f"RSS device capacity is full ({capacity}); increase paid units at {link or 'the billing portal'} "
+                "and rerun the same seckit install command"
+            )
+        if status != 200 or bundle.get("protocol") != "rss_provisioning_bundle/v1":
+            raise ValueError("RSS device enrollment authorization was not confirmed")
+    except RSSAuthenticationError as exc:
+        raise ValueError(f"RSS billing-owner authorization failed: {exc}") from exc
+    enrolled = subprocess.run(
+        command[:-1] + [f"{launcher} rss enroll --bundle-stdin"],
+        input=json.dumps(bundle, sort_keys=True), text=True,
+        capture_output=True, check=False, timeout=90,
+    )
+    if enrolled.returncode:
+        raise ValueError("remote RSS enrollment did not complete; inspect the remote user's state")
+    print("Remote RSS device enrolled with a distinct key and connection ID.")
 
 
 def _wait_route_command(*, host: str | None, peer_id: str, shared_launcher: Path | None = None) -> None:

@@ -6,6 +6,7 @@ UNITTEST_FLAGS ?= -b
 
 TEST_FAST := \
 	tests.test_rss_auth \
+	tests.test_rss_admin \
 	tests.test_rss_provisioning \
 	tests.test_daemon_mdns \
 	tests.test_daemon_transport \

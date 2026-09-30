@@ -15,7 +15,13 @@ from unittest import mock
 
 import trio
 
-from secrets_kit.cli.commands.rss import cmd_rss_checkout, cmd_rss_configure, cmd_rss_enroll
+from secrets_kit.cli.commands.rss import (
+    _checkout_connection_units,
+    _suggested_connection_units,
+    cmd_rss_checkout,
+    cmd_rss_configure,
+    cmd_rss_enroll,
+)
 from secrets_kit.cli.parser import build_parser
 from secrets_kit.crypto.models import generate_signing_keypair
 from secrets_kit.crypto.persistence import signing_keypair_to_record
@@ -919,8 +925,57 @@ class RSSAuthenticationProtocolTest(unittest.TestCase):
         checkout = parser.parse_args(["rss", "checkout"])
         enroll = parser.parse_args(["rss", "enroll"])
         self.assertIs(checkout.func, cmd_rss_checkout)
-        self.assertEqual(checkout.connection_units, 2)
+        self.assertIsNone(checkout.connection_units)
         self.assertIs(enroll.func, cmd_rss_enroll)
+
+    def test_checkout_suggests_self_plus_distinct_eligible_peers(self) -> None:
+        peers = [
+            SimpleNamespace(node_id="node:a", synchronization_eligible=True),
+            SimpleNamespace(node_id="node:b", synchronization_eligible=False),
+            SimpleNamespace(node_id="node:c", synchronization_eligible=True),
+        ]
+        with mock.patch(
+            "secrets_kit.cli.commands.rss.list_peer_admissions", return_value=peers
+        ):
+            self.assertEqual(_suggested_connection_units(), 3)
+
+    def test_checkout_quantity_preserves_noninteractive_default_and_explicit_value(self) -> None:
+        self.assertEqual(_checkout_connection_units(requested=None, interactive=False), 2)
+        self.assertEqual(_checkout_connection_units(requested=7, interactive=False), 7)
+        with self.assertRaisesRegex(ValueError, "at least two"):
+            _checkout_connection_units(requested=1, interactive=False)
+
+    def test_checkout_quantity_shows_suggestion_and_allows_override(self) -> None:
+        with mock.patch(
+            "secrets_kit.cli.commands.rss._suggested_connection_units", return_value=4
+        ), mock.patch("builtins.input", return_value="6") as prompt:
+            self.assertEqual(_checkout_connection_units(requested=None, interactive=True), 6)
+        prompt.assert_called_once_with("RSS connection units [4]: ")
+
+        with mock.patch(
+            "secrets_kit.cli.commands.rss._suggested_connection_units", return_value=4
+        ), mock.patch("builtins.input", return_value=""):
+            self.assertEqual(_checkout_connection_units(requested=None, interactive=True), 4)
+
+    def test_checkout_command_uses_noninteractive_default_without_prompting(self) -> None:
+        args = SimpleNamespace(connection_units=None, operator_url="https://ops.example.test")
+        with (
+            mock.patch("secrets_kit.cli.commands.rss.sys.stdin.isatty", return_value=False),
+            mock.patch("builtins.input") as prompt,
+            mock.patch("secrets_kit.cli.commands.rss.getpass.getpass") as invitation,
+            mock.patch(
+                "secrets_kit.cli.commands.rss.start_rss_checkout",
+                return_value=("https://checkout.stripe.com/c/pay/test", Path("/tmp/receipt")),
+            ) as checkout,
+        ):
+            self.assertEqual(cmd_rss_checkout(args=args), 0)
+        checkout.assert_called_once_with(
+            connection_units=2,
+            operator_url="https://ops.example.test",
+            invite_code=None,
+        )
+        prompt.assert_not_called()
+        invitation.assert_not_called()
 
     def test_enrollment_establishes_managed_daemon_service(self) -> None:
         with (

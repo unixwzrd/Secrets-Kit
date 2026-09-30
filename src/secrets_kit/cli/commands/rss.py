@@ -14,20 +14,32 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from secrets_kit.backends.sqlite.exceptions import SQLiteBackendError
+from secrets_kit.backends.sqlite.peer_admission import list_peer_admissions
 from secrets_kit.cli.io import _fatal
 from secrets_kit.cli.update_check import _safe_install_state
 from secrets_kit.daemon.client import DaemonError, request_daemon_status
 from secrets_kit.daemon.service import DaemonServiceError, install_service
 from secrets_kit.locale import msg
+from secrets_kit.protocol.rss_admin import (
+    admin_action,
+    claim_customer_admin,
+    customer_admin_account_id,
+    finish_customer_admin_claim,
+    pending_customer_admin_codes,
+    recover_customer_admin,
+)
 from secrets_kit.protocol.rss_auth import (
     RSSAuthenticationError,
     configure_rss_client,
     export_rss_authentication_identity,
     import_rss_authentication_identity,
+    load_rss_relay_credentials_from_environment,
 )
 from secrets_kit.protocol.rss_provisioning import (
     DEFAULT_RSS_OPERATOR_URL,
     complete_rss_enrollment,
+    configure_rss_provisioning_bundle,
     start_rss_checkout,
 )
 
@@ -104,16 +116,60 @@ def _report_configuration(*, profile: Path, wait_seconds: float = 12.0) -> int:
     return 0
 
 
+def _suggested_connection_units() -> int:
+    """Suggest capacity for this node and its authorized synchronization peers.
+
+    Checkout remains usable before initialization or when the local store is
+    unavailable. In either case the established two-connection minimum is the
+    conservative suggestion.
+    """
+    try:
+        peer_ids = {
+            peer.node_id
+            for peer in list_peer_admissions()
+            if peer.synchronization_eligible
+        }
+    except (OSError, SQLiteBackendError):
+        return 2
+    return max(2, 1 + len(peer_ids))
+
+
+def _checkout_connection_units(*, requested: int | None, interactive: bool) -> int:
+    """Resolve an explicit quantity or an interactive, visible suggestion."""
+    if requested is not None:
+        units = requested
+    elif not interactive:
+        # Preserve the existing script/non-interactive default.
+        units = 2
+    else:
+        suggestion = _suggested_connection_units()
+        answer = input(f"RSS connection units [{suggestion}]: ").strip()
+        if not answer:
+            units = suggestion
+        elif not answer.isascii() or not answer.isdecimal():
+            raise ValueError("RSS connection units must be an integer of at least two")
+        else:
+            units = int(answer)
+    if type(units) is not int or units < 2:
+        raise ValueError("RSS connection units must be an integer of at least two")
+    return units
+
+
 def cmd_rss_checkout(*, args: argparse.Namespace) -> int:
     """Start Stripe Checkout; read an optional beta invitation without echoing it."""
     try:
         invite_code = None
-        if sys.stdin.isatty():
+        interactive = sys.stdin.isatty()
+        connection_units = _checkout_connection_units(
+            requested=args.connection_units,
+            interactive=interactive,
+        )
+        if interactive:
             invite_code = getpass.getpass(
                 "Beta invitation code (press Enter if none): "
             ).strip() or None
         checkout_url, receipt = start_rss_checkout(
-            connection_units=args.connection_units,
+            connection_units=connection_units,
             operator_url=args.operator_url or _installed_operator_url(),
             invite_code=invite_code,
         )
@@ -125,10 +181,20 @@ def cmd_rss_checkout(*, args: argparse.Namespace) -> int:
 
 def cmd_rss_enroll(*, args: argparse.Namespace) -> int:
     """Turn the verified paid Checkout receipt into local RSS configuration."""
-    _ = args
     try:
-        profile = complete_rss_enrollment()
-    except (OSError, RSSAuthenticationError) as exc:
+        if getattr(args, "bundle_stdin", False):
+            raw = sys.stdin.buffer.read(16 * 1024 + 1)
+            if len(raw) > 16 * 1024:
+                raise RSSAuthenticationError("RSS enrollment bundle is too large")
+            bundle = json.loads(raw.decode("utf-8"))
+            if not isinstance(bundle, dict):
+                raise RSSAuthenticationError("RSS enrollment bundle is invalid")
+            profile = configure_rss_provisioning_bundle(
+                bundle=bundle, expected_operator_url=_installed_operator_url()
+            )
+        else:
+            profile = complete_rss_enrollment()
+    except (OSError, UnicodeError, json.JSONDecodeError, RSSAuthenticationError) as exc:
         return _fatal(message=str(exc), code=1)
     try:
         install_service(reload_runtime=True)
@@ -141,6 +207,119 @@ def cmd_rss_enroll(*, args: argparse.Namespace) -> int:
             code=1,
         )
     return _report_configuration(profile=profile)
+
+
+def cmd_rss_local_status(*, args: argparse.Namespace) -> int:
+    """Expose only non-secret local RSS identity for SSH install decisions."""
+    _ = args
+    try:
+        credentials = load_rss_relay_credentials_from_environment()
+    except (OSError, RSSAuthenticationError) as exc:
+        return _fatal(message=str(exc), code=1)
+    result: dict[str, object] = {"configured": credentials is not None}
+    if credentials is not None:
+        result.update({
+            "entitlement_id": credentials.entitlement_id,
+            "connection_id": credentials.connection_id,
+            "enrolled": credentials.enrollment_token is None,
+        })
+    print(json.dumps(result, sort_keys=True))
+    return 0
+
+
+def _show_recovery_codes(codes: tuple[str, ...]) -> int:
+    """Require an interactive offline-code acknowledgement before local cleanup."""
+    print(f"Save this RSS account ID and owner recovery codes offline: {customer_admin_account_id()}")
+    print("Each code works once:")
+    for code in codes:
+        print(code)
+    answer = input("I saved the recovery codes offline [y/N]: ").strip().lower()
+    if answer not in {"y", "yes"}:
+        print("Recovery codes remain in the owner-only pending file until you confirm.")
+        return 1
+    finish_customer_admin_claim()
+    print("RSS owner authority is ready.")
+    return 0
+
+
+def cmd_rss_owner_claim(*, args: argparse.Namespace) -> int:
+    """Bind paid Checkout to a separate owner key on its enrolled first peer."""
+    _ = args
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        return _fatal(message="RSS owner setup requires an interactive terminal", code=1)
+    try:
+        codes = pending_customer_admin_codes() or claim_customer_admin()
+        return _show_recovery_codes(codes)
+    except (OSError, ValueError, RSSAuthenticationError) as exc:
+        return _fatal(message=str(exc), code=1)
+
+
+def cmd_rss_owner_recover(*, args: argparse.Namespace) -> int:
+    """Rotate owner authority using one offline one-time code."""
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        return _fatal(message="RSS owner recovery requires an interactive terminal", code=1)
+    try:
+        codes = pending_customer_admin_codes()
+        if codes is None:
+            code = getpass.getpass("One-time RSS owner recovery code: ").strip()
+            codes = recover_customer_admin(
+                account_id=args.account_id,
+                operator_url=args.operator_url or _installed_operator_url(),
+                code=code,
+            )
+        return _show_recovery_codes(codes)
+    except (OSError, ValueError, RSSAuthenticationError) as exc:
+        return _fatal(message=str(exc), code=1)
+
+
+def cmd_rss_devices_list(*, args: argparse.Namespace) -> int:
+    """List only devices belonging to this owner's paid account."""
+    _ = args
+    try:
+        status, result = admin_action(action="devices.list", parameters={})
+        if status != 200:
+            raise RSSAuthenticationError("RSS device list was not confirmed")
+    except (OSError, ValueError, RSSAuthenticationError) as exc:
+        return _fatal(message=str(exc), code=1)
+    print(json.dumps(result, sort_keys=True))
+    return 0
+
+
+def cmd_rss_devices_revoke(*, args: argparse.Namespace) -> int:
+    """Permanently revoke one selected device, not the subscription quantity."""
+    if not sys.stdin.isatty():
+        return _fatal(message="RSS device revocation requires an interactive terminal", code=1)
+    answer = input(
+        f"Permanently revoke RSS device {args.connection_id} and free its slot? "
+        "The old credential cannot be restored. [y/N] "
+    ).strip().lower()
+    if answer not in {"y", "yes"}:
+        return _fatal(message="RSS device revocation cancelled", code=1)
+    try:
+        status, result = admin_action(
+            action="devices.revoke",
+            parameters={"connection_id": args.connection_id, "confirm": True},
+        )
+        if status != 200:
+            raise RSSAuthenticationError("RSS device revocation was not confirmed")
+    except (OSError, ValueError, RSSAuthenticationError) as exc:
+        return _fatal(message=str(exc), code=1)
+    print(json.dumps(result, sort_keys=True))
+    return 0
+
+
+def cmd_rss_billing_portal(*, args: argparse.Namespace) -> int:
+    """Open a Stripe-hosted billing session for the signed account owner."""
+    _ = args
+    try:
+        status, result = admin_action(action="billing.portal", parameters={})
+        url = result.get("portal_url")
+        if status != 200 or not isinstance(url, str) or not url.startswith("https://billing.stripe.com/"):
+            raise RSSAuthenticationError("Stripe billing portal is unavailable")
+    except (OSError, ValueError, RSSAuthenticationError) as exc:
+        return _fatal(message=str(exc), code=1)
+    print(json.dumps({"portal_url": url}, sort_keys=True))
+    return 0
 
 
 def cmd_rss_configure(*, args: argparse.Namespace) -> int:

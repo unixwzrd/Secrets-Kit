@@ -27,7 +27,11 @@ import urllib.request
 from pathlib import Path
 
 from secrets_kit import __version__
-from secrets_kit.cli.commands.install_peer import pair_installed_peer, verify_authorized_route
+from secrets_kit.cli.commands.install_peer import (
+    enroll_installed_rss_peer,
+    pair_installed_peer,
+    verify_authorized_route,
+)
 from secrets_kit.cli.install_check import run_install_check
 from secrets_kit.cli.update_check import (
     MAX_INSTALLER_BYTES,
@@ -489,6 +493,7 @@ def cmd_install(*, args: argparse.Namespace) -> int:
         if shared_launcher is not None:
             try:
                 pair_installed_peer(host=remote_host, shared_launcher=shared_launcher)
+                enroll_installed_rss_peer(host=remote_host, shared_launcher=shared_launcher)
                 verify_authorized_route(host=remote_host, shared_launcher=shared_launcher)
             except (OSError, ValueError, subprocess.SubprocessError, EOFError) as exc:
                 print(f"seckit install: shared-host peer setup incomplete: {exc}", file=sys.stderr)
@@ -497,6 +502,7 @@ def cmd_install(*, args: argparse.Namespace) -> int:
         if pair_after_install and _matching_remote_receipt(host=remote_host, args=args):
             try:
                 pair_installed_peer(host=remote_host)
+                enroll_installed_rss_peer(host=remote_host)
                 verify_authorized_route(host=remote_host)
             except (OSError, ValueError, subprocess.SubprocessError, EOFError) as exc:
                 print(f"seckit install: existing remote release found, peer setup incomplete: {exc}", file=sys.stderr)
@@ -526,6 +532,7 @@ def cmd_install(*, args: argparse.Namespace) -> int:
                 return completed.returncode
             try:
                 pair_installed_peer(host=remote_host)
+                enroll_installed_rss_peer(host=remote_host)
                 verify_authorized_route(host=remote_host)
             except (OSError, ValueError, subprocess.SubprocessError, EOFError) as exc:
                 print(f"seckit install: remote software installed, peer setup incomplete: {exc}", file=sys.stderr)

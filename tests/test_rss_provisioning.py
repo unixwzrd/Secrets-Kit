@@ -14,6 +14,7 @@ from secrets_kit.protocol.rss_auth import RSSAuthenticationError
 from secrets_kit.protocol.rss_provisioning import (
     _valid_peer,
     complete_rss_enrollment,
+    configure_rss_provisioning_bundle,
     start_rss_checkout,
 )
 
@@ -54,6 +55,47 @@ class RSSProvisioningTest(unittest.TestCase):
         for patcher in reversed(self.paths):
             patcher.stop()
         self.temp.cleanup()
+
+    def test_ssh_bundle_configures_distinct_device_without_checkout_receipt(self) -> None:
+        bundle = {
+            "protocol": "rss_provisioning_bundle/v1", "entitlement_id": "ent_test",
+            "rss_enrollment_token": "ret1.one-use-token",
+            "enrollment_url": "https://qa.example.test",
+            "relay_peers": [
+                "/dns4/east.example.test/tcp/14001/p2p/east",
+                "/dns4/west.example.test/tcp/14001/p2p/west",
+            ],
+        }
+        with mock.patch(
+            "secrets_kit.protocol.rss_provisioning.configure_rss_client",
+            return_value=self.profile,
+        ) as configure:
+            result = configure_rss_provisioning_bundle(
+                bundle=bundle, expected_operator_url="https://qa.example.test"
+            )
+        self.assertEqual(result, self.profile)
+        self.assertFalse(self.profile.with_name("rss-provisioning.json").exists())
+        self.assertFalse(self.profile.with_name("rss-checkout.json").exists())
+        self.assertEqual(configure.call_args.kwargs["entitlement_id"], "ent_test")
+        self.assertEqual(
+            self.profile.with_name("rss-enrollment-token").read_text(), "ret1.one-use-token"
+        )
+
+    def test_ssh_bundle_rejects_cross_environment_origin(self) -> None:
+        with self.assertRaises(RSSAuthenticationError):
+            configure_rss_provisioning_bundle(
+                bundle={
+                    "protocol": "rss_provisioning_bundle/v1", "entitlement_id": "ent_test",
+                    "rss_enrollment_token": "ret1.one-use-token",
+                    "enrollment_url": "https://dev.example.test",
+                    "relay_peers": [
+                        "/dns4/east.example.test/tcp/14001/p2p/east",
+                        "/dns4/west.example.test/tcp/14001/p2p/west",
+                    ],
+                },
+                expected_operator_url="https://qa.example.test",
+            )
+        self.assertFalse(self.profile.with_name("rss-enrollment-token").exists())
 
     def test_shared_qa_runtime_uses_embedded_operator_origin(self) -> None:
         runtime = self.root / "runtime"

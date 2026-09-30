@@ -13,6 +13,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from secrets_kit.cli import build_parser
@@ -34,6 +35,7 @@ from secrets_kit.cli.commands.install_peer import (
     _peer_command,
     _status_command,
     _wait_route_command,
+    enroll_installed_rss_peer,
     pair_installed_peer,
     verify_authorized_route,
 )
@@ -45,6 +47,51 @@ class CliInstallTest(unittest.TestCase):
                                      return_value=("example/installed", "prerelease")))
         self.enterContext(mock.patch("secrets_kit.cli.commands.install_cmd._safe_install_state",
                                      return_value={"ref": "v2.0.1a22"}))
+
+    def test_rss_add_device_sends_ret_only_on_ssh_stdin(self) -> None:
+        bundle = {
+            "protocol": "rss_provisioning_bundle/v1", "entitlement_id": "ent_test",
+            "rss_enrollment_token": "ret1.private-test-token",
+            "enrollment_url": "https://qa.example.test", "relay_peers": ["east", "west"],
+        }
+        responses = [
+            subprocess.CompletedProcess([], 0, '{"configured": false}', ""),
+            subprocess.CompletedProcess([], 0, '{"configured": true}', ""),
+        ]
+        with mock.patch(
+            "secrets_kit.cli.commands.install_peer.load_rss_relay_credentials_from_environment",
+            return_value=SimpleNamespace(entitlement_id="ent_test", enrollment_token=None),
+        ), mock.patch(
+            "secrets_kit.cli.commands.install_peer.admin_action", return_value=(200, bundle)
+        ) as action, mock.patch(
+            "secrets_kit.cli.commands.install_peer.subprocess.run", side_effect=responses
+        ) as run:
+            enroll_installed_rss_peer(host="alice@peer.example")
+        action.assert_called_once_with(action="device.ret", parameters={})
+        argv = run.call_args_list[1].args[0]
+        self.assertNotIn("ret1.private-test-token", " ".join(argv))
+        self.assertIn("ret1.private-test-token", run.call_args_list[1].kwargs["input"])
+        self.assertIn("--bundle-stdin", argv[-1])
+
+    def test_rss_full_capacity_does_not_contact_remote_with_token(self) -> None:
+        responses = [subprocess.CompletedProcess([], 0, '{"configured": false}', "")]
+        with mock.patch(
+            "secrets_kit.cli.commands.install_peer.load_rss_relay_credentials_from_environment",
+            return_value=SimpleNamespace(entitlement_id="ent_test", enrollment_token=None),
+        ), mock.patch(
+            "secrets_kit.cli.commands.install_peer.admin_action",
+            side_effect=[
+                (409, {"reason": "device_capacity_exhausted", "capacity": {
+                    "purchased_units": 2, "provisioned_units": 2, "available_units": 0,
+                }}),
+                (200, {"portal_url": "https://billing.stripe.com/test"}),
+            ],
+        ), mock.patch(
+            "secrets_kit.cli.commands.install_peer.subprocess.run", side_effect=responses
+        ) as run:
+            with self.assertRaisesRegex(ValueError, "increase paid units"):
+                enroll_installed_rss_peer(host="alice@peer.example")
+        self.assertEqual(run.call_count, 1)
 
     def test_shared_generation_ref_overrides_stale_user_receipt(self) -> None:
         with mock.patch(
@@ -927,12 +974,14 @@ UPGRADE=1
                            return_value=subprocess.CompletedProcess([], 0, json.dumps(receipt), "")) as run, \
                 mock.patch("secrets_kit.cli.commands.install_cmd._verified_remote_installer") as fetch, \
                 mock.patch("secrets_kit.cli.commands.install_cmd.pair_installed_peer") as pair, \
+                mock.patch("secrets_kit.cli.commands.install_cmd.enroll_installed_rss_peer") as rss_enroll, \
                 mock.patch("secrets_kit.cli.commands.install_cmd.verify_authorized_route") as route:
             self.assertEqual(cmd_install(args=args), 0)
         self.assertEqual(run.call_count, 1)
         self.assertIn("--receipt-json", run.call_args.args[0][-1])
         fetch.assert_not_called()
         pair.assert_called_once_with(host="alice@peer.example")
+        rss_enroll.assert_called_once_with(host="alice@peer.example")
         route.assert_called_once_with(host="alice@peer.example")
 
     def test_nonmatching_remote_receipt_does_not_skip_installer(self) -> None:

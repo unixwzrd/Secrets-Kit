@@ -127,13 +127,18 @@ The policy pins one backend, service, account, metadata-name allowlist, and expl
 
 | Command | Purpose |
 |---|---|
-| `rss checkout [--connection-units N]` | Start Checkout and retain the opaque recovery receipt locally. The beta minimum is two units. |
+| `rss checkout [--connection-units N]` | Start Checkout with a visible peer-count suggestion in an interactive terminal, or an explicit valid quantity. The beta minimum is two units. |
 | `rss enroll` | Exchange the verified paid Checkout receipt for a protected RET and configure the provisioned entitlement and ordered RSS endpoints without customer-constructed identifiers. |
+| `rss owner claim` | Claim account-owner authority after paid first-device enrollment and save one-time offline recovery codes. |
+| `rss owner recover --account-id ID [--operator-url HTTPS_URL]` | Rotate the owner key on a replacement machine with one saved recovery code. |
+| `rss billing portal` | Obtain a Stripe-hosted portal link for changing the existing subscription quantity. |
+| `rss devices list` | List this paid account's devices and capacity. |
+| `rss devices revoke CONNECTION_ID` | Confirm permanent revocation of one device; paid quantity remains unchanged. |
 | `rss configure --entitlement-id ID --enrollment-url HTTPS_URL --relay-peer MULTIADDR [...]` | Lower-level operator-assisted recovery command; not the normal beta enrollment path. |
-| `rss identity export --output PATH` | Create a versioned protected `0600` identity-and-configuration transfer for a second clean peer. |
-| `rss identity import --input PATH` | Import that transfer, configure the endpoint set, and generate a distinct local connection ID. |
+| `rss identity export --output PATH` | Compatibility/recovery transfer; not the ordinary additional-device workflow. |
+| `rss identity import --input PATH` | Compatibility/recovery import; not the ordinary additional-device workflow. |
 
-See [RSS_CUSTOMER_GUIDE.md](RSS_CUSTOMER_GUIDE.md) for the supported two-peer enrollment workflow. RET values are file inputs and never command-line values.
+Use `seckit install user@host` from the enrolled owner machine for a new peer and its distinct RSS device. See [RSS_CUSTOMER_GUIDE.md](RSS_CUSTOMER_GUIDE.md). RET values are file/SSH-stdin inputs and never command-line values.
 
 ## File layout (reminder)
 
