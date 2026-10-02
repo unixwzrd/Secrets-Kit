@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from secrets_kit.crypto.codecs import decode_b64url
+from secrets_kit.crypto.models import key_id_for_public_key
 from secrets_kit.protocol.rss_admin import admin_action
 from secrets_kit.protocol.rss_auth import (
     RSSAuthenticationError,
@@ -107,10 +108,23 @@ def _identity_summary(value: dict[str, Any]) -> tuple[str, str, str]:
     )
 
 
-def _confirm_scope(*, host: str, local: tuple[str, str, str], remote: tuple[str, str, str]) -> tuple[str, str]:
-    print(f"Local node:  {local[0]}  signing fingerprint: {local[1]}")
-    print(f"Remote node: {remote[0]}  signing fingerprint: {remote[1]}")
-    print(f"Remote encryption fingerprint: {remote[2]}")
+def _confirm_scope(
+    *, host: str, local: tuple[str, str, str], remote: tuple[str, str, str],
+    local_identity: dict[str, Any], remote_identity: dict[str, Any],
+) -> tuple[str, str]:
+    """Display the same public-key fingerprints as ``seckit info`` before consent."""
+    local_signing = key_id_for_public_key(
+        algorithm="ed25519", public_key=decode_b64url(local_identity["signing_public_key"]),
+    )
+    remote_signing = key_id_for_public_key(
+        algorithm="ed25519", public_key=decode_b64url(remote_identity["signing_public_key"]),
+    )
+    remote_encryption = key_id_for_public_key(
+        algorithm="x25519", public_key=decode_b64url(remote_identity["encryption_public_key"]),
+    )
+    print(f"Local node:  {local[0]}  signing fingerprint: {local_signing}")
+    print(f"Remote node: {remote[0]}  signing fingerprint: {remote_signing}")
+    print(f"Remote encryption fingerprint: {remote_encryption}")
     print(f"SSH destination: {host}")
     service = input("Service to share: ").strip()
     account = input("Account to share: ").strip()
@@ -152,7 +166,10 @@ def pair_installed_peer(*, host: str, shared_launcher: Path | None = None) -> No
                 raise ValueError("existing peer identity differs from SSH endpoint; no re-pair attempted")
         print("Existing mutual peer authorization preserved; no re-pair attempted.")
         return
-    service, account = _confirm_scope(host=host, local=local_summary, remote=remote_summary)
+    service, account = _confirm_scope(
+        host=host, local=local_summary, remote=remote_summary,
+        local_identity=local_identity, remote_identity=remote_identity,
+    )
 
     request_args = ["request", "--backend", "sqlite", "--json"]
     local_request = _call_peer(host=None, parts=request_args, shared_launcher=shared_launcher)
@@ -226,16 +243,18 @@ def enroll_installed_rss_peer(*, host: str, shared_launcher: Path | None = None)
         if state.get("entitlement_id") != local.entitlement_id:
             raise ValueError("remote RSS identity belongs to another entitlement; preserved")
         if state.get("enrolled") is not True:
-            resumed = subprocess.run(
-                command[:-1] + [f"{launcher} rss enroll"],
-                capture_output=True, text=True, check=False, timeout=90,
-            )
-            if resumed.returncode:
-                raise ValueError("remote RSS enrollment remains pending; rerun after checking payment and connectivity")
-            print("Pending remote RSS enrollment resumed without replacing its identity.")
+            if state.get("enrollment_token_expired") is not True:
+                resumed = subprocess.run(
+                    command[:-1] + [f"{launcher} rss enroll"],
+                    capture_output=True, text=True, check=False, timeout=90,
+                )
+                if resumed.returncode:
+                    raise ValueError("remote RSS enrollment remains pending; rerun after checking payment and connectivity")
+                print("Pending remote RSS enrollment resumed without replacing its identity.")
+                return
+        if state.get("enrolled") is True:
+            print("Existing remote RSS device preserved; no new enrollment token issued.")
             return
-        print("Existing remote RSS device preserved; no new enrollment token issued.")
-        return
     try:
         status, bundle = admin_action(action="device.ret", parameters={})
         if status == 409 and bundle.get("reason") == "device_capacity_exhausted":

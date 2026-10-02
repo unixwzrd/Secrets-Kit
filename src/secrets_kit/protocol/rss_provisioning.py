@@ -10,10 +10,14 @@ values.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import os
+import secrets
 import ssl
 import stat
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -22,6 +26,7 @@ from urllib.parse import urlsplit
 
 from secrets_kit.protocol.rss_auth import (
     RSSAuthenticationError,
+    _read_restricted_file,
     configure_rss_client,
     rss_client_profile_path,
     store_rss_enrollment_token_file,
@@ -88,7 +93,8 @@ def complete_rss_enrollment() -> Path:
         profile = _read_object(path=profile_path)
         if profile.get("version") != 1:
             raise RSSAuthenticationError("RSS client profile version is invalid")
-        return profile_path
+        if not _pending_token_expired(profile=profile, profile_path=profile_path):
+            return profile_path
     receipt_path = rss_checkout_receipt_path()
     receipt = _read_object(path=receipt_path)
     if (
@@ -109,7 +115,7 @@ def complete_rss_enrollment() -> Path:
     }
     state_path = rss_provisioning_state_path()
     token_path = profile_path.with_name("rss-enrollment-token")
-    if _path_present(path=state_path):
+    if not _path_present(path=profile_path) and _path_present(path=state_path):
         state = _read_object(path=state_path)
         entitlement_id, enrollment_url, relay_peers = _validate_public_state(
             state, expected_operator_url=operator_url
@@ -124,7 +130,7 @@ def complete_rss_enrollment() -> Path:
                 relay_peers=relay_peers,
                 state_path=state_path,
             )
-    if _path_present(path=token_path):
+    if not _path_present(path=profile_path) and _path_present(path=token_path):
         raise RSSAuthenticationError("orphaned RSS Enrollment Token requires recovery")
 
     result = _post_json(url=f"{operator_url}/v1/provisioning/ret", value=request)
@@ -137,11 +143,14 @@ def configure_rss_provisioning_bundle(
     """Accept a one-use RET on the destination user without copying an RSS key."""
     operator_url = _https_base(value=expected_operator_url)
     profile_path = rss_client_profile_path()
-    if _path_present(path=profile_path):
+    existing_profile = _read_object(path=profile_path) if _path_present(path=profile_path) else None
+    if existing_profile is not None and not _pending_token_expired(
+        profile=existing_profile, profile_path=profile_path
+    ):
         raise RSSAuthenticationError("RSS device is already configured; existing identity preserved")
     state_path = rss_provisioning_state_path()
     token_path = profile_path.with_name("rss-enrollment-token")
-    if _path_present(path=state_path) and _path_present(path=token_path):
+    if existing_profile is None and _path_present(path=state_path) and _path_present(path=token_path):
         state = _read_object(path=state_path)
         entitlement_id, enrollment_url, relay_peers = _validate_public_state(
             state, expected_operator_url=operator_url
@@ -153,7 +162,7 @@ def configure_rss_provisioning_bundle(
             enrollment_url=enrollment_url, relay_peers=relay_peers,
             state_path=state_path,
         )
-    if _path_present(path=state_path) or _path_present(path=token_path):
+    if existing_profile is None and (_path_present(path=state_path) or _path_present(path=token_path)):
         raise RSSAuthenticationError("RSS provisioning is incomplete; existing state preserved")
     result = bundle
     required = {
@@ -181,6 +190,19 @@ def configure_rss_provisioning_bundle(
         or any(not _valid_peer(value=value) for value in relay_peers)
     ):
         raise RSSAuthenticationError("RSS relay endpoint set is invalid")
+
+    if existing_profile is not None:
+        if (
+            existing_profile.get("entitlement_id") != entitlement_id
+            or existing_profile.get("enrollment_url") != enrollment_url
+            or existing_profile.get("relay_peers") != relay_peers
+            or existing_profile.get("enrollment_primary") != relay_peers[0]
+        ):
+            raise RSSAuthenticationError("renewed RSS authority differs; existing identity preserved")
+        if _ret_expires_at(token=token) <= int(time.time()):
+            raise RSSAuthenticationError("renewed RSS Enrollment Token is expired")
+        _replace_expired_token(path=token_path, token=token)
+        return profile_path
 
     public_state = {
         "protocol": RSS_PROVISIONING_BUNDLE_PROTOCOL,
@@ -220,6 +242,63 @@ def _configure_from_state(
     )
     state_path.unlink()
     return profile
+
+
+def _pending_token_expired(*, profile: Mapping[str, object], profile_path: Path) -> bool:
+    """Inspect expiry only; Ops and the relay remain the RET authorities."""
+    token_path = profile_path.with_name("rss-enrollment-token")
+    configured = profile.get("enrollment_token_file")
+    if not configured:
+        return False
+    if configured != str(token_path):
+        raise RSSAuthenticationError("RSS enrollment token path is invalid")
+    try:
+        token = _read_restricted_file(token_path).decode("ascii")
+    except (OSError, UnicodeError) as exc:
+        raise RSSAuthenticationError("pending RSS Enrollment Token is unavailable") from exc
+    return rss_enrollment_token_expired(token=token)
+
+
+def rss_enrollment_token_expired(*, token: str) -> bool:
+    """Report local RET expiry only; never treat decoded claims as authority."""
+    return _ret_expires_at(token=token) <= int(time.time())
+
+
+def _ret_expires_at(*, token: str) -> int:
+    """Read a bounded RET expiry for retry scheduling, never for authorization."""
+    parts = token.split(".")
+    if len(token) > 8192 or len(parts) != 3 or parts[0] != "ret1":
+        raise RSSAuthenticationError("RSS Enrollment Token format is invalid")
+    try:
+        payload = base64.b64decode(parts[1] + "=" * (-len(parts[1]) % 4), altchars=b"-_", validate=True)
+        claims = json.loads(payload)
+    except (binascii.Error, UnicodeError, ValueError) as exc:
+        raise RSSAuthenticationError("RSS Enrollment Token format is invalid") from exc
+    if not isinstance(claims, dict):
+        raise RSSAuthenticationError("RSS Enrollment Token claims are invalid")
+    expiry = claims.get("expires_at")
+    if claims.get("protocol") != "rss_enrollment_token/v1" or type(expiry) is not int:
+        raise RSSAuthenticationError("RSS Enrollment Token claims are invalid")
+    return expiry
+
+
+def _replace_expired_token(*, path: Path, token: str) -> None:
+    """Atomically replace an owner-only pending RET without touching device identity."""
+    _read_restricted_file(path)
+    temporary = path.with_name(f".{path.name}.{secrets.token_hex(8)}.tmp")
+    descriptor = os.open(
+        temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0), 0o600
+    )
+    try:
+        with os.fdopen(descriptor, "wb", closefd=False) as handle:
+            handle.write(token.encode("ascii"))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        os.close(descriptor)
+        if temporary.exists():
+            temporary.unlink()
 
 
 def _validate_public_state(
@@ -388,5 +467,6 @@ __all__ = [
     "configure_rss_provisioning_bundle",
     "rss_checkout_receipt_path",
     "rss_provisioning_state_path",
+    "rss_enrollment_token_expired",
     "start_rss_checkout",
 ]

@@ -473,11 +473,13 @@ def cached_update_available(*, home: Path | None = None) -> str | None:
     if not isinstance(latest, str):
         return None
     try:
-        current_stage = _version_stage(f"v{__version__}")
+        current = f"v{__version__}"
+        current_stage = _version_stage(current)
         latest_stage = _version_stage(latest)
+        newer = _version_key(latest) > _version_key(current)
     except ValueError:
         return None
-    return latest if latest_stage == current_stage else None
+    return latest if latest_stage == current_stage and newer else None
 
 
 __all__ = [

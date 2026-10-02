@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import contextlib
 import io
 import json
 import tempfile
@@ -9,7 +11,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from secrets_kit.cli.commands.rss import _installed_operator_url
+from secrets_kit.cli.commands.rss import _installed_operator_url, cmd_rss_local_status
 from secrets_kit.protocol.rss_auth import RSSAuthenticationError
 from secrets_kit.protocol.rss_provisioning import (
     _valid_peer,
@@ -34,6 +36,32 @@ class Response:
 
 
 class RSSProvisioningTest(unittest.TestCase):
+    @staticmethod
+    def token(*, expires_at: int) -> str:
+        claims = {"protocol": "rss_enrollment_token/v1", "expires_at": expires_at}
+        payload = base64.urlsafe_b64encode(json.dumps(claims).encode()).rstrip(b"=").decode()
+        return f"ret1.{payload}.signature"
+
+    def pending_profile(self, *, expires_at: int) -> tuple[Path, Path, dict[str, object]]:
+        self.profile.parent.mkdir(mode=0o700, parents=True)
+        token_path = self.profile.with_name("rss-enrollment-token")
+        token_path.write_text(self.token(expires_at=expires_at), encoding="ascii")
+        token_path.chmod(0o600)
+        key_path = self.profile.with_name("rss-auth-key.json")
+        key_path.write_text("synthetic-key", encoding="ascii")
+        key_path.chmod(0o600)
+        profile: dict[str, object] = {
+            "version": 1, "entitlement_id": "ent_test", "connection_id": "connection-preserved",
+            "key_file": str(key_path), "enrollment_token_file": str(token_path),
+            "relay_peers": ["/dns4/east.example.test/tcp/14001/p2p/east",
+                            "/dns4/west.example.test/tcp/14001/p2p/west"],
+            "enrollment_primary": "/dns4/east.example.test/tcp/14001/p2p/east",
+            "enrollment_url": "https://qa.example.test",
+        }
+        self.profile.write_text(json.dumps(profile), encoding="utf-8")
+        self.profile.chmod(0o600)
+        return token_path, key_path, profile
+
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
@@ -96,6 +124,79 @@ class RSSProvisioningTest(unittest.TestCase):
                 expected_operator_url="https://qa.example.test",
             )
         self.assertFalse(self.profile.with_name("rss-enrollment-token").exists())
+
+    def test_expired_pending_bundle_renews_token_without_replacing_identity(self) -> None:
+        token_path, key_path, original = self.pending_profile(expires_at=100)
+        bundle = {
+            "protocol": "rss_provisioning_bundle/v1", "entitlement_id": "ent_test",
+            "rss_enrollment_token": self.token(expires_at=300),
+            "enrollment_url": "https://qa.example.test", "relay_peers": original["relay_peers"],
+        }
+        with mock.patch("secrets_kit.protocol.rss_provisioning.time.time", return_value=200):
+            self.assertEqual(
+                configure_rss_provisioning_bundle(
+                    bundle=bundle, expected_operator_url="https://qa.example.test"
+                ), self.profile
+            )
+        self.assertEqual(json.loads(self.profile.read_text()), original)
+        self.assertEqual(key_path.read_text(), "synthetic-key")
+        self.assertEqual(token_path.read_text(), bundle["rss_enrollment_token"])
+        self.assertEqual(token_path.stat().st_mode & 0o777, 0o600)
+
+    def test_pending_bundle_rejects_changed_authority_without_touching_identity(self) -> None:
+        token_path, _, original = self.pending_profile(expires_at=100)
+        old_token = token_path.read_text()
+        bundle = {
+            "protocol": "rss_provisioning_bundle/v1", "entitlement_id": "ent_other",
+            "rss_enrollment_token": self.token(expires_at=300),
+            "enrollment_url": "https://qa.example.test", "relay_peers": original["relay_peers"],
+        }
+        with mock.patch("secrets_kit.protocol.rss_provisioning.time.time", return_value=200):
+            with self.assertRaisesRegex(RSSAuthenticationError, "authority differs"):
+                configure_rss_provisioning_bundle(
+                    bundle=bundle, expected_operator_url="https://qa.example.test"
+                )
+        self.assertEqual(token_path.read_text(), old_token)
+        self.assertEqual(json.loads(self.profile.read_text()), original)
+
+    def test_paid_receipt_renews_only_expired_pending_token(self) -> None:
+        token_path, _, original = self.pending_profile(expires_at=100)
+        receipt = self.profile.with_name("rss-checkout.json")
+        receipt.write_text(json.dumps({
+            "protocol": "rss_checkout_receipt/v1", "operator_url": "https://qa.example.test",
+            "account_id": "ska_test", "checkout_session_id": "cs_test_123",
+        }), encoding="utf-8")
+        receipt.chmod(0o600)
+        bundle = {
+            "protocol": "rss_provisioning_bundle/v1", "entitlement_id": "ent_test",
+            "rss_enrollment_token": self.token(expires_at=300),
+            "enrollment_url": "https://qa.example.test", "relay_peers": original["relay_peers"],
+        }
+        with mock.patch("secrets_kit.protocol.rss_provisioning.time.time", return_value=50):
+            with mock.patch("secrets_kit.protocol.rss_provisioning._post_json") as request:
+                self.assertEqual(complete_rss_enrollment(), self.profile)
+            request.assert_not_called()
+        with mock.patch("secrets_kit.protocol.rss_provisioning.time.time", return_value=200):
+            with mock.patch("secrets_kit.protocol.rss_provisioning._post_json", return_value=bundle) as request:
+                self.assertEqual(complete_rss_enrollment(), self.profile)
+            request.assert_called_once()
+        self.assertEqual(token_path.read_text(), bundle["rss_enrollment_token"])
+        self.assertEqual(json.loads(self.profile.read_text()), original)
+
+    def test_local_status_reports_pending_expiry_without_leaking_ret(self) -> None:
+        token = self.token(expires_at=100)
+        output = io.StringIO()
+        with mock.patch(
+            "secrets_kit.cli.commands.rss.load_rss_relay_credentials_from_environment",
+            return_value=mock.Mock(
+                entitlement_id="ent_test", connection_id="connection-preserved",
+                enrollment_token=token,
+            ),
+        ), mock.patch("secrets_kit.protocol.rss_provisioning.time.time", return_value=200):
+            with contextlib.redirect_stdout(output):
+                self.assertEqual(cmd_rss_local_status(args=mock.Mock()), 0)
+        self.assertTrue(json.loads(output.getvalue())["enrollment_token_expired"])
+        self.assertNotIn(token, output.getvalue())
 
     def test_shared_qa_runtime_uses_embedded_operator_origin(self) -> None:
         runtime = self.root / "runtime"

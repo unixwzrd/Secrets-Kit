@@ -261,6 +261,7 @@ STRINGS = {
     "errors.run.requires_command": "run requiere un comando de destino después de --",
     "errors.install_check_failed": "falló la comprobación de instalación",
     "errors.security_cli_not_found": "no se encontró la CLI security",
+    "errors.unlock_macos_keychain_only": "seckit unlock es solo para el llavero de macOS; los secretos SQLite cifrados no necesitan este comando",
     "errors.unsupported_format": "formato no compatible: {format}",
     "prompts.confirm_suffix": "[y/N]",
     "prompts.delete_secret": "¿Eliminar {name} del servicio={service}, cuenta={account}?",

@@ -209,6 +209,7 @@ STRINGS = {
     "errors.run.requires_command": "run erfordert einen Zielbefehl nach --",
     "errors.install_check_failed": "Installationsprüfung fehlgeschlagen",
     "errors.security_cli_not_found": "security-CLI nicht gefunden",
+    "errors.unlock_macos_keychain_only": "seckit unlock ist nur für den macOS-Schlüsselbund; verschlüsselte SQLite-Geheimnisse benötigen diesen Befehl nicht",
     "errors.unsupported_format": "Nicht unterstütztes Format: {format}",
     "prompts.confirm_suffix": "[y/N]",
     "prompts.delete_secret": "{name} aus service={service} account={account} löschen?",

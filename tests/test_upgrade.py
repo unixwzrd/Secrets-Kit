@@ -207,6 +207,19 @@ class UpgradeTests(unittest.TestCase):
                 self.assertEqual(result["repository"], "example/private")
                 self.assertEqual(cached_update_available(home=home), "v2.0.1a10")
 
+    def test_stale_available_cache_does_not_announce_installed_version(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            home = Path(raw)
+            cache = home / ".cache" / "seckit" / "update-check.json"
+            cache.parent.mkdir(parents=True)
+            cache.write_text(json.dumps({
+                "status": "available",
+                "current": "v2.0.1a61",
+                "latest": "v2.0.1a62",
+            }))
+            with mock.patch("secrets_kit.cli.update_check.__version__", "2.0.1a62"):
+                self.assertIsNone(cached_update_available(home=home))
+
     def test_alpha_update_ignores_mixed_beta_and_stable_releases(self) -> None:
         releases = [
             _release("v2.0.2b1", prerelease=True),

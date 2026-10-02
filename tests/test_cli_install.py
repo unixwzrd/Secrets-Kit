@@ -31,6 +31,7 @@ from secrets_kit.cli.commands.install_cmd import (
     cmd_install,
 )
 from secrets_kit.cli.commands.install_peer import (
+    _confirm_scope,
     _identity_summary,
     _peer_command,
     _status_command,
@@ -39,6 +40,7 @@ from secrets_kit.cli.commands.install_peer import (
     pair_installed_peer,
     verify_authorized_route,
 )
+from secrets_kit.crypto.models import key_id_for_public_key
 
 
 class CliInstallTest(unittest.TestCase):
@@ -72,6 +74,32 @@ class CliInstallTest(unittest.TestCase):
         self.assertNotIn("ret1.private-test-token", " ".join(argv))
         self.assertIn("ret1.private-test-token", run.call_args_list[1].kwargs["input"])
         self.assertIn("--bundle-stdin", argv[-1])
+
+    def test_rss_expired_remote_token_gets_fresh_ret_without_replacing_identity(self) -> None:
+        bundle = {
+            "protocol": "rss_provisioning_bundle/v1", "entitlement_id": "ent_test",
+            "rss_enrollment_token": "ret1.private-test-token",
+        }
+        responses = [
+            subprocess.CompletedProcess([], 0, json.dumps({
+                "configured": True, "entitlement_id": "ent_test", "enrolled": False,
+                "enrollment_token_expired": True,
+            }), ""),
+            subprocess.CompletedProcess([], 0, "", ""),
+        ]
+        with mock.patch(
+            "secrets_kit.cli.commands.install_peer.load_rss_relay_credentials_from_environment",
+            return_value=SimpleNamespace(entitlement_id="ent_test", enrollment_token=None),
+        ), mock.patch(
+            "secrets_kit.cli.commands.install_peer.admin_action", return_value=(200, bundle)
+        ) as action, mock.patch(
+            "secrets_kit.cli.commands.install_peer.subprocess.run", side_effect=responses
+        ) as run:
+            enroll_installed_rss_peer(host="alice@peer.example")
+        action.assert_called_once_with(action="device.ret", parameters={})
+        self.assertEqual(run.call_count, 2)
+        self.assertIn("--bundle-stdin", run.call_args_list[1].args[0][-1])
+        self.assertNotIn("ret1.private-test-token", " ".join(run.call_args_list[1].args[0]))
 
     def test_rss_full_capacity_does_not_contact_remote_with_token(self) -> None:
         responses = [subprocess.CompletedProcess([], 0, '{"configured": false}', "")]
@@ -363,6 +391,7 @@ fixture_launchctl() { return "$QUERY_RESULT"; }
         names = {name: pins[name] for name in ("libp2p", "zeroconf")}
         artifacts = {key: root / "dependencies" / name for key, name in names.items()}
         probe = r'''
+uname() { if [[ ${1-} == -m ]]; then echo x86_64; else command uname "$@"; fi; }
 trap 'cleanup_dependency_cache; rm -f "${DEPENDENCY_OVERRIDE_FILE:-}"' EXIT
 PACKAGE_SPEC="file://${TEST_BUNDLE}/seckit.whl"
 SECKIT_REF=immutable-test-ref
@@ -1063,6 +1092,38 @@ UPGRADE=1
                 "import-acceptance", "import-acceptance",
                 "show", "show",
             ],
+        )
+
+    def test_peer_confirmation_fingerprints_match_info_key_ids(self) -> None:
+        local_key = b"a" * 32
+        remote_key = b"b" * 32
+        encoded_local = base64.urlsafe_b64encode(local_key).decode().rstrip("=")
+        encoded_remote = base64.urlsafe_b64encode(remote_key).decode().rstrip("=")
+        local = {
+            "node_id": "local-node", "signing_public_key": encoded_local,
+            "encryption_public_key": encoded_local,
+        }
+        remote = {
+            "node_id": "remote-node", "signing_public_key": encoded_remote,
+            "encryption_public_key": encoded_remote,
+        }
+        output = io.StringIO()
+        with mock.patch("builtins.input", side_effect=["beta-test", "external", "y"]), redirect_stdout(output):
+            self.assertEqual(
+                _confirm_scope(
+                    host="alice@peer.example", local=_identity_summary(local),
+                    remote=_identity_summary(remote), local_identity=local,
+                    remote_identity=remote,
+                ),
+                ("beta-test", "external"),
+            )
+        self.assertIn(
+            key_id_for_public_key(algorithm="ed25519", public_key=remote_key),
+            output.getvalue(),
+        )
+        self.assertIn(
+            key_id_for_public_key(algorithm="x25519", public_key=remote_key),
+            output.getvalue(),
         )
 
     def test_peer_bootstrap_decline_creates_no_admission_requests(self) -> None:

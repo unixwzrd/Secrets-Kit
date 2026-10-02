@@ -27,6 +27,7 @@ from secrets_kit.cli import (
     cmd_run,
     cmd_service_copy,
     cmd_set,
+    cmd_unlock,
 )
 
 
@@ -412,6 +413,32 @@ class CliCommandsTest(unittest.TestCase):
 
         self.assertEqual(code, 0)
         self.assertIn("security lock-keychain", out.getvalue())
+
+    def test_unlock_on_linux_explains_sqlite_without_calling_security(self) -> None:
+        err = io.StringIO()
+        with (
+            mock.patch("secrets_kit.cli.commands.unlock.sys.platform", "linux"),
+            mock.patch("secrets_kit.cli.commands.unlock.check_security_cli") as security,
+            redirect_stderr(err),
+        ):
+            code = cmd_unlock(args=argparse.Namespace(keychain=None))
+        self.assertEqual(code, 1)
+        self.assertIn("encrypted SQLite secrets do not need this command", err.getvalue())
+        security.assert_not_called()
+
+    def test_unlock_macos_dry_run_keeps_keychain_command(self) -> None:
+        out = io.StringIO()
+        with (
+            mock.patch("secrets_kit.cli.commands.unlock.sys.platform", "darwin"),
+            mock.patch("secrets_kit.cli.commands.unlock.check_security_cli", return_value=True),
+            mock.patch("secrets_kit.cli.commands.unlock.keychain_policy", return_value=None),
+            redirect_stdout(out),
+        ):
+            code = cmd_unlock(args=argparse.Namespace(
+                keychain="/tmp/login.keychain-db", timeout=3600, dry_run=True,
+            ))
+        self.assertEqual(code, 0)
+        self.assertIn("security unlock-keychain /tmp/login.keychain-db", out.getvalue())
 
     def test_lock_runs_backend(self) -> None:
         out = io.StringIO()

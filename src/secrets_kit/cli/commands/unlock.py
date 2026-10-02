@@ -7,6 +7,7 @@ Unlock command implementation.
 from __future__ import annotations
 
 import argparse
+import sys
 
 from secrets_kit.backends.keychain import (
     BackendError,
@@ -22,6 +23,11 @@ from secrets_kit.locale import msg
 
 
 def cmd_unlock(*, args: argparse.Namespace) -> int:
+    if sys.platform != "darwin":
+        return _fatal(
+            message=msg("errors.unlock_macos_keychain_only"),
+            code=1,
+        )
     if not check_security_cli():
         return _fatal(message=msg("errors.security_cli_not_found"), code=1)
 

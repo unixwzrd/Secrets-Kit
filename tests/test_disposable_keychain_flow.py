@@ -273,6 +273,8 @@ class DisposableKeychainFlowTest(unittest.TestCase):
                             "run-test",
                             "--account",
                             "local",
+                            "--backend",
+                            "keychain",
                             "--keychain",
                             fixture["path"],
                             "--",

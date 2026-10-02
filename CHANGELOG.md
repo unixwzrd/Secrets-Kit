@@ -4,6 +4,12 @@ Customer-facing changes. This file is derived from the authoritative public chan
 
 ## Unreleased
 
+## 2.0.1b24 — public beta
+
+- Restore Linux `seckit unlock` to the encrypted SQLite workflow instead of invoking the macOS-only `security` utility. Correct the update check so the installed beta version is not falsely reported as a newer release.
+- Renew an expired, pending RSS enrollment token from the paid Checkout receipt or billing owner's authorized SSH flow without repeating Checkout, changing the device's key or connection ID, or granting authority to a peer credential. An enrolled device is not renewed.
+- Preserve the existing store, peer authorization, RSS enrollment and billing-owner authority through a tagged reinstall. The qualified QA path also covered customer-paid capacity increase, a distinct off-LAN third device and bidirectional RSS synchronization.
+
 ## 2.0.1b22 — public beta
 
 - Promote the qualified DEV a62 customer billing-owner and device-management workflow. The enrolled billing owner can obtain a Stripe-hosted quantity-change portal, install and enroll an additional SSH peer after verified payment, list devices, revoke a selected connection, and recover owner control with a one-time offline code. Peer credentials alone cannot manage billing or devices. Installed QA qualification passed before public-beta promotion.

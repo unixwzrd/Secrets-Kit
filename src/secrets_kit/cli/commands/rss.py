@@ -40,6 +40,7 @@ from secrets_kit.protocol.rss_provisioning import (
     DEFAULT_RSS_OPERATOR_URL,
     complete_rss_enrollment,
     configure_rss_provisioning_bundle,
+    rss_enrollment_token_expired,
     start_rss_checkout,
 )
 
@@ -223,6 +224,10 @@ def cmd_rss_local_status(*, args: argparse.Namespace) -> int:
             "connection_id": credentials.connection_id,
             "enrolled": credentials.enrollment_token is None,
         })
+        if credentials.enrollment_token is not None:
+            result["enrollment_token_expired"] = rss_enrollment_token_expired(
+                token=credentials.enrollment_token
+            )
     print(json.dumps(result, sort_keys=True))
     return 0
 
