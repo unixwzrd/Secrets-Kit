@@ -34,10 +34,12 @@ from secrets_kit.daemon.control import (
     ControlMessageError,
     parse_daemon_message,
     parse_route_frame,
+    validate_direct_candidate,
 )
 from secrets_kit.daemon.routing import RoutingTable
 from secrets_kit.daemon.transport import (
     Transport,
+    TransportError,
     TransportServices,
     _runtime_sign_binding,
     _runtime_verify_binding,
@@ -117,6 +119,21 @@ def _handle_request(
             if admission_wake is not None:
                 admission_wake()
             return _response(status="ok", response="admission_reconsidered"), False
+        if operation == "direct-candidate":
+            if transport != "uds":
+                return _response(status="error", error="control_forbidden"), False
+            try:
+                if set(message) != {"kind", "version", "operation", "peer_id", "endpoint"}:
+                    raise ControlMessageError("candidate fields are invalid")
+                peer_id, endpoint = validate_direct_candidate(
+                    peer_id=message.get("peer_id"), endpoint=message.get("endpoint"),
+                )
+                if transport_adapter is None:
+                    return _response(status="error", error="transport_unavailable"), False
+                transport_adapter.submit_direct_candidate(peer_id=peer_id, endpoint=endpoint)
+            except (ValueError, TransportError):
+                return _response(status="error", error="candidate_rejected"), False
+            return _response(status="ok", response="candidate_queued"), False
         if operation == "route-wait":
             if transport != "uds":
                 return _response(status="error", error="control_forbidden"), False

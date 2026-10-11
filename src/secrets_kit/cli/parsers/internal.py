@@ -11,6 +11,7 @@ import argparse
 from secrets_kit.cli.commands.internal import (
     cmd_internal_apply_envelope,
     cmd_internal_deliver_pending,
+    cmd_internal_direct_candidate,
     cmd_internal_register_endpoint,
     cmd_internal_runtime_access,
     cmd_internal_sign_transport_binding,
@@ -56,6 +57,9 @@ def register_internal_commands(
     p_wait.add_argument("peer_id")
     p_wait.add_argument("--timeout-seconds", type=int, default=30)
     p_wait.set_defaults(func=cmd_internal_wait_route)
+    p_candidate = internal_sub.add_parser("direct-candidate", help=argparse.SUPPRESS)
+    p_candidate.add_argument("--stdin", action="store_true", required=True)
+    p_candidate.set_defaults(func=cmd_internal_direct_candidate)
     p_sign_binding = internal_sub.add_parser(
         "sign-transport-binding", help=argparse.SUPPRESS
     )

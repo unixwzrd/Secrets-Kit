@@ -14,7 +14,7 @@ from secrets_kit.backends.sqlite.peer_endpoints import (
     reregister_local_endpoint,
 )
 from secrets_kit.cli.io import _fatal
-from secrets_kit.daemon.client import DaemonError, wait_daemon_route
+from secrets_kit.daemon.client import DaemonError, submit_direct_candidate, wait_daemon_route
 from secrets_kit.runtime.agent_access import handle_runtime_access_request
 from secrets_kit.runtime.endpoint_routes import build_endpoint_routes
 from secrets_kit.runtime.inbound_envelopes import apply_inbound_transaction_envelope_bytes
@@ -71,6 +71,18 @@ def cmd_internal_wait_route(*, args: argparse.Namespace) -> int:
         wait_daemon_route(peer_id=args.peer_id, timeout_seconds=args.timeout_seconds)
     except (DaemonError, OSError, ValueError) as exc:
         return _fatal(message=f"authorized route unavailable: {exc}", code=1)
+    return 0
+
+
+def cmd_internal_direct_candidate(*, args: argparse.Namespace) -> int:
+    """Submit a current same-user dial hint without changing admission or stores."""
+    try:
+        value = json.loads(_read_stdin_bytes().decode("utf-8"))
+        if not isinstance(value, dict) or set(value) != {"peer_id", "endpoint"}:
+            raise ValueError("candidate fields are invalid")
+        submit_direct_candidate(peer_id=value["peer_id"], endpoint=value["endpoint"])
+    except (DaemonError, OSError, ValueError):
+        return _fatal(message="direct candidate unavailable", code=1)
     return 0
 
 
@@ -149,6 +161,7 @@ def cmd_internal_verify_transport_binding(*, args: argparse.Namespace) -> int:
 __all__ = [
     "cmd_internal_apply_envelope",
     "cmd_internal_deliver_pending",
+    "cmd_internal_direct_candidate",
     "cmd_internal_register_endpoint",
     "cmd_internal_runtime_access",
     "cmd_internal_status",

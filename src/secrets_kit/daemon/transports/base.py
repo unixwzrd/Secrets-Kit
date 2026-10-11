@@ -160,6 +160,9 @@ class TransportAdapter(Protocol):
     def admission_changed(self) -> None:
         """Retry rejected known bindings after a local admission mutation."""
 
+    def submit_direct_candidate(self, *, peer_id: str, endpoint: str) -> None:
+        """Queue a transient dial hint that must pass normal identity binding."""
+
     def start(self, *, services: TransportServices) -> None:
         """Start the adapter with daemon-owned neutral services."""
 

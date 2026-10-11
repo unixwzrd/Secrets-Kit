@@ -34,9 +34,11 @@ from secrets_kit.cli.commands.install_peer import (
     _confirm_scope,
     _identity_summary,
     _peer_command,
+    _route_failure_message,
     _status_command,
     _wait_route_command,
     enroll_installed_rss_peer,
+    handoff_direct_candidates,
     pair_installed_peer,
     verify_authorized_route,
 )
@@ -49,6 +51,32 @@ class CliInstallTest(unittest.TestCase):
                                      return_value=("example/installed", "prerelease")))
         self.enterContext(mock.patch("secrets_kit.cli.commands.install_cmd._safe_install_state",
                                      return_value={"ref": "v2.0.1a22"}))
+        self.enterContext(mock.patch("secrets_kit.cli.commands.install_cmd.handoff_direct_candidates"))
+
+    def test_direct_handoff_sends_live_candidates_only_through_stdin(self) -> None:
+        node = "node:12345678-1234-4123-8123-123456789012"
+        remote = "node:12345678-1234-4123-8123-123456789013"
+        address = "/ip4/192.0.2.12/tcp/43123/p2p/12D3KooWRemote"
+        statuses = [
+            {"identity": {"peer_id": node}, "local_endpoint": {"multiaddr": address}},
+            {"identity": {"peer_id": remote}, "local_endpoint": {"multiaddr": address}},
+        ]
+        with mock.patch("secrets_kit.cli.commands.install_peer._status_command", side_effect=statuses), \
+             mock.patch("secrets_kit.cli.commands.install_peer._local_seckit_command", return_value="seckit"), \
+             mock.patch("secrets_kit.cli.commands.install_peer.subprocess.run") as run:
+            handoff_direct_candidates(host="alice@peer.example")
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(json.loads(run.call_args_list[0].kwargs["input"]), {"peer_id": remote, "endpoint": address})
+        self.assertEqual(json.loads(run.call_args_list[1].kwargs["input"]), {"peer_id": node, "endpoint": address})
+        for call in run.call_args_list:
+            self.assertNotIn(address, str(call.args[0]))
+            self.assertEqual(call.kwargs["timeout"], 15)
+
+    def test_missing_direct_candidates_do_not_disable_rss_fallback(self) -> None:
+        with mock.patch("secrets_kit.cli.commands.install_peer._status_command", return_value={}), \
+             mock.patch("secrets_kit.cli.commands.install_peer.subprocess.run") as run:
+            handoff_direct_candidates(host="alice@peer.example")
+        run.assert_not_called()
 
     def test_rss_add_device_sends_ret_only_on_ssh_stdin(self) -> None:
         bundle = {
@@ -180,6 +208,87 @@ class CliInstallTest(unittest.TestCase):
              mock.patch("secrets_kit.cli.commands.install_cmd.subprocess.run", return_value=probe):
             result = _shared_loopback_launcher(host="second@localhost", args=argparse.Namespace())
         self.assertEqual(result, launcher)
+
+    def test_route_wait_failure_reports_phase_and_safe_status_not_process_output(self) -> None:
+        snapshot = {
+            "daemon": {"running": True},
+            "routing": {"discovery": {"candidate_count": 0, "events": ["private-event"]}},
+            "rss": {"configured": False, "authenticated_relays": 0},
+            "runtime": {"private_key": "private-key-must-not-escape"},
+        }
+        completed = subprocess.CompletedProcess(
+            [], 1, "private-output-must-not-escape",
+            "ERROR: authorized route unavailable: route_timeout\nprivate-stderr-must-not-escape",
+        )
+        with mock.patch("secrets_kit.cli.commands.install_peer._local_seckit_command", return_value="seckit"), \
+             mock.patch("secrets_kit.cli.commands.install_peer.subprocess.run", return_value=completed), \
+             mock.patch("secrets_kit.cli.commands.install_peer._status_command", return_value=snapshot), \
+             self.assertRaises(ValueError) as failure:
+            _wait_route_command(host=None, peer_id="node:remote")
+        message = str(failure.exception)
+        self.assertIn("route_timeout", message)
+        self.assertIn("peer authorization is retained", message)
+        self.assertIn("daemon_running=True", message)
+        self.assertIn("discovery_candidates=0", message)
+        self.assertIn("rss_configured=False", message)
+        self.assertIn("SSH", message)
+        self.assertNotIn("private", message)
+
+    def test_route_wait_failure_survives_unavailable_diagnostic_snapshot(self) -> None:
+        completed = subprocess.CompletedProcess([], 1, "", "ERROR: opaque-private-error")
+        with mock.patch("secrets_kit.cli.commands.install_peer._local_seckit_command", return_value="seckit"), \
+             mock.patch("secrets_kit.cli.commands.install_peer.subprocess.run", return_value=completed), \
+             mock.patch("secrets_kit.cli.commands.install_peer._status_command", side_effect=ValueError("private-status-error")), \
+             self.assertRaises(ValueError) as failure:
+            _wait_route_command(host=None, peer_id="node:remote")
+        message = str(failure.exception)
+        self.assertIn("route_check_failed", message)
+        self.assertIn("status=unavailable", message)
+        self.assertNotIn("private", message)
+
+    def test_route_wait_timeout_reports_remote_side_without_echoing_output(self) -> None:
+        timeout = subprocess.TimeoutExpired(
+            cmd=["ssh", "private-command"], timeout=45,
+            output="private-output", stderr="private-error",
+        )
+        launcher = Path("/opt/seckit/qa/bin/seckit")
+        with mock.patch("secrets_kit.cli.commands.install_peer.subprocess.run", side_effect=timeout) as run, \
+             mock.patch("secrets_kit.cli.commands.install_peer._status_command", return_value={}) as status, \
+             self.assertRaises(ValueError) as failure:
+            _wait_route_command(host="alice@peer.example", peer_id="node:remote", shared_launcher=launcher)
+        message = str(failure.exception)
+        self.assertIn("alice@peer.example", message)
+        self.assertIn("route_wait_timeout", message)
+        self.assertNotIn("private", message)
+        self.assertEqual(run.call_count, 1)
+        status.assert_called_once_with(host="alice@peer.example", shared_launcher=launcher)
+
+    def test_route_diagnostics_reject_malformed_status_field_types(self) -> None:
+        for value in ("private-value", [], {}, -1, None):
+            with self.subTest(value=value), \
+                 mock.patch("secrets_kit.cli.commands.install_peer._status_command") as status:
+                message = _route_failure_message(
+                    host=None, reason="route_timeout", status={
+                        "daemon": {"running": value},
+                        "routing": {"discovery": {"candidate_count": value}},
+                        "rss": {"configured": value, "authenticated_relays": value},
+                    },
+                )
+                for field in ("daemon_running", "discovery_candidates", "rss_configured", "rss_authenticated_relays"):
+                    self.assertIn(f"{field}=unknown", message)
+                self.assertNotIn("private-value", message)
+                status.assert_not_called()
+
+    def test_route_diagnostics_do_not_treat_booleans_as_counts(self) -> None:
+        message = _route_failure_message(
+            host=None, reason="route_timeout", status={
+                "daemon": {"running": 1},
+                "routing": {"discovery": {"candidate_count": True}},
+                "rss": {"configured": 0, "authenticated_relays": False},
+            },
+        )
+        for field in ("daemon_running", "discovery_candidates", "rss_configured", "rss_authenticated_relays"):
+            self.assertIn(f"{field}=unknown", message)
 
     def test_shared_localhost_install_rejects_different_context(self) -> None:
         membership = {

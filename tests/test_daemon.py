@@ -522,6 +522,26 @@ class DaemonTest(unittest.TestCase):
         response, _ = _handle_request(invalid, transport="uds", routing_table=routes)
         self.assertEqual(json.loads(response)["error"], "bad_control")
 
+    def test_direct_candidate_is_local_only_and_validates_before_scheduling(self) -> None:
+        node = "node:12345678-1234-4123-8123-123456789012"
+        request = {"kind": "control", "version": 1, "operation": "direct-candidate",
+                   "peer_id": node, "endpoint": "/ip4/192.0.2.12/tcp/43123/p2p/12D3KooWRemote"}
+        adapter = mock.Mock()
+        for transport in ("tcp", "libp2p"):
+            response, _ = _handle_request(json.dumps(request).encode(), transport=transport, transport_adapter=adapter)
+            self.assertEqual(json.loads(response)["error"], "control_forbidden")
+        adapter.submit_direct_candidate.assert_not_called()
+        response, _ = _handle_request(json.dumps(request).encode(), transport="uds", transport_adapter=adapter)
+        self.assertEqual(json.loads(response)["response"], "candidate_queued")
+        adapter.submit_direct_candidate.assert_called_once_with(peer_id=node, endpoint=request["endpoint"])
+        for address in ("private-bad", "/ip4/0.0.0.0/tcp/1/p2p/Peer", "/ip4/192.0.2.1/tcp/0/p2p/Peer",
+                        "/ip4/192.0.2.1/tcp/1/p2p/Peer/p2p/Peer", "/ip6/192.0.2.1/tcp/1/p2p/Peer"):
+            with self.subTest(address=address):
+                response, _ = _handle_request(json.dumps({**request, "endpoint": address}).encode(),
+                                              transport="uds", transport_adapter=adapter)
+                self.assertEqual(json.loads(response)["error"], "candidate_rejected")
+        self.assertEqual(adapter.submit_direct_candidate.call_count, 1)
+
     def test_read_only_peer_commands_emit_no_daemon_event(self) -> None:
         request = mock.Mock()
         parser = mock.Mock()

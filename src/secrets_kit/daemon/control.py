@@ -7,6 +7,7 @@ Define daemon-owned transport control messages and local routing frames.
 from __future__ import annotations
 
 import base64
+import ipaddress
 import json
 from dataclasses import dataclass
 from typing import Any
@@ -56,6 +57,37 @@ def route_wait_message_bytes(*, peer_id: str, timeout_seconds: int) -> bytes:
         sort_keys=True,
         separators=(",", ":"),
     ).encode("utf-8")
+
+
+def validate_direct_candidate(*, peer_id: object, endpoint: object) -> tuple[str, str]:
+    """Validate a bounded numeric TCP dial hint; this grants no peer authority."""
+    if not isinstance(peer_id, str):
+        raise ControlMessageError("candidate node ID is invalid")
+    peer_id = validate_identifier(value=peer_id, expected_type="node", field="peer_id")
+    if not isinstance(endpoint, str) or len(endpoint) > 1024:
+        raise ControlMessageError("candidate endpoint is invalid")
+    parts = endpoint.split("/")
+    if (len(parts) != 7 or parts[0] or parts[1] not in {"ip4", "ip6"}
+            or parts[3] != "tcp" or parts[5] != "p2p" or not parts[6]):
+        raise ControlMessageError("candidate requires one TCP address and PeerID")
+    try:
+        address = ipaddress.ip_address(parts[2])
+        port = int(parts[4])
+    except ValueError as exc:
+        raise ControlMessageError("candidate address is invalid") from exc
+    if (address.version != int(parts[1][-1]) or address.is_unspecified
+            or address.is_multicast or not 1 <= port <= 65535 or str(port) != parts[4]):
+        raise ControlMessageError("candidate address is invalid")
+    return peer_id, endpoint
+
+
+def direct_candidate_message_bytes(*, peer_id: str, endpoint: str) -> bytes:
+    """Submit one same-user connection hint, never an admission request."""
+    peer_id, endpoint = validate_direct_candidate(peer_id=peer_id, endpoint=endpoint)
+    return json.dumps({
+        "version": CONTROL_VERSION, "kind": CONTROL_KIND,
+        "operation": "direct-candidate", "peer_id": peer_id, "endpoint": endpoint,
+    }, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
 def runtime_access_message_bytes(*, operation: str, arguments: dict[str, Any]) -> bytes:

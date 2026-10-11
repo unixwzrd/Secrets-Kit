@@ -20,9 +20,11 @@ from typing import Any, Iterator
 
 from secrets_kit.daemon.control import (
     control_message_bytes,
+    direct_candidate_message_bytes,
     route_frame_bytes,
     route_wait_message_bytes,
     runtime_access_message_bytes,
+    validate_direct_candidate,
 )
 
 METADATA_FILENAME = "seckitd.json"
@@ -135,6 +137,34 @@ def wait_daemon_route(*, peer_id: str, timeout_seconds: int = 30) -> None:
     )
     if response.get("status") != "ok" or response.get("response") != "route_connected":
         raise DaemonError(str(response.get("error") or "authorized route unavailable"))
+
+
+def submit_direct_candidate(*, peer_id: str, endpoint: str) -> None:
+    """Queue a bounded same-user hint; route readiness is verified separately."""
+    response = _request_socket(
+        payload=direct_candidate_message_bytes(peer_id=peer_id, endpoint=endpoint),
+        timeout=5, sock_factory=lambda: socket.socket(socket.AF_UNIX),
+    )
+    if response.get("status") != "ok" or response.get("response") != "candidate_queued":
+        raise DaemonError(str(response.get("error") or "candidate rejected"))
+
+
+def request_local_direct_candidate(*, peer_id: str) -> dict[str, str] | None:
+    """Read and validate one live dial hint for the expected application peer.
+
+    Transport status fields stay inside the daemon client. The opaque result
+    grants neither identity nor route authority; unavailable, mismatched or
+    malformed status returns no hint and changes no local state.
+    """
+    try:
+        status = request_daemon_status()
+        identity, endpoint = status.get("identity", {}), status.get("local_endpoint", {})
+        if not isinstance(identity, dict) or not isinstance(endpoint, dict) or identity.get("peer_id") != peer_id:
+            return None
+        peer, address = validate_direct_candidate(peer_id=peer_id, endpoint=endpoint.get("multiaddr"))
+    except (DaemonError, OSError, ValueError):
+        return None
+    return {"peer_id": peer, "endpoint": address}
 
 
 def request_daemon_status(*, timeout: float = 2.0) -> dict[str, Any]:
@@ -409,6 +439,7 @@ __all__ = [
     "read_metadata",
     "request_daemon",
     "request_daemon_status",
+    "request_local_direct_candidate",
     "request_daemon_tcp",
     "request_secret_metadata",
     "request_secret_value",

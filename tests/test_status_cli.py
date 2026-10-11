@@ -121,13 +121,11 @@ class StatusCliTest(unittest.TestCase):
         self._run_cli(
             [
                 "init",
-                "--backend",
-                "sqlite",
-                "--storage-mode",
-                "plaintext",
                 "--home",
                 str(home),
                 "--yes",
+                "sqlite",
+                "--unsafe-plaintext-storage",
             ],
             env=env,
         )

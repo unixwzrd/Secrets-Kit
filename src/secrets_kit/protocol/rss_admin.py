@@ -229,11 +229,15 @@ def customer_admin_account_id() -> str:
     return account_id
 
 
-def admin_action(*, action: str, parameters: dict[str, object]) -> tuple[int, dict[str, Any]]:
+def admin_action(
+    *, action: str, parameters: dict[str, object], expected_operator_url: str | None = None,
+) -> tuple[int, dict[str, Any]]:
     """Sign one bounded customer action without exposing the private account key."""
     if action not in ADMIN_ACTIONS:
         raise RSSAuthenticationError("RSS administrator action is unsupported")
     account_id, operator_url, private_key, _ = _key_material(_read_object(_admin_path()))
+    if expected_operator_url is not None and operator_url != _https_base(value=expected_operator_url):
+        raise RSSAuthenticationError("RSS administrator authority differs from requested service")
     payload: dict[str, object] = {
         "protocol": REQUEST_PROTOCOL, "account_id": account_id, "action": action,
         "request_id": secrets.token_hex(16), "issued_at": int(time.time()),

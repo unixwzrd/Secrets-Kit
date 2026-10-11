@@ -29,6 +29,7 @@ from pathlib import Path
 from secrets_kit import __version__
 from secrets_kit.cli.commands.install_peer import (
     enroll_installed_rss_peer,
+    handoff_direct_candidates,
     pair_installed_peer,
     verify_authorized_route,
 )
@@ -494,6 +495,7 @@ def cmd_install(*, args: argparse.Namespace) -> int:
             try:
                 pair_installed_peer(host=remote_host, shared_launcher=shared_launcher)
                 enroll_installed_rss_peer(host=remote_host, shared_launcher=shared_launcher)
+                handoff_direct_candidates(host=remote_host, shared_launcher=shared_launcher)
                 verify_authorized_route(host=remote_host, shared_launcher=shared_launcher)
             except (OSError, ValueError, subprocess.SubprocessError, EOFError) as exc:
                 print(f"seckit install: shared-host peer setup incomplete: {exc}", file=sys.stderr)
@@ -503,6 +505,7 @@ def cmd_install(*, args: argparse.Namespace) -> int:
             try:
                 pair_installed_peer(host=remote_host)
                 enroll_installed_rss_peer(host=remote_host)
+                handoff_direct_candidates(host=remote_host)
                 verify_authorized_route(host=remote_host)
             except (OSError, ValueError, subprocess.SubprocessError, EOFError) as exc:
                 print(f"seckit install: existing remote release found, peer setup incomplete: {exc}", file=sys.stderr)
@@ -533,6 +536,7 @@ def cmd_install(*, args: argparse.Namespace) -> int:
             try:
                 pair_installed_peer(host=remote_host)
                 enroll_installed_rss_peer(host=remote_host)
+                handoff_direct_candidates(host=remote_host)
                 verify_authorized_route(host=remote_host)
             except (OSError, ValueError, subprocess.SubprocessError, EOFError) as exc:
                 print(f"seckit install: remote software installed, peer setup incomplete: {exc}", file=sys.stderr)

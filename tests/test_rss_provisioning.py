@@ -12,11 +12,15 @@ from pathlib import Path
 from unittest import mock
 
 from secrets_kit.cli.commands.rss import _installed_operator_url, cmd_rss_local_status
+from secrets_kit.crypto.models import generate_signing_keypair
+from secrets_kit.crypto.persistence import signing_keypair_from_record, signing_keypair_to_record
 from secrets_kit.protocol.rss_auth import RSSAuthenticationError
 from secrets_kit.protocol.rss_provisioning import (
     _valid_peer,
     complete_rss_enrollment,
     configure_rss_provisioning_bundle,
+    prepare_rss_device_identity,
+    rss_identity_prepared_path,
     start_rss_checkout,
 )
 
@@ -52,7 +56,7 @@ class RSSProvisioningTest(unittest.TestCase):
         key_path.chmod(0o600)
         profile: dict[str, object] = {
             "version": 1, "entitlement_id": "ent_test", "connection_id": "connection-preserved",
-            "key_file": str(key_path), "enrollment_token_file": str(token_path),
+            "key_file": str(key_path.resolve()), "enrollment_token_file": str(token_path.resolve()),
             "relay_peers": ["/dns4/east.example.test/tcp/14001/p2p/east",
                             "/dns4/west.example.test/tcp/14001/p2p/west"],
             "enrollment_primary": "/dns4/east.example.test/tcp/14001/p2p/east",
@@ -83,6 +87,308 @@ class RSSProvisioningTest(unittest.TestCase):
         for patcher in reversed(self.paths):
             patcher.stop()
         self.temp.cleanup()
+
+    def _bundle(self, *, token: str = "ret1.one-use-token", entitlement: str = "ent_test") -> dict[str, object]:
+        return {
+            "protocol": "rss_provisioning_bundle/v1", "entitlement_id": entitlement,
+            "rss_enrollment_token": token, "enrollment_url": "https://qa.example.test",
+            "relay_peers": [
+                "/dns4/east.example.test/tcp/14001/p2p/east",
+                "/dns4/west.example.test/tcp/14001/p2p/west",
+            ],
+        }
+
+    def test_prepared_identity_is_idempotent_and_owner_private(self) -> None:
+        first = prepare_rss_device_identity(expected_operator_url="https://qa.example.test")
+        second = prepare_rss_device_identity(expected_operator_url="https://qa.example.test")
+        self.assertEqual(first, second)
+        prep = rss_identity_prepared_path()
+        key = self.profile.with_name("rss-auth-key.json")
+        self.assertEqual(prep.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(key.stat().st_mode & 0o777, 0o600)
+        self.assertNotIn("private", prep.read_text())
+
+    def test_missing_token_after_state_write_resumes_exact_authority(self) -> None:
+        identity = prepare_rss_device_identity(expected_operator_url="https://qa.example.test")
+        key = self.profile.with_name("rss-auth-key.json")
+        original_key = key.read_bytes()
+        bundle = self._bundle()
+        state_path = self.profile.with_name("rss-provisioning.json")
+        token_path = self.profile.with_name("rss-enrollment-token")
+        with mock.patch("secrets_kit.protocol.rss_provisioning.store_rss_enrollment_token_file", side_effect=OSError("interrupted token write")):
+            with self.assertRaises(OSError):
+                configure_rss_provisioning_bundle(bundle=bundle, expected_operator_url="https://qa.example.test")
+        self.assertTrue(state_path.exists())
+        self.assertFalse(token_path.exists())
+        retained = state_path.read_bytes()
+        with self.assertRaisesRegex(RSSAuthenticationError, "pending RSS authority differs"):
+            configure_rss_provisioning_bundle(bundle={**bundle, "entitlement_id": "ent_other"}, expected_operator_url="https://qa.example.test")
+        self.assertEqual(state_path.read_bytes(), retained)
+        self.assertFalse(token_path.exists())
+        with self.assertRaisesRegex(RSSAuthenticationError, "response is invalid"):
+            configure_rss_provisioning_bundle(bundle={**bundle, "extra": "invalid"}, expected_operator_url="https://qa.example.test")
+        self.assertFalse(token_path.exists())
+        configure_rss_provisioning_bundle(bundle=bundle, expected_operator_url="https://qa.example.test")
+        self.assertEqual(json.loads(self.profile.read_text())["connection_id"], identity["connection_id"])
+        self.assertEqual(key.read_bytes(), original_key)
+        self.assertFalse(state_path.exists())
+        self.assertFalse(rss_identity_prepared_path().exists())
+
+    def test_bundle_preserves_prepared_key_and_connection_id(self) -> None:
+        identity = prepare_rss_device_identity(expected_operator_url="https://qa.example.test")
+        key = self.profile.with_name("rss-auth-key.json")
+        original_key = key.read_bytes()
+        configured = configure_rss_provisioning_bundle(
+            bundle=self._bundle(), expected_operator_url="https://qa.example.test"
+        )
+        self.assertEqual(configured, self.profile)
+        profile = json.loads(self.profile.read_text())
+        self.assertEqual(profile["connection_id"], identity["connection_id"])
+        self.assertEqual(key.read_bytes(), original_key)
+        self.assertFalse(rss_identity_prepared_path().exists())
+
+    def test_prepared_identity_authority_and_key_collisions_are_untouched(self) -> None:
+        prepare_rss_device_identity(expected_operator_url="https://qa.example.test")
+        prep = rss_identity_prepared_path()
+        original_prep = prep.read_bytes()
+        with self.assertRaisesRegex(RSSAuthenticationError, "authority differs"):
+            prepare_rss_device_identity(expected_operator_url="https://other.example.test")
+        self.assertEqual(prep.read_bytes(), original_prep)
+        key = self.profile.with_name("rss-auth-key.json")
+        key.write_bytes(b"not-a-key")
+        key.chmod(0o600)
+        with self.assertRaises(RSSAuthenticationError):
+            configure_rss_provisioning_bundle(
+                bundle=self._bundle(), expected_operator_url="https://qa.example.test"
+            )
+        self.assertEqual(prep.read_bytes(), original_prep)
+        self.assertFalse(self.profile.exists())
+        self.assertFalse(self.profile.with_name("rss-enrollment-token").exists())
+
+    def test_prepared_identity_rejects_insecure_or_symlinked_record(self) -> None:
+        identity = prepare_rss_device_identity(expected_operator_url="https://qa.example.test")
+        prep = rss_identity_prepared_path()
+        prep.chmod(0o640)
+        with self.assertRaises(RSSAuthenticationError):
+            prepare_rss_device_identity(expected_operator_url="https://qa.example.test")
+        prep.unlink()
+        prep.symlink_to(self.profile.with_name("target"))
+        with self.assertRaises(RSSAuthenticationError):
+            prepare_rss_device_identity(expected_operator_url="https://qa.example.test")
+        prep.unlink()
+        self.assertTrue(identity["connection_id"])
+
+    def test_interrupted_bundle_retains_prepared_identity_and_resumes(self) -> None:
+        identity = prepare_rss_device_identity(expected_operator_url="https://qa.example.test")
+        prep = rss_identity_prepared_path()
+        key = self.profile.with_name("rss-auth-key.json")
+        original_key = key.read_bytes()
+        with mock.patch(
+            "secrets_kit.protocol.rss_provisioning.configure_rss_client",
+            side_effect=RSSAuthenticationError("interrupted"),
+        ):
+            with self.assertRaisesRegex(RSSAuthenticationError, "interrupted"):
+                configure_rss_provisioning_bundle(
+                    bundle=self._bundle(token=self.token(expires_at=4102444800)), expected_operator_url="https://qa.example.test"
+                )
+        self.assertTrue(prep.exists())
+        self.assertEqual(key.read_bytes(), original_key)
+        self.assertTrue(self.profile.with_name("rss-enrollment-token").exists())
+        configure_rss_provisioning_bundle(
+            bundle=self._bundle(token=self.token(expires_at=4102444800)), expected_operator_url="https://qa.example.test"
+        )
+        self.assertEqual(json.loads(self.profile.read_text())["connection_id"], identity["connection_id"])
+        self.assertFalse(prep.exists())
+
+    def test_preparation_rejects_already_configured_profile(self) -> None:
+        self.pending_profile(expires_at=9999999999)
+        with self.assertRaisesRegex(RSSAuthenticationError, "already configured"):
+            prepare_rss_device_identity(expected_operator_url="https://qa.example.test")
+
+    def test_pending_recovery_returns_existing_identity_without_writing(self) -> None:
+        identity = prepare_rss_device_identity(expected_operator_url="https://qa.example.test")
+        key = self.profile.with_name("rss-auth-key.json")
+        key_bytes = key.read_bytes()
+        token = self.profile.with_name("rss-enrollment-token")
+        token.write_text(self.token(expires_at=100), encoding="ascii")
+        token.chmod(0o600)
+        self.profile.write_text(json.dumps({
+            "version": 1, "entitlement_id": "ent_test", "connection_id": identity["connection_id"],
+            "key_file": str(key.resolve()), "enrollment_token_file": str(token.resolve()),
+            "relay_peers": ["/dns4/east.example.test/tcp/14001/p2p/east", "/dns4/west.example.test/tcp/14001/p2p/west"],
+            "enrollment_primary": "/dns4/east.example.test/tcp/14001/p2p/east",
+            "enrollment_url": "https://qa.example.test",
+        }), encoding="utf-8")
+        self.profile.chmod(0o600)
+        prep = rss_identity_prepared_path()
+        prep_bytes = prep.read_bytes()
+        with mock.patch("secrets_kit.protocol.rss_provisioning.time.time", return_value=200):
+            recovered = prepare_rss_device_identity(
+                expected_operator_url="https://qa.example.test", allow_pending_recovery=True
+            )
+        self.assertEqual(recovered, identity)
+        self.assertEqual(key.read_bytes(), key_bytes)
+        self.assertEqual(prep.read_bytes(), prep_bytes)
+
+    def test_pending_recovery_default_healthy_and_wrong_origin_fail(self) -> None:
+        identity = prepare_rss_device_identity(expected_operator_url="https://qa.example.test")
+        key = self.profile.with_name("rss-auth-key.json")
+        token = self.profile.with_name("rss-enrollment-token")
+        token.write_text(self.token(expires_at=300), encoding="ascii")
+        token.chmod(0o600)
+        self.profile.write_text(json.dumps({
+            "version": 1, "entitlement_id": "ent_test", "connection_id": identity["connection_id"],
+            "key_file": str(key.resolve()), "enrollment_token_file": str(token.resolve()),
+            "relay_peers": ["/dns4/east.example.test/tcp/14001/p2p/east", "/dns4/west.example.test/tcp/14001/p2p/west"],
+            "enrollment_primary": "/dns4/east.example.test/tcp/14001/p2p/east",
+            "enrollment_url": "https://qa.example.test",
+        }), encoding="utf-8")
+        self.profile.chmod(0o600)
+        with mock.patch("secrets_kit.protocol.rss_provisioning.time.time", return_value=200):
+            with self.assertRaises(RSSAuthenticationError):
+                prepare_rss_device_identity(expected_operator_url="https://qa.example.test")
+            with self.assertRaises(RSSAuthenticationError):
+                prepare_rss_device_identity(expected_operator_url="https://other.example.test", allow_pending_recovery=True)
+
+    def test_configured_profile_path_canonicalizes_and_pending_recovery_renews(self) -> None:
+        identity = prepare_rss_device_identity(expected_operator_url="https://qa.example.test")
+        with mock.patch("secrets_kit.protocol.rss_provisioning.time.time", return_value=50):
+            configure_rss_provisioning_bundle(
+                bundle=self._bundle(token=self.token(expires_at=100)),
+                expected_operator_url="https://qa.example.test",
+            )
+        profile_before = json.loads(self.profile.read_text())
+        key_before = self.profile.with_name("rss-auth-key.json").read_bytes()
+        with mock.patch("secrets_kit.protocol.rss_provisioning.time.time", return_value=200):
+            recovered = prepare_rss_device_identity(
+                expected_operator_url="https://qa.example.test", allow_pending_recovery=True
+            )
+            self.assertEqual(recovered, identity)
+            configure_rss_provisioning_bundle(
+                bundle=self._bundle(token=self.token(expires_at=300)),
+                expected_operator_url="https://qa.example.test",
+            )
+        profile_after = json.loads(self.profile.read_text())
+        self.assertEqual(profile_after["connection_id"], profile_before["connection_id"])
+        self.assertEqual(Path(profile_after["key_file"]).resolve(), self.profile.with_name("rss-auth-key.json").resolve())
+        self.assertEqual(self.profile.with_name("rss-auth-key.json").read_bytes(), key_before)
+
+    def test_crash_after_state_and_token_replaces_only_expired_ret(self) -> None:
+        identity = prepare_rss_device_identity(expected_operator_url="https://qa.example.test")
+        token_a = self.token(expires_at=100)
+        with mock.patch("secrets_kit.protocol.rss_provisioning.time.time", return_value=50), mock.patch(
+            "secrets_kit.protocol.rss_provisioning.configure_rss_client",
+            side_effect=RSSAuthenticationError("crash after token"),
+        ):
+            with self.assertRaisesRegex(RSSAuthenticationError, "crash after token"):
+                configure_rss_provisioning_bundle(
+                    bundle=self._bundle(token=token_a), expected_operator_url="https://qa.example.test"
+                )
+        token_path = self.profile.with_name("rss-enrollment-token")
+        self.assertEqual(token_path.read_text(), token_a)
+        token_b = self.token(expires_at=300)
+        with mock.patch("secrets_kit.protocol.rss_provisioning.time.time", return_value=200):
+            configure_rss_provisioning_bundle(
+                bundle=self._bundle(token=token_b), expected_operator_url="https://qa.example.test"
+            )
+        profile = json.loads(self.profile.read_text())
+        self.assertEqual(profile["connection_id"], identity["connection_id"])
+        self.assertEqual(token_path.read_text(), token_b)
+
+    def test_crash_recovery_rejects_nonexpired_replacement_and_expired_same_token(self) -> None:
+        prepare_rss_device_identity(expected_operator_url="https://qa.example.test")
+        token_a = self.token(expires_at=300)
+        with mock.patch("secrets_kit.protocol.rss_provisioning.time.time", return_value=50), mock.patch(
+            "secrets_kit.protocol.rss_provisioning.configure_rss_client", side_effect=RSSAuthenticationError("crash")
+        ):
+            with self.assertRaises(RSSAuthenticationError):
+                configure_rss_provisioning_bundle(bundle=self._bundle(token=token_a), expected_operator_url="https://qa.example.test")
+        state_before = self.profile.with_name("rss-provisioning.json").read_bytes()
+        token_before = self.profile.with_name("rss-enrollment-token").read_bytes()
+        with mock.patch("secrets_kit.protocol.rss_provisioning.time.time", return_value=100):
+            with self.assertRaises(RSSAuthenticationError):
+                configure_rss_provisioning_bundle(bundle=self._bundle(token=self.token(expires_at=400)), expected_operator_url="https://qa.example.test")
+        self.assertEqual(self.profile.with_name("rss-provisioning.json").read_bytes(), state_before)
+        self.assertEqual(self.profile.with_name("rss-enrollment-token").read_bytes(), token_before)
+        with mock.patch("secrets_kit.protocol.rss_provisioning.time.time", return_value=400):
+            with self.assertRaises(RSSAuthenticationError):
+                configure_rss_provisioning_bundle(bundle=self._bundle(token=token_a), expected_operator_url="https://qa.example.test")
+        self.assertEqual(self.profile.with_name("rss-provisioning.json").read_bytes(), state_before)
+        self.assertEqual(self.profile.with_name("rss-enrollment-token").read_bytes(), token_before)
+
+    def test_crash_recovery_rejects_different_public_state_untouched(self) -> None:
+        prepare_rss_device_identity(expected_operator_url="https://qa.example.test")
+        token_a = self.token(expires_at=100)
+        with mock.patch("secrets_kit.protocol.rss_provisioning.time.time", return_value=50), mock.patch(
+            "secrets_kit.protocol.rss_provisioning.configure_rss_client", side_effect=RSSAuthenticationError("crash")
+        ):
+            with self.assertRaises(RSSAuthenticationError):
+                configure_rss_provisioning_bundle(bundle=self._bundle(token=token_a), expected_operator_url="https://qa.example.test")
+        state_path = self.profile.with_name("rss-provisioning.json")
+        token_path = self.profile.with_name("rss-enrollment-token")
+        state_before, token_before = state_path.read_bytes(), token_path.read_bytes()
+        altered = self._bundle(token=self.token(expires_at=300), entitlement="ent_other")
+        with mock.patch("secrets_kit.protocol.rss_provisioning.time.time", return_value=200):
+            with self.assertRaisesRegex(RSSAuthenticationError, "authority differs"):
+                configure_rss_provisioning_bundle(bundle=altered, expected_operator_url="https://qa.example.test")
+        self.assertEqual(state_path.read_bytes(), state_before)
+        self.assertEqual(token_path.read_bytes(), token_before)
+
+    def test_crash_recovery_replaces_malformed_partial_ret_with_matching_state(self) -> None:
+        identity = prepare_rss_device_identity(expected_operator_url="https://qa.example.test")
+        token_a = self.token(expires_at=100)
+        with mock.patch("secrets_kit.protocol.rss_provisioning.time.time", return_value=50), mock.patch(
+            "secrets_kit.protocol.rss_provisioning.configure_rss_client", side_effect=RSSAuthenticationError("crash")
+        ):
+            with self.assertRaises(RSSAuthenticationError):
+                configure_rss_provisioning_bundle(bundle=self._bundle(token=token_a), expected_operator_url="https://qa.example.test")
+        token_path = self.profile.with_name("rss-enrollment-token")
+        token_path.write_text("ret1.partial", encoding="ascii")
+        token_path.chmod(0o600)
+        token_b = self.token(expires_at=300)
+        with mock.patch("secrets_kit.protocol.rss_provisioning.time.time", return_value=200):
+            configure_rss_provisioning_bundle(bundle=self._bundle(token=token_b), expected_operator_url="https://qa.example.test")
+        self.assertEqual(json.loads(self.profile.read_text())["connection_id"], identity["connection_id"])
+        self.assertEqual(token_path.read_text(), token_b)
+
+    def test_crash_recovery_unsafe_ret_file_is_denied(self) -> None:
+        prepare_rss_device_identity(expected_operator_url="https://qa.example.test")
+        with mock.patch("secrets_kit.protocol.rss_provisioning.time.time", return_value=50), mock.patch(
+            "secrets_kit.protocol.rss_provisioning.configure_rss_client", side_effect=RSSAuthenticationError("crash")
+        ):
+            with self.assertRaises(RSSAuthenticationError):
+                configure_rss_provisioning_bundle(bundle=self._bundle(token=self.token(expires_at=100)), expected_operator_url="https://qa.example.test")
+        token_path = self.profile.with_name("rss-enrollment-token")
+        token_path.chmod(0o640)
+        with mock.patch("secrets_kit.protocol.rss_provisioning.time.time", return_value=200):
+            with self.assertRaisesRegex(RSSAuthenticationError, "permissions"):
+                configure_rss_provisioning_bundle(bundle=self._bundle(token=self.token(expires_at=300)), expected_operator_url="https://qa.example.test")
+
+    def test_preparation_rejects_writable_parent_and_boolean_version(self) -> None:
+        self.profile.parent.mkdir(mode=0o777)
+        self.profile.parent.chmod(0o777)
+        with self.assertRaises(RSSAuthenticationError):
+            prepare_rss_device_identity(expected_operator_url="https://qa.example.test")
+        self.assertFalse(self.profile.with_name("rss-auth-key.json").exists())
+        self.profile.parent.chmod(0o700)
+        prepare_rss_device_identity(expected_operator_url="https://qa.example.test")
+        prep = rss_identity_prepared_path()
+        record = json.loads(prep.read_text())
+        record["version"] = True
+        prep.write_text(json.dumps(record))
+        with self.assertRaises(RSSAuthenticationError):
+            prepare_rss_device_identity(expected_operator_url="https://qa.example.test")
+
+    def test_prepared_key_must_have_matching_private_and_public_halves(self) -> None:
+        prepare_rss_device_identity(expected_operator_url="https://qa.example.test")
+        key_path = self.profile.with_name("rss-auth-key.json")
+        keypair = signing_keypair_from_record(record=json.loads(key_path.read_text()))
+        inconsistent = type(keypair)(metadata=keypair.metadata, public_key=keypair.public_key,
+                                    private_key=generate_signing_keypair().private_key)
+        key_path.write_text(json.dumps(signing_keypair_to_record(keypair=inconsistent)))
+        with self.assertRaises(RSSAuthenticationError):
+            prepare_rss_device_identity(expected_operator_url="https://qa.example.test")
+        self.assertFalse(self.profile.exists())
 
     def test_ssh_bundle_configures_distinct_device_without_checkout_receipt(self) -> None:
         bundle = {

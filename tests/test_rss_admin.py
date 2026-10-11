@@ -93,6 +93,16 @@ class RSSAdminTest(unittest.TestCase):
             json.loads(pending.read_text())["public_key"], original["public_key"]
         )
 
+    def test_administrator_action_cannot_cross_invitation_service_origin(self) -> None:
+        with mock.patch("secrets_kit.protocol.rss_admin._post", return_value=(200, {"status": "claimed"})):
+            claim_customer_admin()
+        with mock.patch("secrets_kit.protocol.rss_admin._post", return_value=(200, {})) as post:
+            with self.assertRaises(RSSAuthenticationError):
+                admin_action(action="device.ret", parameters={}, expected_operator_url="https://different.test")
+            post.assert_not_called()
+            admin_action(action="device.ret", parameters={}, expected_operator_url="https://qa.example.test")
+            post.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -32,6 +32,7 @@ from typing import Any
 
 import psutil
 
+from secrets_kit.daemon.control import validate_direct_candidate
 from secrets_kit.daemon.routing import (
     PeerRoute,
     RoutingTable,
@@ -304,6 +305,10 @@ class DirectTCPTransport:
 
     def admission_changed(self) -> None:
         """Direct TCP has no rejected discovery bindings to reconsider."""
+
+    def submit_direct_candidate(self, *, peer_id: str, endpoint: str) -> None:
+        """Unsafe test-only TCP cannot authenticate a libp2p candidate."""
+        raise TransportError("direct candidate requires libp2p")
 
     def send(self, *, peer_id: str, payload: bytes) -> TransportReceipt:
         _validate_payload(payload)
@@ -613,6 +618,7 @@ class PyLibP2PTransport:
         self._discovery_candidates: set[str] = set()
         self._candidate_infos: dict[str, Any] = {}
         self._mdns_candidate_infos: dict[str, Any] = {}
+        self._direct_hint_nodes: dict[str, tuple[Any, str]] = {}
         self._direct_bound_peers: set[str] = set()
         self._notified_candidate_endpoints: dict[str, str] = {}
         self._candidate_lock = threading.RLock()
@@ -730,6 +736,56 @@ class PyLibP2PTransport:
             token.run_sync_soon(schedule)
         except RuntimeError:
             restore_rejected()
+
+    def submit_direct_candidate(self, *, peer_id: str, endpoint: str) -> None:
+        """Queue one generation-local direct hint, requiring the expected node.
+
+        Same-user IPC supplies the hint, not authority. Normal Noise and runtime
+        admission verification own authentication. No restart or polling occurs.
+        """
+        import multiaddr
+        from libp2p.peer.peerinfo import info_from_p2p_addr
+
+        peer_id, endpoint = validate_direct_candidate(peer_id=peer_id, endpoint=endpoint)
+        candidate = info_from_p2p_addr(multiaddr.Multiaddr(endpoint))
+        transport_id = str(candidate.peer_id)
+        with self._state_lock:
+            host, token, generation = self._host_object, self._trio_token, self._host_generation
+        if host is None or token is None or self._stop_event.is_set():
+            raise TransportUnavailable("libp2p host is not running")
+        if transport_id == self._peer_id:
+            raise TransportError("self candidate is invalid")
+        with self._candidate_lock:
+            if transport_id not in self._direct_hint_nodes and len(self._direct_hint_nodes) >= 64:
+                raise TransportUnavailable("direct candidate limit reached")
+
+        def schedule() -> None:
+            with self._state_lock:
+                if (self._host_object is not host or self._host_generation != generation
+                        or self._stop_event.is_set()):
+                    return
+            with self._candidate_lock:
+                if transport_id not in self._direct_hint_nodes and len(self._direct_hint_nodes) >= 64:
+                    return
+                existing = self._direct_hint_nodes.get(transport_id)
+                selected = candidate
+                if existing is not None and existing[1] == peer_id and _peer_endpoint(peer_info=existing[0]) == endpoint:
+                    selected = existing[0]
+                else:
+                    self._direct_hint_nodes[transport_id] = (selected, peer_id)
+                # This existing cache owns direct candidates and their preference
+                # over RSS; local hints follow the same binding path as mDNS.
+                self._mdns_candidate_infos[transport_id] = selected
+                self._discovery_candidates.add(transport_id)
+                state = self._binding_states.get(transport_id)
+                if state is not None and state == (endpoint, "rejected"):
+                    self._binding_states[transport_id] = (endpoint, "retry_queued")
+            self._spawn_scope_task(self._connect_and_bind, selected)
+
+        try:
+            token.run_sync_soon(schedule)
+        except RuntimeError as exc:
+            raise TransportUnavailable("libp2p host stopped") from exc
 
     def send(self, *, peer_id: str, payload: bytes) -> TransportReceipt:
         _validate_payload(payload)
@@ -995,7 +1051,7 @@ class PyLibP2PTransport:
                     self._host = selected_host
                     self._host_object = host
                     self._peer_id = peer_id
-                    self._endpoint = f"{bound_address}/p2p/{peer_id}"
+                    self._endpoint = _append_peer_id(endpoint=bound_address, peer_id=peer_id)
                     self._port = bound_port
                     self._trio_token = trio.lowlevel.current_trio_token()
                     self._host_generation += 1
@@ -1124,6 +1180,7 @@ class PyLibP2PTransport:
             self._discovery_candidates.clear()
             self._candidate_infos.clear()
             self._mdns_candidate_infos.clear()
+            self._direct_hint_nodes.clear()
             self._direct_bound_peers.clear()
             self._relay_candidate_ranks.clear()
             self._notified_candidate_endpoints.clear()
@@ -2005,6 +2062,8 @@ class PyLibP2PTransport:
         addresses = _peer_addresses(peer_info=peer_info)
         endpoint = _peer_endpoint(peer_info=peer_info)
         with self._candidate_lock:
+            expected_hint = self._direct_hint_nodes.get(transport_peer_id)
+            expected_node = expected_hint[1] if expected_hint is not None and expected_hint[0] is peer_info else None
             selected_candidate = self._candidate_infos.get(transport_peer_id)
             is_mdns_candidate = (
                 self._mdns_candidate_infos.get(transport_peer_id) is peer_info
@@ -2034,6 +2093,7 @@ class PyLibP2PTransport:
             self._binding_states[transport_peer_id] = owned_state
         phase = "connect"
         bound_healthy = False
+        stream = None
         self._record_routing_event(
             event="identity_binding_started",
             direction="outbound",
@@ -2098,9 +2158,11 @@ class PyLibP2PTransport:
                 )
             phase = "open_binding_stream"
             stream = await host.new_stream(peer_info.peer_id, [IDENTITY_BINDING_PROTOCOL])
+            # connect/new_stream may reuse an inbound circuit before RSS
+            # discovery records it. Candidate addresses and callback order
+            # cannot establish that this stream actually traversed the LAN.
             if (
                 is_mdns_candidate
-                and transport_peer_id in self._relay_candidate_ranks
                 and not _proven_direct_connection(stream=stream)
             ):
                 raise TransportError("mDNS candidate did not establish a direct connection")
@@ -2114,6 +2176,8 @@ class PyLibP2PTransport:
                 challenge=challenge,
                 transport_identity=transport_peer_id,
             )
+            if expected_node is not None and remote_node_id != expected_node:
+                raise TransportError("candidate bound a different authorized node")
             self._record_routing_event(
                 event="identity_binding_verified",
                 direction="outbound",
@@ -2133,9 +2197,16 @@ class PyLibP2PTransport:
             await stream.write(_frame(_json_bytes({"version": 1, "claim": local_claim})))
             accepted = _json_object(await _read_stream_frame(stream))
             await stream.close()
+            stream = None
             if accepted.get("status") != "accepted":
                 raise TransportError("transport binding was not accepted")
             phase = "install_route"
+            with self._state_lock:
+                if self._host_object is not host:
+                    raise TransportUnavailable("candidate host generation expired")
+            with self._candidate_lock:
+                if expected_hint is not None and self._direct_hint_nodes.get(transport_peer_id) is not expected_hint:
+                    raise TransportUnavailable("candidate hint superseded")
             current_route = self._routing_table.discovered(
                 peer_id=remote_node_id, adapter=self.name
             )
@@ -2224,6 +2295,14 @@ class PyLibP2PTransport:
             )
             raise
         finally:
+            if stream is not None:
+                import trio
+
+                with trio.move_on_after(TRANSPORT_IO_TIMEOUT_SECONDS, shield=True):
+                    try:
+                        await stream.close()
+                    except Exception:
+                        pass
             pending_candidate = None
             with self._candidate_lock:
                 self._binding_inflight.discard(transport_peer_id)

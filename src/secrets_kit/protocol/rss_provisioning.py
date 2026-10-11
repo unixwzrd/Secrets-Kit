@@ -24,6 +24,9 @@ from pathlib import Path
 from typing import Any, Mapping
 from urllib.parse import urlsplit
 
+from secrets_kit.crypto.models import generate_signing_keypair
+from secrets_kit.crypto.persistence import signing_keypair_from_record, signing_keypair_to_record
+from secrets_kit.crypto.signatures import sign_ed25519, verify_ed25519
 from secrets_kit.protocol.rss_auth import (
     RSSAuthenticationError,
     _read_restricted_file,
@@ -35,6 +38,7 @@ from secrets_kit.protocol.rss_auth import (
 DEFAULT_RSS_OPERATOR_URL = "https://seckit-ops.unixwzrd.net"
 RSS_CHECKOUT_RECEIPT_PROTOCOL = "rss_checkout_receipt/v1"
 RSS_PROVISIONING_BUNDLE_PROTOCOL = "rss_provisioning_bundle/v1"
+RSS_IDENTITY_PREPARED_PROTOCOL = "rss_identity_prepared/v1"
 
 
 def rss_checkout_receipt_path() -> Path:
@@ -45,6 +49,70 @@ def rss_checkout_receipt_path() -> Path:
 def rss_provisioning_state_path() -> Path:
     """Return the restart-safe public provisioning-state path."""
     return rss_client_profile_path().with_name("rss-provisioning.json")
+
+
+def rss_identity_prepared_path() -> Path:
+    """Return the owner-private pre-RET RSS identity record path."""
+    return rss_client_profile_path().with_name("rss-identity-prepared.json")
+
+
+def prepare_rss_device_identity(
+    *, expected_operator_url: str, allow_pending_recovery: bool = False
+) -> dict[str, str]:
+    """Prepare and retain this device's RSS key and connection ID before an RET.
+
+    Only the public key and opaque connection ID are returned. Repeated calls
+    return the same validated identity; conflicting or unsafe local state is
+    rejected without overwriting it.
+    """
+    operator_url = _https_base(value=expected_operator_url)
+    profile_path = rss_client_profile_path()
+    _validate_prepared_parent(path=profile_path.parent)
+    if _path_present(path=profile_path):
+        if not allow_pending_recovery:
+            raise RSSAuthenticationError("RSS device is already configured; existing identity preserved")
+        profile = _read_object(path=profile_path)
+        if type(profile.get("version")) is not int or profile.get("version") != 1:
+            raise RSSAuthenticationError("RSS client profile version is invalid")
+        for field in ("connection_id", "key_file", "enrollment_token_file", "enrollment_url"):
+            if not isinstance(profile.get(field), str) or not profile.get(field):
+                raise RSSAuthenticationError("RSS pending recovery profile is invalid")
+        if profile.get("enrollment_url") != operator_url:
+            raise RSSAuthenticationError("RSS pending recovery authority differs; existing state preserved")
+        try:
+            configured_key = Path(str(profile["key_file"])).expanduser().resolve()
+        except (OSError, RuntimeError, TypeError):
+            raise RSSAuthenticationError("RSS pending recovery key path is invalid") from None
+        if configured_key != profile_path.with_name("rss-auth-key.json").resolve():
+            raise RSSAuthenticationError("RSS pending recovery key path is invalid")
+        if not _pending_token_expired(profile=profile, profile_path=profile_path):
+            raise RSSAuthenticationError("RSS device is already configured; existing identity preserved")
+        key_path = profile_path.with_name("rss-auth-key.json")
+        public_key = _read_prepared_key(path=key_path)
+        connection_id = profile.get("connection_id")
+        if not isinstance(connection_id, str) or not 1 <= len(connection_id) <= 256:
+            raise RSSAuthenticationError("RSS pending recovery connection_id is invalid")
+        return {"connection_id": connection_id, "public_key": public_key}
+    prep_path = rss_identity_prepared_path()
+    key_path = profile_path.with_name("rss-auth-key.json")
+    if _path_present(path=prep_path):
+        record = _read_prepared_record(path=prep_path)
+        identity = _validate_prepared_identity(record=record, operator_url=operator_url)
+        _validate_prepared_key(path=key_path, expected_public_key=identity["public_key"])
+        return identity
+    if _path_present(path=key_path):
+        public_key = _read_prepared_key(path=key_path)
+    else:
+        key_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        record = signing_keypair_to_record(keypair=generate_signing_keypair())
+        _write_private_new(path=key_path, payload=_canonical(value=record))
+        public_key = _read_prepared_key(path=key_path)
+    identity = {"connection_id": f"connection-{secrets.token_hex(16)}", "public_key": public_key}
+    _write_private_new(path=prep_path, payload=_canonical(value={
+        "protocol": RSS_IDENTITY_PREPARED_PROTOCOL, "version": 1,
+        "operator_url": operator_url, **identity,
+    }))
+    return identity
 
 
 def start_rss_checkout(
@@ -148,22 +216,17 @@ def configure_rss_provisioning_bundle(
         profile=existing_profile, profile_path=profile_path
     ):
         raise RSSAuthenticationError("RSS device is already configured; existing identity preserved")
+    prepared_path = rss_identity_prepared_path()
+    if _path_present(path=prepared_path):
+        prepared = _validate_prepared_identity(
+            record=_read_prepared_record(path=prepared_path), operator_url=operator_url
+        )
+        _validate_prepared_key(
+            path=profile_path.with_name("rss-auth-key.json"),
+            expected_public_key=prepared["public_key"],
+        )
     state_path = rss_provisioning_state_path()
     token_path = profile_path.with_name("rss-enrollment-token")
-    if existing_profile is None and _path_present(path=state_path) and _path_present(path=token_path):
-        state = _read_object(path=state_path)
-        entitlement_id, enrollment_url, relay_peers = _validate_public_state(
-            state, expected_operator_url=operator_url
-        )
-        if bundle.get("entitlement_id") != entitlement_id:
-            raise RSSAuthenticationError("pending RSS entitlement differs; existing state preserved")
-        return _configure_from_state(
-            token_path=token_path, entitlement_id=entitlement_id,
-            enrollment_url=enrollment_url, relay_peers=relay_peers,
-            state_path=state_path,
-        )
-    if existing_profile is None and (_path_present(path=state_path) or _path_present(path=token_path)):
-        raise RSSAuthenticationError("RSS provisioning is incomplete; existing state preserved")
     result = bundle
     required = {
         "protocol",
@@ -210,6 +273,42 @@ def configure_rss_provisioning_bundle(
         "enrollment_url": enrollment_url,
         "relay_peers": relay_peers,
     }
+    if _path_present(path=state_path):
+        state = _read_object(path=state_path)
+        _validate_public_state(state, expected_operator_url=operator_url)
+        if state != public_state:
+            raise RSSAuthenticationError("pending RSS authority differs; existing state preserved")
+        # A crash after writing public state but before writing its token is
+        # recoverable from the validated retained bundle, never from the host
+        # context or an unrelated entitlement. Keep the prepared key/ID intact.
+        if not _path_present(path=token_path):
+            store_rss_enrollment_token_file(path=token_path, token=token)
+        else:
+            retained = _read_restricted_file(token_path).decode("ascii").strip()
+            if rss_enrollment_token_expired(token=token):
+                raise RSSAuthenticationError("RSS Enrollment Token is expired")
+            if retained == token:
+                try:
+                    retained_expired = rss_enrollment_token_expired(token=retained)
+                except RSSAuthenticationError:
+                    raise RSSAuthenticationError("RSS retained Enrollment Token is invalid") from None
+                if retained_expired:
+                    raise RSSAuthenticationError("RSS Enrollment Token is expired")
+            else:
+                try:
+                    retained_expired = rss_enrollment_token_expired(token=retained)
+                except RSSAuthenticationError:
+                    retained_expired = None
+                if retained_expired is False:
+                    raise RSSAuthenticationError("RSS provisioning is incomplete; existing state preserved")
+                _replace_expired_token(path=token_path, token=token)
+        return _configure_from_state(
+            token_path=token_path, entitlement_id=entitlement_id,
+            enrollment_url=enrollment_url, relay_peers=list(relay_peers),
+            state_path=state_path,
+        )
+    if _path_present(path=token_path):
+        raise RSSAuthenticationError("RSS provisioning is incomplete; existing state preserved")
     _write_private_new(path=state_path, payload=_canonical(value=public_state))
     try:
         store_rss_enrollment_token_file(path=token_path, token=token)
@@ -233,15 +332,87 @@ def _configure_from_state(
     state_path: Path,
 ) -> Path:
     """Configure one local peer from restart-safe protected provisioning state."""
+    prep_path = rss_identity_prepared_path()
+    connection_id = None
+    if _path_present(path=prep_path):
+        identity = _validate_prepared_identity(
+            record=_read_prepared_record(path=prep_path), operator_url=enrollment_url
+        )
+        _validate_prepared_key(
+            path=rss_client_profile_path().with_name("rss-auth-key.json"),
+            expected_public_key=identity["public_key"],
+        )
+        connection_id = identity["connection_id"]
     profile = configure_rss_client(
         enrollment_token_file=token_path,
         entitlement_id=entitlement_id,
-        connection_id=None,
+        connection_id=connection_id,
         relay_peers=relay_peers,
         enrollment_url=enrollment_url,
     )
     state_path.unlink()
+    if _path_present(path=prep_path):
+        prep_path.unlink()
     return profile
+
+
+def _read_prepared_key(*, path: Path) -> str:
+    try:
+        record = json.loads(_read_restricted_file(path).decode("utf-8"))
+        keypair = signing_keypair_from_record(record=record)
+        message = b"seckit/rss-identity-prepared/key-consistency/v1"
+        if not verify_ed25519(keypair.public_key, message, sign_ed25519(keypair.private_key, message)):
+            raise ValueError("RSS keypair does not match")
+    except (RSSAuthenticationError, OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
+        raise RSSAuthenticationError("RSS prepared identity key is invalid") from exc
+    return base64.urlsafe_b64encode(keypair.public_key).rstrip(b"=").decode("ascii")
+
+
+def _validate_prepared_parent(*, path: Path) -> None:
+    """A different local user must not be able to replace prepared identity."""
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    metadata = path.lstat()
+    if (not stat.S_ISDIR(metadata.st_mode) or metadata.st_mode & 0o022
+            or metadata.st_uid != os.getuid()):
+        raise RSSAuthenticationError("RSS prepared identity directory is unsafe")
+
+
+def _read_prepared_record(*, path: Path) -> dict[str, Any]:
+    _validate_prepared_parent(path=path.parent)
+    try:
+        value = json.loads(_read_restricted_file(path).decode("utf-8"))
+    except (OSError, UnicodeError, ValueError):
+        raise RSSAuthenticationError("RSS prepared identity record is invalid") from None
+    if not isinstance(value, dict):
+        raise RSSAuthenticationError("RSS prepared identity record is invalid")
+    return value
+
+
+def _validate_prepared_key(*, path: Path, expected_public_key: str) -> None:
+    if _read_prepared_key(path=path) != expected_public_key:
+        raise RSSAuthenticationError("RSS prepared identity key differs; existing state preserved")
+
+
+def _validate_prepared_identity(*, record: Mapping[str, object], operator_url: str) -> dict[str, str]:
+    required = {"protocol", "version", "operator_url", "connection_id", "public_key"}
+    if (set(record) != required or record.get("protocol") != RSS_IDENTITY_PREPARED_PROTOCOL
+            or type(record.get("version")) is not int or record.get("version") != 1):
+        raise RSSAuthenticationError("RSS prepared identity is invalid")
+    if record.get("operator_url") != _https_base(value=operator_url):
+        raise RSSAuthenticationError("RSS prepared identity authority differs; existing state preserved")
+    connection_id = record.get("connection_id")
+    public_key = record.get("public_key")
+    if not isinstance(connection_id, str) or not 1 <= len(connection_id) <= 256:
+        raise RSSAuthenticationError("RSS prepared connection_id is invalid")
+    if not isinstance(public_key, str) or not public_key:
+        raise RSSAuthenticationError("RSS prepared public key is invalid")
+    try:
+        decoded = base64.urlsafe_b64decode(public_key + "=" * (-len(public_key) % 4))
+    except (ValueError, binascii.Error) as exc:
+        raise RSSAuthenticationError("RSS prepared public key is invalid") from exc
+    if len(decoded) != 32 or base64.urlsafe_b64encode(decoded).decode("ascii").rstrip("=") != public_key:
+        raise RSSAuthenticationError("RSS prepared public key is invalid")
+    return {"connection_id": connection_id, "public_key": public_key}
 
 
 def _pending_token_expired(*, profile: Mapping[str, object], profile_path: Path) -> bool:
@@ -250,7 +421,11 @@ def _pending_token_expired(*, profile: Mapping[str, object], profile_path: Path)
     configured = profile.get("enrollment_token_file")
     if not configured:
         return False
-    if configured != str(token_path):
+    try:
+        configured_path = Path(configured).expanduser().resolve()
+    except (OSError, RuntimeError, TypeError):
+        raise RSSAuthenticationError("RSS enrollment token path is invalid") from None
+    if configured_path != token_path.resolve():
         raise RSSAuthenticationError("RSS enrollment token path is invalid")
     try:
         token = _read_restricted_file(token_path).decode("ascii")
@@ -465,6 +640,8 @@ __all__ = [
     "DEFAULT_RSS_OPERATOR_URL",
     "complete_rss_enrollment",
     "configure_rss_provisioning_bundle",
+    "prepare_rss_device_identity",
+    "rss_identity_prepared_path",
     "rss_checkout_receipt_path",
     "rss_provisioning_state_path",
     "rss_enrollment_token_expired",

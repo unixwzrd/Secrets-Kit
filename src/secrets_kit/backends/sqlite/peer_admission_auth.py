@@ -216,15 +216,30 @@ def verify_admission_decision_payload(
     conn: sqlite3.Connection,
     payload: Mapping[str, object],
 ) -> None:
+    verify_admission_decision_signature(payload=payload)
+    _require_matching_request(
+        conn=conn,
+        node_id=_require_identifier(payload=payload, field_name="node_id", expected_type="node"),
+        request_id=_require_identifier(payload=payload, field_name="request_id", expected_type="transaction"),
+    )
+
+
+def verify_admission_decision_signature(*, payload: Mapping[str, object]) -> None:
+    """Validate a native signed decision without projecting/requesting admission.
+
+    Runtime-only enrollment repair may verify fresh consent while preserving
+    an already-authorized peer's existing history and scope. Normal admission
+    still requires its matching persisted request through the wrapper above.
+    """
     _require_fields(payload=payload, fields=_DECISION_REQUIRED)
     _require_int(payload=payload, field_name="proof_version", expected=ADMISSION_PROOF_VERSION)
     proof_type = _require_text(payload=payload, field_name="proof_type")
     if proof_type not in {PROOF_TYPE_ACCEPT, PROOF_TYPE_REJECT}:
         raise SQLiteValidationError("peer admission decision proof_type is unsupported")
-    request_id = _require_identifier(
+    _require_identifier(
         payload=payload, field_name="request_id", expected_type="transaction"
     )
-    node_id = _require_identifier(payload=payload, field_name="node_id", expected_type="node")
+    _require_identifier(payload=payload, field_name="node_id", expected_type="node")
     _require_identifier(payload=payload, field_name="decision_id", expected_type="transaction")
     _require_identifier(
         payload=payload, field_name="signer_node_id", expected_type="node"
@@ -278,7 +293,6 @@ def verify_admission_decision_payload(
         signature=_signature(payload=payload),
     ):
         raise SQLiteValidationError("peer admission decision signature verification failed")
-    _require_matching_request(conn=conn, node_id=node_id, request_id=request_id)
 
 
 def verify_peer_admission_transaction(
@@ -496,6 +510,7 @@ __all__ = [
     "signed_admission_decision_payload",
     "signed_admission_request_payload",
     "verify_admission_decision_payload",
+    "verify_admission_decision_signature",
     "verify_admission_request_payload",
     "verify_peer_admission_transaction",
 ]

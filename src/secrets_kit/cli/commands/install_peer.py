@@ -19,6 +19,8 @@ from typing import Any
 
 from secrets_kit.crypto.codecs import decode_b64url
 from secrets_kit.crypto.models import key_id_for_public_key
+from secrets_kit.daemon.control import validate_direct_candidate
+from secrets_kit.locale import msg
 from secrets_kit.protocol.rss_admin import admin_action
 from secrets_kit.protocol.rss_auth import (
     RSSAuthenticationError,
@@ -279,6 +281,45 @@ def enroll_installed_rss_peer(*, host: str, shared_launcher: Path | None = None)
     print("Remote RSS device enrolled with a distinct key and connection ID.")
 
 
+def _route_failure_message(
+    *, host: str | None, reason: str, shared_launcher: Path | None = None,
+    status: dict[str, Any] | None = None,
+) -> str:
+    """Describe a failed route phase using only allowlisted public status fields.
+
+    Read at most one diagnostic snapshot. Never echo subprocess output, runtime
+    payloads, discovery-event contents or credentials, and never repair state.
+    """
+    if status is None:
+        try:
+            status = _status_command(host=host, shared_launcher=shared_launcher)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            status = None
+    details = "status=unavailable"
+    if isinstance(status, dict):
+        daemon = status.get("daemon", {})
+        routing = status.get("routing", {})
+        discovery = routing.get("discovery", {}) if isinstance(routing, dict) else {}
+        rss = status.get("rss", {})
+
+        def field(data: Any, key: str, expected: type) -> bool | int | str:
+            value = data.get(key) if isinstance(data, dict) else None
+            if type(value) is expected and (expected is bool or value >= 0):
+                return value
+            return "unknown"
+
+        details = (
+            f"daemon_running={field(daemon, 'running', bool)}; "
+            f"discovery_candidates={field(discovery, 'candidate_count', int)}; "
+            f"rss_configured={field(rss, 'configured', bool)}; "
+            f"rss_authenticated_relays={field(rss, 'authenticated_relays', int)}"
+        )
+    return msg(
+        "cli.install.route_not_connected", side=host or msg("cli.install.this_machine"),
+        reason=reason, details=details,
+    )
+
+
 def _wait_route_command(*, host: str | None, peer_id: str, shared_launcher: Path | None = None) -> None:
     """Wait for the daemon's authenticated route event, never poll status."""
     if host is None:
@@ -289,11 +330,53 @@ def _wait_route_command(*, host: str | None, peer_id: str, shared_launcher: Path
             "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host,
             f"{remote_launcher} internal wait-route {shlex.quote(peer_id)}",
         ]
-    completed = subprocess.run(argv, text=True, capture_output=True, check=False, timeout=45)
+    try:
+        completed = subprocess.run(argv, text=True, capture_output=True, check=False, timeout=45)
+    except subprocess.TimeoutExpired:
+        raise ValueError(_route_failure_message(
+            host=host, reason="route_wait_timeout", shared_launcher=shared_launcher,
+        )) from None
     if completed.returncode:
-        raise ValueError(
-            f"authorized route not connected on {host or 'this machine'}; no repair attempted"
-        )
+        reason = next((
+            code for code in ("route_timeout", "route_unavailable", "control_forbidden", "bad_control")
+            if any(line.strip().endswith(f"authorized route unavailable: {code}")
+                   for line in (completed.stderr or "").splitlines())
+        ), "route_check_failed")
+        raise ValueError(_route_failure_message(
+            host=host, reason=reason, shared_launcher=shared_launcher,
+        ))
+
+
+def handoff_direct_candidates(*, host: str, shared_launcher: Path | None = None) -> None:
+    """Exchange live dial hints over SSH after admission; never infer port 22.
+
+    Missing direct hints do not defeat an existing RSS path. Route verification
+    remains authoritative and separately checks both admitted node identities.
+    """
+    states = [_status_command(host=side, shared_launcher=shared_launcher) for side in (None, host)]
+    for side, destination in ((None, states[1]), (host, states[0])):
+        identity = destination.get("identity", {})
+        endpoint = destination.get("local_endpoint", {})
+        try:
+            node, address = validate_direct_candidate(
+                peer_id=identity.get("peer_id") if isinstance(identity, dict) else None,
+                endpoint=endpoint.get("multiaddr") if isinstance(endpoint, dict) else None,
+            )
+        except ValueError:
+            continue
+        if side is None:
+            argv = [_local_seckit_command(shared_launcher=shared_launcher), "internal", "direct-candidate", "--stdin"]
+        else:
+            launcher = shlex.quote(str(shared_launcher)) if shared_launcher else '"$HOME/.local/bin/seckit"'
+            argv = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", side,
+                    f"{launcher} internal direct-candidate --stdin"]
+        try:
+            # A failed direct attempt may still have an enrolled RSS fallback.
+            # Never expose arbitrary command output in customer diagnostics.
+            subprocess.run(argv, input=json.dumps({"peer_id": node, "endpoint": address}),
+                           text=True, capture_output=True, check=False, timeout=15)
+        except (OSError, subprocess.SubprocessError):
+            continue
 
 
 def verify_authorized_route(*, host: str, shared_launcher: Path | None = None) -> None:
@@ -311,11 +394,15 @@ def verify_authorized_route(*, host: str, shared_launcher: Path | None = None) -
         routing = status.get("routing")
         routes = routing.get("routes") if isinstance(routing, dict) else None
         if not isinstance(daemon, dict) or daemon.get("running") is not True or not isinstance(routes, list):
-            raise ValueError(f"daemon or route status unavailable on {side or 'this machine'}")
+            raise ValueError(_route_failure_message(
+                host=side, reason="daemon_or_route_status_unavailable", status=status,
+            ))
         if not any(
             isinstance(route, dict) and route.get("peer_id") == other_id
             and route.get("connected") is True and route.get("reachable") is True
             for route in routes
         ):
-            raise ValueError(f"authorized route not connected on {side or 'this machine'}; no repair attempted")
+            raise ValueError(_route_failure_message(
+                host=side, reason="route_state_changed", status=status,
+            ))
     print("Authorized routes are connected on both nodes.")

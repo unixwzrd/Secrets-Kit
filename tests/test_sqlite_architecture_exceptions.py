@@ -17,11 +17,12 @@ from secrets_kit.backends.sqlite.node_identity import (
     SQLITE_NODE_IDENTITY_KEY_ENV,
     ensure_sqlite_node_identity,
 )
+from secrets_kit.backends.sqlite.provisioning import provision_sqlite_datastore
 from secrets_kit.backends.sqlite.schema import bootstrap_schema
 from secrets_kit.backends.sqlite.secrets_api import set_sqlite_secret
 from secrets_kit.backends.sqlite.taxonomy import resolve_entry_type_and_kind_ids
 from secrets_kit.backends.sqlite.transactions import create_transaction, insert_transaction
-from secrets_kit.identifiers import deterministic_identifier
+from secrets_kit.crypto.keys import generate_x25519_keypair
 from secrets_kit.models import EntryMetadata, now_utc_iso
 from secrets_kit.taxonomy.uuid import entry_kind_id_for_name, entry_type_id_for_name
 from tests.canonical_id_helpers import tid
@@ -33,11 +34,6 @@ PEER_GROUP_ID = tid("peer_group", "architecture-peer-group")
 NODE_ID = tid("node", "architecture-node")
 PEER_NODE_ID = tid("node", "architecture-peer-cache")
 TXN_DELIVERY_CACHE = tid("transaction", "txn-delivery-cache")
-LOCAL_STANDALONE_NODE_ID = deterministic_identifier(
-    identifier_type="node",
-    namespace="sqlite.bootstrap",
-    name="local-standalone-cli",
-)
 
 
 class SQLiteArchitectureExceptionsTest(unittest.TestCase):
@@ -59,9 +55,22 @@ class SQLiteArchitectureExceptionsTest(unittest.TestCase):
             )
             with mock.patch.dict(
                 os.environ,
-                {SQLITE_PATH_ENV: db_path, "SECKIT_DAEMON_PEERS": ""},
+                {
+                    "HOME": str(Path(tmp) / "home"),
+                    SQLITE_PATH_ENV: db_path,
+                    SQLITE_NODE_IDENTITY_KEY_ENV: str(Path(tmp) / "node-identity.key"),
+                    "SECKIT_DAEMON_PEERS": "",
+                },
                 clear=False,
             ):
+                conn = provision_sqlite_datastore(
+                    path=Path(db_path),
+                    storage_mode="plaintext",
+                )
+                try:
+                    local_identity = ensure_sqlite_node_identity(conn=conn)
+                finally:
+                    conn.close()
                 set_sqlite_secret(
                     service="svc",
                     account="acct",
@@ -110,14 +119,14 @@ class SQLiteArchitectureExceptionsTest(unittest.TestCase):
                         row["organization_id"] is None
                         and row["client_id"] is None
                         and row["owner_id"] is None
-                        and row["origin_node_id"] == LOCAL_STANDALONE_NODE_ID
+                        and row["origin_node_id"] == local_identity.node_id
                         for row in transaction_rows
                     )
                 )
                 self.assertIsNotNone(
                     conn.execute(
                         "SELECT 1 FROM nodes WHERE node_id = ?",
-                        (LOCAL_STANDALONE_NODE_ID,),
+                        (local_identity.node_id,),
                     ).fetchone()
                 )
             finally:
@@ -151,6 +160,8 @@ class SQLiteArchitectureExceptionsTest(unittest.TestCase):
                     ensure_sqlite_node_identity(conn=conn)
                     local_node = load_local_node_projection(conn=conn)
                     self.assertIsNotNone(local_node)
+                _, node_encryption_public_key = generate_x25519_keypair()
+                _, peer_encryption_public_key = generate_x25519_keypair()
                 conn.execute(
                     """
                     INSERT OR IGNORE INTO nodes (
@@ -169,7 +180,7 @@ class SQLiteArchitectureExceptionsTest(unittest.TestCase):
                         PEER_GROUP_ID,
                         bytes(32),
                         "ed25519",
-                        bytes(32),
+                        node_encryption_public_key,
                         "x25519",
                         "active",
                     ),
@@ -192,7 +203,7 @@ class SQLiteArchitectureExceptionsTest(unittest.TestCase):
                         PEER_GROUP_ID,
                         bytes(32),
                         "ed25519",
-                        bytes(32),
+                        peer_encryption_public_key,
                         "x25519",
                         "active",
                     ),

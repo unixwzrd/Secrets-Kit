@@ -4,6 +4,14 @@ Customer-facing changes. This file is derived from the authoritative public chan
 
 ## Unreleased
 
+## 2.0.1b26 — public beta
+
+- Promote the qualified immutable DEV a66 product tree, including scoped SSH listener handoff and non-SSH invitations. Require actual direct-connection proof before marking a LAN route healthy regardless of RSS discovery order; preserve relay fallback, admission and billing. Keep validated transport metadata extraction in the daemon client. Installed QA qualification passed before public-beta promotion.
+
+## 2.0.1b25 — QA connectivity and invitation candidate
+
+- Promote the qualified immutable DEV a65 product tree: authenticated listener-hint handoff after SSH admission, bounded route diagnostics, single-suffix listener addresses and resumable encrypted non-SSH invitations with explicit scoped consent. Optional RSS enrollment remains separately billing-owner-authorized and bound to the target's own key and connection ID. Exact installed QA and public-tag qualification remain required before external handoff; published b24 is unchanged.
+
 ## 2.0.1b24 — public beta
 
 - On Linux, `seckit unlock` now explains that it applies only to macOS Keychain; encrypted SQLite secrets need no unlock command. Correct the update check so the installed beta version is not falsely reported as a newer release.
