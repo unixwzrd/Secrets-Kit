@@ -1,12 +1,12 @@
 # Install Secrets-Kit
 
-**Updated**: 2026-09-26
+**Updated**: 2026-10-11
 
 Canonical operator install for macOS and Linux.
 
 If creation, package installation or pre-activation transport validation fails, the installer preserves its newly created candidate in an owner-only `failed-install.*` recovery directory alongside the runtime directory. The previous installation is unchanged, and the failed candidate is excluded from the executable-generation inventory used by uninstall. Keep the reported recovery directory for diagnosis; it is not automatically deleted. This handling does not adopt or repair older unreceipted/modified runtimes, and it does not move a candidate once activation has begun. Uninstall continues to reject unknown or changed runtime contents.
 
-The normal installer provisions UV and a managed Python runtime; preinstalled Python, pip, Git and GitHub CLI are not prerequisites. Release wheels are preferred. Explicit GitHub branch references without release wheels use a downloaded source archive, without Git. A custom non-GitHub Git URL still requires Git. Private downloads require repository access via `GH_TOKEN`, `GITHUB_TOKEN`, or an existing optional `gh` login; never put credentials in URLs or command arguments. The bootstrap needs Bash, standard platform utilities, and a downloader such as curl or wget. `--safe` and `--no-uv-download` deliberately prohibit bootstrap downloads and are not clean-machine installation defaults; use `--yes --no-shell-profile` for unattended installation with bootstrap enabled. Clean-machine qualification must test this default path without local Python or GitHub tools.
+The normal installer provisions UV and a managed Python runtime; preinstalled Python, pip, Git and GitHub CLI are not prerequisites. Release wheels are preferred. Explicit GitHub branch references without release wheels use a downloaded source archive, without Git. A custom non-GitHub Git URL still requires Git. Public beta release installers require no GitHub sign-in; private DEV and QA downloads require authenticated repository access. Browser authentication is not inherited by curl or wget. Never put credentials in URLs or command arguments. The bootstrap needs Bash, standard platform utilities, and a downloader such as curl or wget. `--safe` and `--no-uv-download` deliberately prohibit bootstrap downloads and are not clean-machine installation defaults; use `--yes --no-shell-profile` for unattended installation with bootstrap enabled. Clean-machine qualification must test this default path without local Python or Git tools on remote targets.
 
 - [Install Secrets-Kit](#install-secrets-kit)
   - [Prerequisites](#prerequisites)
@@ -17,6 +17,7 @@ The normal installer provisions UV and a managed Python runtime; preinstalled Py
   - [Verify](#verify)
   - [Validation helpers](#validation-helpers)
   - [Remote install](#remote-install)
+  - [Independent installation without SSH](#independent-installation-without-ssh)
   - [Local development (checkout only)](#local-development-checkout-only)
   - [Makefile targets (clone only)](#makefile-targets-clone-only)
   - [Execution modes](#execution-modes)
@@ -38,35 +39,39 @@ End users do not need to install Python, uv, virtual environments, or Git. The i
 
 ## Install
 
-For this private beta, download **`install.sh`** from the maintainer's supplied link. Open Terminal in the download folder and run:
+For public beta installation, use the exact immutable release installer URL supplied with the beta instructions. Set `INSTALLER_URL` to that public release asset URL, then run:
 
 ```bash
-bash ./install.sh
+bash -o pipefail -c 'curl -fsSL "$INSTALLER_URL" | bash'
 ```
+
+Export `INSTALLER_URL` before using the command above so the child Bash receives it. The beta guide supplies literal commands that need no variable setup. The tester does not need GitHub CLI or a GitHub account. If curl is absent, use `bash -o pipefail -c 'wget -qO- "$INSTALLER_URL" | bash'`. Alternatively, download the same `install.sh` from the supplied public release URL and run `bash ./install.sh` from its folder. These are alternatives, not additional steps after a successful install. Run the per-user installer as the intended Unix user, not with sudo.
 
 For supported Bash and Zsh shells, the generated single-file installer adds a marked Secrets Kit PATH block to the selected shell profile, including when downloaded and piped into Bash. Open a new terminal after installation, then run:
 
 ```bash
 seckit --version
 seckit doctor --install-check
-seckit init
+seckit info
+seckit daemon service status
+seckit status
 ```
 
 The PATH entry exposes stable launchers in `~/.local/bin`, not an internal UV Python or versioned runtime directory. The running installer cannot change its parent shell's environment. For immediate use without opening a new terminal, invoke `"$HOME/.local/bin/seckit"`. Use `--no-shell-profile` to opt out; `--safe` also suppresses profile changes. The underlying source installer retains its explicit `--shell-profile-force` option for unattended use, but users of the generated single-file installer do not need it. Unsupported shells require their own setup; report the shell to the maintainer if the new terminal still cannot find `seckit`. Bash startup-file selection is not a guarantee for every custom shell configuration.
 
-Current uninstall preserves shell profiles, including the marked PATH block. Automatic removal of only the installer-owned, unchanged block is planned. Until implemented, users may remove the section between `# >>> seckit path >>>` and `# <<< seckit path <<<` after uninstall; do not remove unrelated PATH entries, UV installations or shared Python runtimes.
+Uninstall removes only an unchanged, installer-owned PATH block after validating its exact contents. It preserves unrelated shell configuration, UV installations, shared Python runtimes, customer state and identities. A modified or ambiguous block causes uninstall to stop rather than edit it.
 
-The selected release determines the version. CI records its repository, exact tag (or branch build commit) and update channel in the installer; you do not edit or supply them. This one file contains the pinned application assets and verifies them automatically before invoking the original installer. It downloads the managed runtime and dependencies. No archive extraction, individual packages, manual checksum checks, preinstalled Python, GitHub CLI or API token are needed. Keep the script for reinstall. Existing users should upgrade rather than initialize again.
+The selected release determines the version. CI records its repository, exact tag (or branch build commit) and update channel in the installer; you do not edit or supply them. This one file contains the pinned application assets and verifies them automatically before invoking the original installer. It downloads the managed runtime and dependencies. No archive extraction, individual packages, manual checksum checks, preinstalled Python or manually supplied API token are needed. Re-run the same release command for reinstall. Existing users should upgrade rather than initialize again.
 
-The same script supports streaming from a **maintainer-supplied direct download URL** accessible to the terminal:
+The same script supports streaming with `curl` or `wget` from an exported **maintainer-supplied direct download URL** accessible to the terminal:
 
 ```bash
-curl -fsSL "$INSTALLER_URL" | bash
+bash -o pipefail -c 'curl -fsSL "$INSTALLER_URL" | bash'
 # Alternatively:
-wget -qO- "$INSTALLER_URL" | bash
+bash -o pipefail -c 'wget -qO- "$INSTALLER_URL" | bash'
 ```
 
-These are alternative commands, not additional installation steps. `INSTALLER_URL` must be the supplied script URL, not a GitHub repository page or source archive. No unauthenticated hosting URL is implied here: private GitHub browser sign-in is not inherited by curl or wget. If terminal access to the URL is unavailable, download the single script in your authenticated browser and run it as shown above; do not set up developer tools just to install.
+These are alternative commands, not additional installation steps. `INSTALLER_URL` must be the supplied public release asset URL, not a GitHub repository page or source archive.
 
 If verification fails, installation stops. Download a fresh script from the maintainer and retry; if it fails again, send a sanitized error, not credentials or full logs. The beta guide covers managed daemon startup and subsequent tests.
 
@@ -76,9 +81,30 @@ No manual checksum is required for normal installation. For independent comparis
 
 ### Advanced installation
 
-The repository's source `install.sh` is the network-fetch engine used for automation and remote installation. The downloadable single-file release `install.sh` contains that engine and its pinned application assets; users keep the same filename across environments. Private network downloads require `GH_TOKEN`, `GITHUB_TOKEN`, or an existing optional `gh` login; browser authentication is not automatically shared with command-line downloads. Never put credentials in URLs or command arguments. Individual release assets and their manifest are maintainer/automation inputs, not the normal beta installation procedure.
+The repository's source `install.sh` is the network-fetch engine used for automation and remote installation. The downloadable single-file release `install.sh` contains that engine and its pinned application assets; users keep the same filename across environments. Private DEV/QA downloads require authenticated maintainer access, but the public beta release does not. Never put credentials in URLs or command arguments. Individual release assets and their manifest are maintainer/automation inputs, not the normal beta installation procedure.
 
 ## Upgrade
+
+An in-place upgrade is different from uninstall/reinstall. Keep the existing installation and user account; record `seckit --version`, `seckit info`, `seckit status` and, for the billing owner, `seckit rss devices list` before upgrading. Keep a private backup and use only synthetic values for qualification. Upgrade one peer at a time while another remains running. Do not initialize, pair, subscribe or enroll again.
+
+The normal customer path is the built-in upgrade command:
+
+```bash
+seckit upgrade --check
+seckit upgrade
+```
+
+For beta qualification or a controlled rollout, replace `vX.Y.Z` with the exact approved release tag and use `seckit upgrade --ref vX.Y.Z` instead of the unpinned upgrade. The CLI retrieves and verifies the installer itself, displays the current and target versions, and asks for confirmation. Curl/wget is not a separate required customer step. An unavailable check is not evidence that the installed version is current. Record a failed CLI upgrade before using a fallback; fallback success does not turn the original result into PASS.
+
+To use an exact approved installer independently of the older client's update downloader, export `INSTALLER_URL` with that release's public asset URL and run one of:
+
+```bash
+bash -o pipefail -c 'curl -fsSL "$INSTALLER_URL" | bash -s -- --upgrade'
+# If curl is absent:
+bash -o pipefail -c 'wget -qO- "$INSTALLER_URL" | bash -s -- --upgrade'
+```
+
+After upgrading, require the approved version, a healthy managed daemon, the same node identity, existing peer authorization and RSS device connection ID, and readable historical secrets. Confirm both an existing synthetic value and a new update synchronize in each direction over the applicable direct/RSS routes. Preserve billing-owner authority and subscription capacity; an upgrade is not a new purchase. Stop and report any preservation failure rather than reinitializing, repairing, re-pairing or reenrolling. A successful same-version reinstall does not prove an older-to-newer upgrade.
 
 For an existing a22 installation, download the new generated `install.sh` and use the command below for the first upgrade. That older client's built-in downloader has a size limit too small for the new self-contained script. New client builds raise that bounded limit; existing release artifacts are not changed.
 
@@ -113,7 +139,7 @@ Updates are explicitly installed; there is no background automatic installation 
 bash ./install.sh --upgrade --ref "${RELEASE_TAG}" --yes --no-init --no-shell-profile
 ```
 
-The CLI also exposes `seckit install --upgrade` and `seckit install user@hostname --upgrade --ref "${RELEASE_TAG}"`. A release-wheel installation without a local installer fetches it from the configured installation URL. Remote installation requires SSH access and appropriate download authentication on the target; it does not automatically distribute your local credentials.
+The CLI also exposes `seckit install --upgrade` and `seckit install user@hostname --upgrade --ref "${RELEASE_TAG}"`. A release-wheel installation without a local installer fetches it from the configured installation URL. The current remote command retrieves and verifies the release installer on the initiating machine, then streams it over SSH; the target does not need repository access.
 
 ## Shared-host installation (qualification candidate)
 
@@ -162,32 +188,64 @@ bash scripts/upgrade-validation.sh
 
 ## Remote install
 
-First-time SSH setup: [QUICK_SSH_SETUP.md](QUICK_SSH_SETUP.md). Once SSH works, use the customer-facing install command from the initiating machine:
+First-time SSH setup: [QUICK_SSH_SETUP.md](QUICK_SSH_SETUP.md). From the installed first machine, install and authorize a peer reachable by public-key SSH:
+
+```bash
+seckit install user@host
+# Or, when both machines use the same login name:
+seckit install @host
+```
+
+The target does not need GitHub CLI or a GitHub login. The initiating machine retrieves the exact installer recorded in its verified release, checks its digest, streams it to the target and completes the interactive peer-authorization workflow. Do not use `--install-only` when qualifying peer authorization.
+
+Convenience wrapper:
 
 ```bash
 seckit install @host
 seckit install seckit@other-host
 ```
 
-Remote targets must include `@` (`@host` uses your local `$USER`; `user@host` sets the SSH user). Remote install implies `--yes` (non-interactive).
+Remote targets must include `@` (`@host` uses your local `$USER`; `user@host` sets the SSH user). Remote software installation supplies `--yes` on the target; peer authorization remains interactive on the initiating machine.
 
-Remote install pins the **release wheel** for the caller’s version (`v` + `seckit --version`) via `SECKIT_REF` on the remote host (no `git` required). Override with `--ref TAG` only when an exact qualified release tag has been approved for that installation.
+Remote install selects the caller's verified release origin by default and streams its verified installer over SSH; the target needs runtime/dependency download access but no Git or GitHub login. Override with `--ref TAG` only when an exact qualified release tag has been approved for that installation. To upgrade an existing SSH peer, upgrade the initiating machine first, then run `seckit install user@host` (or `seckit install @host`) from its interactive terminal. Require preservation of the target's existing store, node identity, peer authorization and RSS enrollment; do not repeat admission or Checkout.
 
-Remote install is installation only. It does not exchange peer identity keys, register peers, authorize service groups, configure synchronization trust, or perform authenticated peer bootstrap. A future `seckit username@host` bootstrap ceremony may combine install, identity exchange, explicit peer registration, static connectivity setup, and authenticated connectivity checks, but that is a separate peer-admission workflow and not implemented by the current install command.
+Remote install performs installation and authenticated peer setup using the existing admission protocol. It must be run from an interactive terminal for peer setup; `--install-only` intentionally skips that step. Qualification must verify the installed result and an authorized route rather than treating a successful software transfer as sufficient.
 
-When peer bootstrap is implemented, each node must generate or import its own long-lived signing and encryption keypairs during install/init. Private keys must remain on their originating node. Public keys and fingerprints are exchanged only during explicit peer admission. Node identity keys are distinct from the local SQLite storage key, and SQLite storage keys must not be shared between real peers.
+Each node generates or imports its own long-lived signing and encryption keypairs during install/init. Private keys remain on their originating node. Public keys and fingerprints are exchanged only during authenticated peer admission. Node identity keys are distinct from the local SQLite storage key, and SQLite storage keys must not be shared between real peers.
 
 For SQLite, current initialization provisions standalone local node identity material at `~/.config/seckit/node-identity.key` and stores only public keys plus private-key references in the SQLite `nodes` and `node_private` tables.
 Normal runtime validates this identity state and does not silently repair it.
 
-SQLite initialization also records an immutable datastore storage mode:
+Fresh SQLite initialization also records an immutable datastore storage mode; the ordinary installer performs initialization only for a fresh installation. Do not run initialization as an upgrade or route-repair step:
 
 ```bash
 seckit init
 ```
 
-Encrypted mode requires the local SQLite storage key. Plaintext mode is explicit, reports through `seckit info`, warns operators that local SQLite secret bytes are stored unencrypted, and is intended for controlled local synchronization testing before authenticated peer-envelope encryption exists.
+Encrypted mode requires the local SQLite storage key and is the normal fresh beta installation mode. Plaintext mode is explicit, reports through `seckit info`, and warns operators that local SQLite secret bytes are stored unencrypted; it is not the normal customer beta workflow. Local storage mode does not replace authenticated, encrypted peer transport.
 The mode is persisted inside the SQLite database and is not switchable at runtime.
+
+## Independent installation without SSH
+
+When the machines cannot reach each other over SSH, run the same pinned public installer independently under the intended user on each machine. No inbound SSH or SSH keys are needed. Both machines need outbound HTTPS for the invitation mailbox; the RSS path also needs access to the configured relays. A fresh unpaired installation can correctly report `WAITING FOR PEERS` until authorization and a usable route are established.
+
+For RSS sharing, the source machine must first complete its single Checkout, RSS enrollment and billing-owner claim as described in [RSS_CUSTOMER_GUIDE.md](RSS_CUSTOMER_GUIDE.md). The target requires its own device credential under the same subscription, not another Checkout. On the source, create a short-lived invitation for the intended service/account:
+
+```bash
+seckit peer invite --service SERVICE --account ACCOUNT --rss
+```
+
+Deliver the code privately to the target user. It is a peer invitation, not a beta Checkout invitation or an identity export. On the target, run `seckit peer join`, enter the code at the protected prompt, and confirm the source identity and sharing scope. A pending result and exit status 1 are expected until the source approves; retain the session ID. On the source, run `seckit peer approve SESSION_ID` with the session ID displayed by its invitation command, and confirm the target identity, scope and additional RSS device. On the target, finish the same session:
+
+```bash
+seckit peer join --resume SESSION_ID
+seckit daemon service status
+seckit status
+```
+
+Require authorized sharing, a healthy managed service and usable routes; allow up to two minutes for discovery without rewriting secrets or starting another invitation. The billing owner checks `seckit rss devices list` for a distinct target connection under the existing purchased capacity. If capacity is full, use the owner's customer billing portal to approve the additional charge and confirm paid capacity before completing enrollment. Peer authorization and RSS billing authority remain separate. Report an expired or failed session without exchanging peer files, private keys or enrollment tokens. For a LAN-only invitation, omit `--rss`; no paid RSS subscription is needed, but the HTTPS mailbox and a reachable direct transport path are still required.
+
+To upgrade or preserve-reinstall an independently installed peer, run that release's pinned installer under its existing user. Do not repeat the invitation or RSS enrollment. SSH authorization transports public identity information; neither installation path shares private identity keys or the SQLite storage key.
 
 ## Local development (checkout only)
 

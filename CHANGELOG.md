@@ -4,6 +4,14 @@ Customer-facing changes. This file is derived from the authoritative public chan
 
 ## Unreleased
 
+## 2.0.1b28 — public beta
+
+- Promote the qualified immutable DEV a68 documentation-only product tree. Lead with built-in preserving upgrades, retain pinned downloads as an older-client fallback, and document source-verified SSH installation and independent non-SSH invitations. Client runtime, peer authorization and billing authority are unchanged. Installed QA qualification passed before public-beta promotion.
+
+## 2.0.1a68 — DEV installation documentation candidate
+
+- Document built-in preserving upgrades as the normal customer path, with pinned installer downloads only as an older-client fallback. Correct public-download, SSH install/authorization and PATH-cleanup instructions; document independent non-SSH invitations and separate RSS device enrollment. Client runtime and authority are unchanged. Installed DEV and QA documentation qualification remain required before a new public beta.
+
 ## 2.0.1b27 — public beta
 
 - Promote the qualified immutable DEV a67 product tree, including the bounded legacy Keychain lookup diagnostic. Encrypted SQLite does not require `seckit unlock`; synchronization, peer admission and RSS billing authority are unchanged. Installed QA qualification passed before public-beta promotion.

@@ -1,7 +1,7 @@
 # CLI reference — `seckit`
 
 **Created**: 2026-05-07  
-**Updated**: 2026-10-10
+**Updated**: 2026-10-11
 
 Command list aligned with the current `seckit --help` output. For mental models and policies, see [CONCEPTS.md](CONCEPTS.md).
 
@@ -75,9 +75,9 @@ The daemon is authoritative for this view. If its response is unavailable, inclu
 
 ## Migration / maintenance
 
-### Non-SSH peer invitations — DEV candidate
+### Non-SSH peer invitations
 
-The DEV candidate adds an encrypted, short-lived invitation without SSH or manual request/acceptance files. This surface is not yet an installed-qualified beta feature. On an initialized source, run `seckit peer invite --service SERVICE --account ACCOUNT`; add `--rss` only when that user has the separate billing-owner credential and intends to authorize the new device's RSS enrollment. The code is displayed only on an interactive terminal and must be delivered privately. On the initialized target, run `seckit peer join`, enter the code at its hidden prompt and confirm the displayed source identity and scope. On the source, run `seckit peer approve INVITATION_ID`, compare the target's fingerprints with that user and confirm. On the target, run `seckit peer join --resume INVITATION_ID` to apply the approval; rerun source approval to observe the target's signed completion. A retained source offer can be retried with `seckit peer invite --resume INVITATION_ID`; retrying never creates a new code or extends its original 15-minute deadline.
+Independent peer onboarding uses an encrypted, short-lived invitation without SSH or manual request/acceptance files. This customer workflow is installed-qualified in the public beta; see [INSTALL.md](INSTALL.md#independent-installation-without-ssh) for prerequisites and the complete procedure. On an initialized source, run `seckit peer invite --service SERVICE --account ACCOUNT`; add `--rss` only when that user has the separate billing-owner credential and intends to authorize the new device's RSS enrollment. The code is displayed only on an interactive terminal and must be delivered privately. On the initialized target, run `seckit peer join`, enter the code at its hidden prompt and confirm the displayed source identity and scope. On the source, run `seckit peer approve INVITATION_ID`, compare the target's fingerprints with that user and confirm. On the target, run `seckit peer join --resume INVITATION_ID` to apply the approval; rerun source approval to observe the target's signed completion. A retained source offer can be retried with `seckit peer invite --resume INVITATION_ID`; retrying never creates a new code or extends its original 15-minute deadline.
 
 The invitation grants only the named service/account scope. With `--rss`, the target keeps its own private RSS key and receives an enrollment token bound to that key and connection ID. A full subscription leaves approval pending; the billing owner uses `seckit rss billing portal` and retries approval after paid capacity is available. The mailbox cannot authorize a peer, bill an account or read secrets. Peer admission, local RSS configuration, authenticated relay enrollment and a connected route remain separate results. A successful invitation does not prove network reachability; inspect `seckit status` before synchronization testing.
 
