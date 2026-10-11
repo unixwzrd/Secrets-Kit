@@ -4,6 +4,14 @@ Customer-facing changes. This file is derived from the authoritative public chan
 
 ## Unreleased
 
+## 2.0.1b27 — public beta
+
+- Promote the qualified immutable DEV a67 product tree, including the bounded legacy Keychain lookup diagnostic. Encrypted SQLite does not require `seckit unlock`; synchronization, peer admission and RSS billing authority are unchanged. Installed QA qualification passed before public-beta promotion.
+
+## 2.0.1a67 — DEV legacy Keychain diagnostic candidate
+
+- Report an unavailable or inaccessible macOS Keychain cleanly from the legacy `seckit unlock` command instead of emitting a Python traceback. Do not attempt an unlock after an indeterminate lookup. Encrypted SQLite operation is unchanged and does not require this Keychain-only command. This DEV correction is not part of published b26 and requires qualification before promotion.
+
 ## 2.0.1b26 — public beta
 
 - Promote the qualified immutable DEV a66 product tree, including scoped SSH listener handoff and non-SSH invitations. Require actual direct-connection proof before marking a LAN route healthy regardless of RSS discovery order; preserve relay fallback, admission and billing. Keep validated transport metadata extraction in the daemon client. Installed QA qualification passed before public-beta promotion.

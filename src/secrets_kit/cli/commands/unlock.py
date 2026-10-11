@@ -63,7 +63,11 @@ def cmd_unlock(*, args: argparse.Namespace) -> int:
     if args.dry_run:
         return 0
 
-    if keychain_accessible(path=target):
+    try:
+        accessible = keychain_accessible(path=target)
+    except BackendError as exc:
+        return _fatal(message=str(exc), code=1)
+    if accessible:
         print(msg("cli.unlock.status.accessible", target=target))
         return 0
 

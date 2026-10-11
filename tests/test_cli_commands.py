@@ -440,6 +440,30 @@ class CliCommandsTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("security unlock-keychain /tmp/login.keychain-db", out.getvalue())
 
+    def test_unlock_macos_lookup_failure_is_reported_without_unlock(self) -> None:
+        from secrets_kit.backends.common import BackendError
+
+        err = io.StringIO()
+        with (
+            mock.patch("secrets_kit.cli.commands.unlock.sys.platform", "darwin"),
+            mock.patch("secrets_kit.cli.commands.unlock.check_security_cli", return_value=True),
+            mock.patch("secrets_kit.cli.commands.unlock.keychain_policy", return_value=None),
+            mock.patch("secrets_kit.cli.commands.unlock.keychain_accessible", side_effect=BackendError("synthetic Keychain lookup failure")),
+            mock.patch("secrets_kit.cli.commands.unlock.unlock_keychain") as unlock,
+            mock.patch("secrets_kit.cli.commands.unlock._confirm") as confirm,
+            redirect_stdout(io.StringIO()),
+            redirect_stderr(err),
+        ):
+            code = cmd_unlock(args=argparse.Namespace(
+                keychain="/tmp/login.keychain-db", timeout=3600,
+                dry_run=False, yes=False, harden=False,
+            ))
+        self.assertEqual(code, 1)
+        self.assertIn("synthetic Keychain lookup failure", err.getvalue())
+        self.assertNotIn("Traceback", err.getvalue())
+        unlock.assert_not_called()
+        confirm.assert_not_called()
+
     def test_lock_runs_backend(self) -> None:
         out = io.StringIO()
         err = io.StringIO()
