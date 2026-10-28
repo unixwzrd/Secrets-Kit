@@ -37,17 +37,17 @@ def register_peer_commands(
     invite_parser.add_argument("--service", help=msg("cli.peer.scope_service_help"))
     invite_parser.add_argument("--account", help=msg("cli.peer.scope_account_help"))
     invite_parser.add_argument("--rss", action="store_true", help=msg("cli.peer.invite_rss_help"))
-    invite_parser.add_argument("--resume", metavar="INVITATION_ID", help=msg("cli.peer.resume_help"))
+    invite_parser.add_argument("--resume", metavar="SESSION_ID", help=msg("cli.peer.resume_help"))
     invite_parser.add_argument("--backend", choices=["sqlite"], default="sqlite")
     invite_parser.set_defaults(func=cmd_peer_invite)
 
     join_parser = peer_sub.add_parser("join", help=msg("cli.peer.join_help"))
-    join_parser.add_argument("--resume", metavar="INVITATION_ID", help=msg("cli.peer.resume_help"))
+    join_parser.add_argument("--resume", metavar="SESSION_ID", help=msg("cli.peer.resume_help"))
     join_parser.add_argument("--backend", choices=["sqlite"], default="sqlite")
     join_parser.set_defaults(func=cmd_peer_join_invitation)
 
     approve_parser = peer_sub.add_parser("approve", help=msg("cli.peer.approve_help"))
-    approve_parser.add_argument("invitation_id")
+    approve_parser.add_argument("invitation_id", metavar="SESSION_ID")
     approve_parser.add_argument("--backend", choices=["sqlite"], default="sqlite")
     approve_parser.set_defaults(func=cmd_peer_approve_invitation)
 

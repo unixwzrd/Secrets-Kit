@@ -4,6 +4,14 @@ Customer-facing changes. This file is derived from the authoritative public chan
 
 ## Unreleased
 
+## 2.0.1b29 — public beta
+
+- Promote the qualified immutable DEV a69 invitation-feedback product tree. Consistently use session ID in invitation output and help, and print the copyable ID on its own line without trailing punctuation. Invitation codes, admission, RSS enrollment and stored/protocol identifiers are unchanged. Installed QA qualification passed before public-beta promotion.
+
+## 2.0.1a69 — DEV invitation feedback candidate
+
+- Consistently label peer-invitation identifiers as session IDs and print each ID on its own line without trailing punctuation. Preserve invitation codes, admission, RSS enrollment, and stored/protocol identifiers. Installed DEV and QA qualification is required before public beta promotion.
+
 ## 2.0.1b28 — public beta
 
 - Promote the qualified immutable DEV a68 documentation-only product tree. Lead with built-in preserving upgrades, retain pinned downloads as an older-client fallback, and document source-verified SSH installation and independent non-SSH invitations. Client runtime, peer authorization and billing authority are unchanged. Installed QA qualification passed before public-beta promotion.

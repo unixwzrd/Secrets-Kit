@@ -15,6 +15,45 @@ from secrets_kit.locales.en_US import STRINGS
 
 
 class LocaleTest(unittest.TestCase):
+    def test_invitation_session_ids_are_standalone_copyable_lines(self) -> None:
+        session_id = "a" * 42 + "_"
+        for language in TABLES:
+            for key in (
+                "cli.peer.invitation_created",
+                "cli.peer.invitation_pending",
+                "cli.peer.invitation_approved_pending",
+            ):
+                with (
+                    self.subTest(language=language, key=key),
+                    mock.patch.dict(os.environ, {"SECKIT_LANGUAGE": language}, clear=True),
+                ):
+                    text = msg(key, session_id=session_id)
+                    self.assertEqual(text.splitlines().count(session_id), 1)
+                    self.assertNotIn(session_id + ".", text)
+
+    def test_peer_help_uses_session_id_without_renaming_arguments(self) -> None:
+        for language in TABLES:
+            with (
+                self.subTest(language=language),
+                mock.patch.dict(os.environ, {"SECKIT_LANGUAGE": language}, clear=True),
+            ):
+                parser = build_parser()
+                for command in ("invite", "join", "approve"):
+                    arguments = ["peer", command]
+                    if command != "approve":
+                        arguments.append("--resume")
+                    args = parser.parse_args([*arguments, "session-safe"])
+                    destination = "invitation_id" if command == "approve" else "resume"
+                    self.assertEqual(getattr(args, destination), "session-safe")
+                    output = io.StringIO()
+                    with redirect_stdout(output), self.assertRaises(SystemExit) as caught:
+                        parser.parse_args(["peer", command, "--help"])
+                    self.assertEqual(caught.exception.code, 0)
+                    self.assertIn("SESSION_ID", output.getvalue())
+                    self.assertNotIn("INVITATION_ID", output.getvalue())
+                if language == "en_US":
+                    self.assertIn("session ID", msg("cli.peer.resume_help"))
+
     def test_service_feedback_translates_without_changing_values(self) -> None:
         from secrets_kit.cli.commands.daemon import cmd_daemon_service_status
 

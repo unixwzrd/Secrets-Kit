@@ -91,6 +91,8 @@ class CliPeerInvitationTest(unittest.TestCase):
         with mock.patch("secrets_kit.cli.commands.peer_invitation._flow", return_value=(state, flow)), mock.patch("secrets_kit.cli.commands.peer_invitation.local_peer_public_identity"), mock.patch("secrets_kit.cli.commands.peer_invitation.input", return_value="y"), redirect_stdout(output), redirect_stderr(errors):
             self.assertEqual(cmd_peer_approve_invitation(args=args), 1)
         self.assertIn("session-safe", errors.getvalue())
+        self.assertIn("session-safe", errors.getvalue().splitlines())
+        self.assertIn("session ID", errors.getvalue())
         self.assertNotIn("private mailbox detail", errors.getvalue())
         self.assertNotIn("skp1", output.getvalue())
 
@@ -111,6 +113,8 @@ class CliPeerInvitationTest(unittest.TestCase):
             self.assertEqual(cmd_peer_invite(args=args), 0)
         flow.invite.assert_called_once_with(service="svc", account="acct", include_rss=False)
         self.assertEqual(output.getvalue().count("skp1-private-handoff"), 1)
+        self.assertIn("session-new", output.getvalue().splitlines())
+        self.assertIn("session ID", output.getvalue())
         state.close.assert_called_once()
 
     def test_target_resume_completes_with_rss_reload(self) -> None:
@@ -165,10 +169,13 @@ class CliPeerInvitationTest(unittest.TestCase):
             "service": "svc", "account": "acct", "rss_identity": None,
         }
         flow.confirm_completion.return_value = False
-        with mock.patch("secrets_kit.cli.commands.peer_invitation._flow", return_value=(state, flow)), mock.patch("secrets_kit.cli.commands.peer_invitation.local_peer_public_identity"), mock.patch("secrets_kit.cli.commands.peer_invitation.input") as prompt, redirect_stdout(io.StringIO()):
+        output = io.StringIO()
+        with mock.patch("secrets_kit.cli.commands.peer_invitation._flow", return_value=(state, flow)), mock.patch("secrets_kit.cli.commands.peer_invitation.local_peer_public_identity"), mock.patch("secrets_kit.cli.commands.peer_invitation.input") as prompt, redirect_stdout(output):
             self.assertEqual(cmd_peer_approve_invitation(args=args), 0)
         prompt.assert_not_called()
         flow.approve.assert_called_once_with(session_id="session-approved", confirmed=True)
+        self.assertIn("session-approved", output.getvalue().splitlines())
+        self.assertIn("session ID", output.getvalue())
 
     def test_target_resume_successfully_completes_without_rss_reload(self) -> None:
         args = argparse.Namespace(backend="sqlite", resume="session-target")
