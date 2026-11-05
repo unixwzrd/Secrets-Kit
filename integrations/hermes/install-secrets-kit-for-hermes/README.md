@@ -4,7 +4,7 @@
 
 Read [SKILL.md](SKILL.md) and [security boundaries](references/security-boundaries.md) before running the integration scripts.
 
-Public beta client candidate: `v2.0.2b1`. Use it only after the public artifact is published and independently verified. The skill metadata's `0.1.0` identifies the integration package, not the client version. Obtain this directory from a verified immutable integration revision supplied by the operator; documentation fixes after a tag are not retroactively present in that tag.
+Use only an approved published client tag with an independently verified artifact. The skill metadata's `0.1.0` identifies the integration package, not the client version. Obtain this directory from a verified immutable integration revision supplied by the operator; documentation fixes after a tag are not retroactively present in that tag.
 
 The GitHub release asset bundle and this integration directory are different inputs. The tagged asset manifest uses `source-commit.txt`, not the legacy controller's `release-id`. Follow the skill's supported artifact-install path, then `configure`/`verify`; do not alter a release manifest to make the legacy `preflight`/`install` adapter accept it.
 

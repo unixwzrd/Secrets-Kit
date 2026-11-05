@@ -18,7 +18,7 @@ Install a pinned Secrets Kit release under the Unix account that runs Hermes. Im
 
 ## Required inputs
 
-- The approved exact release tag; public beta candidate: `v2.0.2b1`. Use this tag only after its public artifact is published and independently verified.
+- The approved exact published release tag, independently verified against its public artifact. Set `SECKIT_TAG` to that tag before running the commands below.
 - The release repository, downloaded asset directory and independently trusted manifest checksum.
 - The integration directory from a separately verified immutable source revision or integration bundle. A skill file alone is not the scripts and references it links to.
 - The absolute Hermes executable path and existing `HERMES_HOME`.
@@ -41,7 +41,9 @@ Do not run the controller's legacy `preflight` or `install` actions against thes
 ```bash
 shasum -a 256 manifest.sha256
 shasum -a 256 -c manifest.sha256
-SECKIT_WHEEL_URL="file://$PWD/seckit-2.0.2b1-py3-none-any.whl" bash ./install.sh --ref v2.0.2b1 --yes --no-init --no-shell-profile
+test -n "$SECKIT_TAG"
+test -f "seckit-${SECKIT_TAG#v}-py3-none-any.whl"
+SECKIT_WHEEL_URL="file://$PWD/seckit-${SECKIT_TAG#v}-py3-none-any.whl" bash ./install.sh --ref "$SECKIT_TAG" --yes --no-init --no-shell-profile
 "$HOME/.local/bin/seckit" --version
 "$HOME/.local/bin/seckit" doctor --install-check
 ```
@@ -78,7 +80,7 @@ Restart Hermes and repeat verification. Preserve unrelated MCP servers. Leave `.
 
 ```bash
 "$HOME/.local/bin/seckit" upgrade --check
-"$HOME/.local/bin/seckit" upgrade --ref v2.0.2b1
+"$HOME/.local/bin/seckit" upgrade --ref "$SECKIT_TAG"
 "$HOME/.local/bin/seckit" daemon service status
 ```
 
