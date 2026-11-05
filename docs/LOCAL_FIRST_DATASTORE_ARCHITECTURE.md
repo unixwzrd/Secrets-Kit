@@ -1,3 +1,5 @@
+> Source of truth: Secrets Kit documentation master. This public copy is a reviewed derivative.
+
 # Local-First Datastore Architecture
 
 **Created**: 2026-05-21
@@ -70,7 +72,7 @@ The current local multi-node synchronization tests exercise isolated SQLite node
 
 Protocol-visible datastore and protocol objects use immutable UUID-backed typed identifiers. Human-facing names are mutable projections and must not be used for routing, authorization, admission, replay, reconciliation, or hosted billing linkage.
 
-The compact typed identifier policy is defined in [PROTOCOL_IDENTITY_AND_NAMING_ADR.md](PROTOCOL_IDENTITY_AND_NAMING_ADR.md). `display_name` is mutable and not globally unique. `operator_comment` is a local note, not identity. `alias`, if supported, is local-only convenience metadata unless a later ADR changes that.
+The compact typed identifier policy is defined in [SECURITY_MODEL.md](SECURITY_MODEL.md). `display_name` is mutable and not globally unique. `operator_comment` is a local note, not identity. `alias`, if supported, is local-only convenience metadata unless a later ADR changes that.
 
 Local/P2P domain objects include organization, client/customer, owner, peer group, service group, and node. `Entity` remains unresolved; this document does not create an entity table or lifecycle.
 
@@ -322,7 +324,7 @@ erDiagram
 
 Business organizations are the top-level business scope.
 
-For an opted-in shared-host installation, a locally minted organization UUID is the stable business identity; `Personal` is a valid display name. The root-owned host file is an offline identifier hint, not a billing credential or access grant. Private Ops binds the UUID to one verified Stripe customer/account and organization-wide subscription. Installation UUIDs remain host-specific, and historical signed rows are not rewritten.
+For an opted-in shared-host installation, a locally minted organization UUID is the stable business identity; the display name may be `Personal`. The administrator-owned host file is an offline identifier hint, not a billing credential or access grant. Private Ops links that UUID to exactly one verified Stripe customer/account and organization-wide subscription. Other hosts may use the same organization UUID, but their installation UUIDs are distinct. Historical rows retain their original signed content.
 
 Fields:
 
@@ -343,7 +345,7 @@ Relationships:
 
 Business clients belong to a business organization.
 
-A client is a business-unit attribution scope under the one organization bill. Its UUID can be used on multiple participating hosts; client-level device counts and RSS usage do not create separate subscriptions or invoices in this release.
+A client represents a business unit or attribution scope under that organization. Its UUID is stable across participating hosts. Client-level device counts and RSS usage are reported beneath the one organization bill; a client does not receive a separate subscription or invoice in this release.
 
 Fields:
 
@@ -366,7 +368,7 @@ Relationships:
 
 Owners belong to a business client and own peer groups, secrets, and transaction scope.
 
-Each opted-in Unix account receives its own stable principal/owner UUID; the username is local metadata, not the immutable ID. Existing account-label-derived owner IDs remain historical aliases. Each account keeps a separate store, storage key, node/peer identity, daemon and RSS device credential. Common host or billing scope never grants local-store access or peer admission.
+On a shared host, each opted-in Unix account receives a locally persistent principal/owner UUID; the username is descriptive local metadata and may differ in numeric UID across machines. Existing account-label-derived owner IDs remain legacy aliases for historical secrets and peer-visible data, not rewritten identities. Each account still owns a separate SQLite store, encryption/storage key, node/peer identity, daemon and RSS credential. Common host or billing scope never authorizes one account to read another local store or join its peer group.
 
 Fields:
 

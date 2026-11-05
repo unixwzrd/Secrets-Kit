@@ -1,3 +1,5 @@
+> Source of truth: Secrets Kit documentation master. This public copy is a reviewed derivative.
+
 # Examples
 
 - [Examples](#examples)
@@ -15,8 +17,8 @@ Current examples:
 - `seckit_run_hermes.sh`
 - `seckit_migrate_dotenv.sh`
 - `seckit_export_encrypted.sh`
-- `../scripts/sqlite_dev_seed.sh` — **SQLite** demo import of `fixtures/synthetic-sample.env` (throwaway DB + fixed passphrase).
-- `../scripts/keychain_dev_seed.sh` — same fixture into the **login Keychain** (`--backend keychain`); use when you are logged in interactively. Set `SECKIT_PYTHON` if `python3` has no PyNaCl.
+
+SQLite is the operational backend. Legacy macOS Keychain records can be read through the explicit migration workflow described in [SECURITY_MODEL.md](SECURITY_MODEL.md#legacy-keychain-migration); the removed development seed scripts are not customer examples.
 
 Those are meant to be starting points, not rigid templates. In most cases you only need to change the service name, account name, dotenv path, or startup command.
 
@@ -94,4 +96,4 @@ seckit export --format encrypted-json --service my-stack --account local-dev --a
 ## [Back to README](../README.md)
 
 **Created**: 2026-04-11  
-**Updated**: 2026-09-16
+**Updated**: 2026-11-03

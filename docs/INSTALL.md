@@ -1,3 +1,5 @@
+> Source of truth: Secrets Kit documentation master. This public copy is a reviewed derivative.
+
 # Install Secrets-Kit
 
 **Updated**: 2026-10-11
@@ -12,7 +14,6 @@ The normal installer provisions UV and a managed Python runtime; preinstalled Py
   - [Prerequisites](#prerequisites)
   - [Install](#install)
   - [Upgrade](#upgrade)
-  - [Shared-host installation (qualification candidate)](#shared-host-installation-qualification-candidate)
   - [Runtime layout](#runtime-layout)
   - [Verify](#verify)
   - [Validation helpers](#validation-helpers)
@@ -141,18 +142,6 @@ bash ./install.sh --upgrade --ref "${RELEASE_TAG}" --yes --no-init --no-shell-pr
 
 The CLI also exposes `seckit install --upgrade` and `seckit install user@hostname --upgrade --ref "${RELEASE_TAG}"`. A release-wheel installation without a local installer fetches it from the configured installation URL. The current remote command retrieves and verifies the release installer on the initiating machine, then streams it over SSH; the target does not need repository access.
 
-## Shared-host installation (qualification candidate)
-
-Before first activation, invoke `host configure` and `host activate` through the staged executable at `PREFIX/runtime/runtime-NAME/bin/seckit`; the stable `PREFIX/bin/seckit` launcher is not active yet.
-
-This administrator path is under DEV qualification and is **not** a released beta procedure. It shares only verified executable code. Each Unix account retains its own initialized store, storage key, peer/node identity, managed daemon, and one-time RSS device enrollment. Host configuration grants neither billing nor peer admission.
-
-Use a different root-owned prefix for each environment, such as `/opt/seckit/dev`, `/opt/seckit/qa`, and `/opt/seckit/production`. System mode requires a preinstalled, trusted, root-owned `uv` at `PREFIX/bin/uv` (or in a root-owned core system directory); it never runs a user-writable `/usr/local` tool or downloads a bootstrap script as root. The verified release installer stages a generation at its final path with `bash install.sh --system --prefix PREFIX --environment ENVIRONMENT --ref TAG`; it does not initialize users or activate code. From the staged CLI, run `seckit host configure --prefix PREFIX --environment ENVIRONMENT --organization NAME --client NAME` once. `Personal` is a valid organization display name. Another host in the same business scope may pass the generated `--organization-id` and `--client-id`, while retaining its own installation UUID. The root-owned `config/host.json` contains only IDs and labels, never credentials. Activate the first generation with the staged CLI's `seckit host activate --prefix PREFIX --generation runtime-NAME`; no users are registered yet, so this only enables the launcher.
-
-After checking and preserving their existing installation, each user explicitly runs `PREFIX/bin/seckit host join --prefix PREFIX --environment ENVIRONMENT` under their own Unix account after initialization. Joining adds local scope metadata and a stable principal; it does not rewrite historical transactions or signatures, authorize peers, or reenroll RSS. The user installs their managed service via `PREFIX/bin/seckit daemon service install`. The administrator verifies that service uses that exact launcher and runs `PREFIX/bin/seckit host register --prefix PREFIX --user USER`. Later, after staging an exact new generation, the administrator runs `PREFIX/bin/seckit host activate --prefix PREFIX --generation runtime-NAME`. Activation switches code once, restarts registered user services sequentially, checks health and version, and restores the previous code pointer on failure without restoring user stores. A failed user restart still requires operator investigation.
-
-Existing per-user installations remain unchanged until explicitly opted in. Installed macOS/Linux, historical-data preservation, and rolling-upgrade qualification must pass before this path is offered to beta testers.
-
 ## Runtime layout
 
 | Path | Purpose |
@@ -278,7 +267,7 @@ Uses editable install from the local checkout. Pin a git ref with `./install.sh 
 
 ### Why does synchronization stop after logout on Linux?
 
-On Linux with systemd user services, unattended synchronization requires the user's service manager to remain running after logout. Check `seckit daemon service status`; `linger: false` means this account has not enabled that behavior. After a successful Linux same-user service install, the installer prints a nonfatal warning in that case. Installation still completes; linger is not a prerequisite, and macOS is unchanged.
+On Linux with systemd user services, unattended synchronization requires the user's service manager to remain running after logout. Check `seckit daemon service status`; `linger: false` means this account has not enabled that behavior.
 
 Ask an administrator to run the following as root, replacing `USERNAME` with the account running Secrets Kit:
 

@@ -1,3 +1,5 @@
+> Source of truth: Secrets Kit documentation master. This public copy is a reviewed derivative.
+
 # Docstring contract (contributors)
 
 **Created**: 2026-05-05  
@@ -5,7 +7,7 @@
 
 Short reference for docstring contracts. Prefer **contracts** in docstrings; **design philosophy** belongs in ADRs.
 
-**Readable shape:** a one-line summary (optional ``**Markdown emphasis**`` for risk or scope), blank line, then short prose for purpose, inputs, outputs, side effects, and security/authority when relevant—see [AGENTS.md](../AGENTS.md) “Coding style and implementation rules”.
+**Readable shape:** a one-line summary (optional ``**Markdown emphasis**`` for risk or scope), blank line, then short prose for purpose, inputs, outputs, side effects, and security/authority when relevant. Follow the target repository's contributor instructions for implementation details.
 
 **Modules:** opening ``"""`` on its own line, then the **fully qualified module name** on the next line, blank line, then summary paragraphs (same emphasis/prose style)—apply when creating or touching a module.
 

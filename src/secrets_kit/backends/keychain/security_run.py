@@ -29,8 +29,7 @@ def run_security(*, args: list[str], stdin: Optional[str] = None) -> str:
         check=False,
     )
     if proc.returncode != 0:
-        stderr = (proc.stderr or "").strip()
-        raise BackendError(stderr or f"security command failed: {' '.join(cmd)}")
+        raise BackendError("Keychain command failed")
     return (proc.stdout or "").strip()
 
 
@@ -46,8 +45,7 @@ def run_security_capture(
         check=False,
     )
     if proc.returncode != 0:
-        stderr = (proc.stderr or "").strip()
-        raise BackendError(stderr or f"security command failed: {' '.join(cmd)}")
+        raise BackendError("Keychain command failed")
     return proc
 
 

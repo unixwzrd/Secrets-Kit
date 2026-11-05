@@ -89,6 +89,7 @@ STRINGS = {
     "cli.peer.all_service_groups_help_text": "Autorizar el par aceptado para todos los grupos de servicios",
     "cli.peer.import_acceptance_help_text": "Importar y verificar una aceptación o rechazo firmado de admisión de par",
     "cli.peer.reject_help_text": "Rechazar una solicitud pendiente de admisión de par",
+    "cli.peer.revoke_help_text": "Revocar un par activo en este nodo",
     "cli.peer.export_identity_help_text": "Exportar la identidad pública local del nodo para la admisión",
     "cli.peer.list_help_text": "Enumerar el estado conocido de admisión de pares",
     "cli.peer.show_help_text": "Mostrar un estado conocido de admisión de par",

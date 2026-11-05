@@ -1,7 +1,9 @@
+> Source of truth: Secrets Kit documentation master. This public copy is a reviewed derivative.
+
 # CLI architecture — Secrets Kit
 
 **Created**: 2026-05-07  
-**Updated**: 2026-08-20
+**Updated**: 2026-11-03
 
 How the `seckit` CLI relates to **registry**, **backends**, **diagnostics**, **authority**, and **materialization**. This is operator-facing architecture, not Python module layout. Current parser registration lives under `src/secrets_kit/cli/parsers/`; command handlers live under `src/secrets_kit/cli/commands/`. Normative terms: [RUNTIME_AUTHORITY_ADR.md](RUNTIME_AUTHORITY_ADR.md).
 
@@ -17,11 +19,11 @@ How the `seckit` CLI relates to **registry**, **backends**, **diagnostics**, **a
 
 ## Authority vs catalog
 
-- **Authority** — Secret payload and rich metadata as stored in the backend (Keychain item + comment JSON, or SQLite ciphertext + row metadata), resolved via backend APIs.
-- **Registry** (`registry.json`) — local schema/catalog definitions for metadata fields, defaults, validation, and type/kind relationships. It is not an inventory or metadata authority. See [METADATA_REGISTRY.md](METADATA_REGISTRY.md).
+- **Authority** — Secret payload and rich metadata in SQLite structured storage, resolved through its backend APIs. Legacy Keychain comment JSON is read only as explicit migration input.
+- **Registry** (`registry.json`) — local schema/catalog definitions for metadata fields, defaults, validation, and type/kind relationships. It is not an inventory or metadata authority. See [METADATA_SCHEMAS.md](METADATA_SCHEMAS.md).
 - **Operational status** — `seckit status` asks the local daemon for a unified current view of transport, runtime, routing, peer, and synchronization health. The CLI formats that response and does not inspect SQLite or daemon implementation files.
 
-Canonical semantics: [OBJECT_MODEL_AND_SCHEMA_SEMANTICS.md](OBJECT_MODEL_AND_SCHEMA_SEMANTICS.md). Current operator metadata-schema behavior: [METADATA_SCHEMAS.md](METADATA_SCHEMAS.md).
+Canonical semantics: [LOCAL_FIRST_DATASTORE_ARCHITECTURE.md](LOCAL_FIRST_DATASTORE_ARCHITECTURE.md). Current operator metadata-schema behavior: [METADATA_SCHEMAS.md](METADATA_SCHEMAS.md).
 
 ## Diagnostics and inspection
 

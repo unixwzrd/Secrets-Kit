@@ -11,7 +11,7 @@ import json
 import sys
 from pathlib import Path
 
-from secrets_kit.backends.common import BACKEND_KEYCHAIN, normalize_backend
+from secrets_kit.backends.common import BACKEND_SQLITE, normalize_backend
 from secrets_kit.cli.defaults import _load_defaults
 from secrets_kit.cli.io import _fatal
 from secrets_kit.cli.tables import _print_table
@@ -28,7 +28,7 @@ def _backend(args: argparse.Namespace) -> str:
     raw = getattr(args, "backend", None)
     if raw:
         return normalize_backend(raw)
-    return normalize_backend(str(_load_defaults().get("backend", BACKEND_KEYCHAIN)))
+    return normalize_backend(str(_load_defaults().get("backend", BACKEND_SQLITE)))
 
 
 def _registry_store_kwargs(args: argparse.Namespace) -> dict:

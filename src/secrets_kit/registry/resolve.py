@@ -51,7 +51,7 @@ def read_metadata(
     name: str,
     registry: Optional[Dict[str, EntryMetadata]] = None,
     path: Optional[str] = None,
-    backend: str = "keychain",
+    backend: str = "sqlite",
     **_ignored: object,
 ) -> Optional[Dict[str, object]]:
     """Resolve metadata from the selected backend only."""
@@ -119,7 +119,7 @@ def merge_import_metadata(
     existing: EntryMetadata,
     incoming: EntryMetadata,
     operator_defaults: Optional[Dict[str, object]] = None,
-    backend: str = "keychain",
+    backend: str = "sqlite",
     keychain_path: Optional[str] = None,
 ) -> EntryMetadata:
     """Merge import candidate metadata into an existing record using schema registry rules."""

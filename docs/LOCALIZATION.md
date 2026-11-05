@@ -1,3 +1,5 @@
+> Source of truth: Secrets Kit documentation master. This public copy is a reviewed derivative.
+
 # Localizing Secrets Kit
 
 Secrets Kit uses bundled Python dictionaries for human-facing CLI text. English is the default; French, Spanish and German catalogs are included. No network translation service or optional localization package is required.

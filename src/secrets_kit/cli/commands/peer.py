@@ -24,6 +24,7 @@ from secrets_kit.backends.sqlite.peer_admission import (
     reject_peer_admission,
     request_peer_admission,
     retain_local_peer_admission_request,
+    revoke_peer_admission,
 )
 from secrets_kit.cli.io import _fatal
 from secrets_kit.locale import msg
@@ -126,6 +127,29 @@ def cmd_peer_reject(*, args: argparse.Namespace) -> int:
         print(json.dumps(result.proof_payload, indent=2, sort_keys=True))
         return 0
     _print_result(result=result)
+    return 0
+
+
+def cmd_peer_revoke(*, args: argparse.Namespace) -> int:
+    """Revoke only this node's active admission after its outbound sends drain."""
+    if getattr(args, "backend", None) != BACKEND_SQLITE:
+        return _fatal(message="peer revocation requires --backend sqlite", code=1)
+    try:
+        result = revoke_peer_admission(
+            node_id=args.node_id,
+            operator_comment=args.comment or "",
+        )
+    except SQLiteBackendError as exc:
+        return _fatal(message=str(exc), code=1)
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "transaction_id": result.transaction_id,
+            "transaction_type": result.transaction_type,
+            "node_id": result.node_id,
+            "state": result.state,
+        }, sort_keys=True))
+    else:
+        _print_result(result=result)
     return 0
 
 
@@ -253,6 +277,7 @@ __all__ = [
     "cmd_peer_import_request",
     "cmd_peer_list",
     "cmd_peer_reject",
+    "cmd_peer_revoke",
     "cmd_peer_request",
     "cmd_peer_show",
 ]

@@ -1,11 +1,13 @@
+> Source of truth: Secrets Kit documentation master. This public copy is a reviewed derivative.
+
 # ADR: Deterministic Native-Dependency Override for Beta
 
 **Created**: 2026-07-30  
-**Updated**: 2026-09-15
+**Updated**: 2026-11-04
 
 ## Status
 
-Accepted for beta. The July 31 official-wheel override supersedes the July 30 local binary-relocation approach. This master was reconciled with the implemented decision on September 7; reconciliation does not change runtime behavior or certify a release.
+Accepted for beta. The official-wheel override supersedes the earlier local GMP relocation approach. This document describes the installer behavior and platform limits; release qualification is recorded separately.
 
 ## Context
 
@@ -15,11 +17,11 @@ The earlier gmpy2-based local relocation proof of concept did not require custom
 
 ## Decision
 
-### Approved Intel cryptography exception — implemented, qualification in progress
+### Intel macOS cryptography relocation
 
-The maintainer approved metadata-directed install-prefix relocation for prebuilt Intel macOS cryptography 50.0.1/OpenSSL dependencies inside an isolated UV runtime. This is a narrow exception to the no-native-rewrite rule below, not permission to restore the historical GMP approach, compile native dependencies, install Conda, or create custom native wheels. Preserve and verify original publisher package hashes; apply only declared package prefix metadata to the new runtime copy, and retain installation provenance. Unexpected metadata, unsupported versions/layouts, unsafe paths or an overlong prefix must fail before activation. Verify relocated configuration/provider paths, loading and cryptographic behavior, then installed client transport and lifecycle. Approval is not implementation or qualification evidence.
+The installer applies metadata-directed install-prefix relocation to prebuilt Intel macOS cryptography 50.0.1/OpenSSL dependencies inside an isolated UV runtime. It does not restore the historical GMP approach, compile native dependencies, install Conda, or create custom native wheels. It verifies original publisher package hashes, applies only declared package prefix metadata to the new runtime copy, and retains installation provenance. Unexpected metadata, unsupported versions or layouts, unsafe paths, and overlong prefixes fail before activation. Relocated configuration and provider paths, loading, cryptographic behavior, and installed client transport must pass validation.
 
-The Intel installer now prepares a new UV runtime with wheel-only archive-decoding dependencies, installs the client helper without resolving native dependencies, and downloads the two pinned publisher archives. The helper authenticates the complete archives and selected file metadata, installs cryptography and the required OpenSSL libraries/configuration, and relocates only the declared libcrypto prefix. It supplies a certificate bundle from certifi and retains original archives plus installed-file hashes under `native-provenance/`. Existing destination files are never overwritten. Normal dependency resolution and the existing pre-activation transport/install checks remain required. No Conda executable, compiler or custom native wheel is used. A failed candidate remains unactivated; validation of a disposable runtime does not by itself certify the complete RSS customer workflow.
+The Intel installer prepares a new UV runtime with wheel-only archive-decoding dependencies, installs the client helper without resolving native dependencies, and downloads the two pinned publisher archives. The helper authenticates the complete archives and selected file metadata, installs cryptography and the required OpenSSL libraries/configuration, and relocates only the declared libcrypto prefix. It supplies a certificate bundle from certifi and retains original archives plus installed-file hashes under `native-provenance/`. Existing destination files are never overwritten. Normal dependency resolution and pre-activation transport/install checks remain required. No Conda executable, compiler, or custom native wheel is used. A failed generation remains unactivated.
 
 Upstream [Conda relocation documentation](https://docs.conda.io/projects/conda-build/en/latest/resources/make-relocatable.html) defines prefix replacement as an installation step. The customer runtime remains UV-managed Python; a separate Conda environment is not introduced.
 
@@ -27,7 +29,7 @@ Upstream [Conda relocation documentation](https://docs.conda.io/projects/conda-b
 
 The installer supplies one exact uv override for `fastecdsa==3.0.1`. Customer installation requires a binary wheel and fails closed if one is unavailable. Before activation, validation checks approved versions, expected native-extension layout, resolved non-host-specific GMP linkage, native imports and Noise-only libp2p startup/shutdown. It does not rewrite, sign or redistribute native objects.
 
-Linux ARM is internal qualification coverage, not a compiler-free customer support claim. The existing maintainer-only source-build switch is not a customer workaround or permission to compile; using it requires explicit authorization. No transport, datastore, replay or identity behavior changes under this decision.
+Linux ARM64 is outside the supported compiler-free customer beta platforms. The source-build switch is restricted to development use and is not a customer installation path. No transport, datastore, replay, or identity behavior changes under this dependency decision.
 
 ## Release and Qualification Rules
 
@@ -43,7 +45,5 @@ The product wheel remains universal while native dependencies come from official
 
 ## Related Documents
 
-- [PROTOCOL_TRANSPORT_ARCHITECTURE.md](PROTOCOL_TRANSPORT_ARCHITECTURE.md)
 - [SECURITY_MODEL.md](SECURITY_MODEL.md)
 - [INSTALL.md](INSTALL.md)
-- [QUALIFICATION_ARCHITECTURE.md](QUALIFICATION_ARCHITECTURE.md)

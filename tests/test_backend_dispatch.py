@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 from unittest import mock
 
-from secrets_kit.backends.common import BACKEND_KEYCHAIN, BACKEND_SQLITE
+from secrets_kit.backends.common import BACKEND_KEYCHAIN, BACKEND_SQLITE, BackendError
 from secrets_kit.backends.dispatch import (
     delete_secret_entry,
     read_secret_entry,
@@ -34,15 +34,15 @@ class BackendDispatchTests(unittest.TestCase):
         with mock.patch(
             "secrets_kit.backends.dispatch.keychain_get_secret", return_value="kc"
         ) as get_mock:
-            value = read_secret_value(
-                service="svc",
-                account="acct",
-                name="key",
-                backend=BACKEND_KEYCHAIN,
-                keychain_path="/tmp/test.keychain-db",
-            )
-        self.assertEqual(value, "kc")
-        get_mock.assert_called_once()
+            with self.assertRaisesRegex(BackendError, "retired"):
+                read_secret_value(
+                    service="svc",
+                    account="acct",
+                    name="key",
+                    backend=BACKEND_KEYCHAIN,
+                    keychain_path="/tmp/test.keychain-db",
+                )
+        get_mock.assert_not_called()
 
     def test_write_secret_sqlite(self) -> None:
         meta = EntryMetadata(name="key", service="svc", account="acct", source="test")
@@ -60,26 +60,26 @@ class BackendDispatchTests(unittest.TestCase):
     def test_write_secret_keychain(self) -> None:
         meta = EntryMetadata(name="key", service="svc", account="acct", source="test")
         with mock.patch("secrets_kit.backends.dispatch.keychain_set_secret") as set_mock:
-            write_secret(
-                service="svc",
-                account="acct",
-                name="key",
-                value="v",
-                metadata=meta,
-                backend=BACKEND_KEYCHAIN,
-            )
-        set_mock.assert_called_once()
-        self.assertIn("comment", set_mock.call_args.kwargs)
+            with self.assertRaisesRegex(BackendError, "retired"):
+                write_secret(
+                    service="svc",
+                    account="acct",
+                    name="key",
+                    value="v",
+                    metadata=meta,
+                    backend=BACKEND_KEYCHAIN,
+                )
+        set_mock.assert_not_called()
 
     def test_secret_exists_for_backend(self) -> None:
         with mock.patch("secrets_kit.backends.dispatch.sqlite_secret_exists", return_value=True):
             self.assertTrue(
                 secret_exists_for_backend(
                     service="s",
-                        account="a",
-                        name="n",
-                        backend=BACKEND_SQLITE,
-                    )
+                    account="a",
+                    name="n",
+                    backend=BACKEND_SQLITE,
+                )
             )
 
     def test_read_secret_entry_sqlite(self) -> None:
@@ -100,14 +100,15 @@ class BackendDispatchTests(unittest.TestCase):
     def test_delete_secret_entry_keychain(self) -> None:
         meta = EntryMetadata(name="n", service="s", account="a", source="del")
         with mock.patch("secrets_kit.backends.dispatch.keychain_delete_secret") as delete_mock:
-            delete_secret_entry(
-                service="s",
-                account="a",
-                name="n",
-                metadata=meta,
-                backend=BACKEND_KEYCHAIN,
-            )
-        delete_mock.assert_called_once()
+            with self.assertRaisesRegex(BackendError, "retired"):
+                delete_secret_entry(
+                    service="s",
+                    account="a",
+                    name="n",
+                    metadata=meta,
+                    backend=BACKEND_KEYCHAIN,
+                )
+        delete_mock.assert_not_called()
 
 
 if __name__ == "__main__":

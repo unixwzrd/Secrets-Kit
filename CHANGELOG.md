@@ -4,6 +4,13 @@ Customer-facing changes. This file is derived from the authoritative public chan
 
 ## Unreleased
 
+## 2.0.2b1 — public beta
+
+- Encrypted SQLite is the operational credential store. On macOS, existing Secrets Kit Keychain records can be inventoried and migrated by an explicit command. Migration leaves original records in place, does not overwrite conflicts, and keeps imported credentials local until synchronization is separately authorized.
+- Encrypted backup import validates the supported key-derivation settings and input size before deriving a key. Restoration preserves secret values byte-for-byte, including whitespace and newlines. An explicit size limit supports legitimate larger historical backups.
+- `seckit peer revoke NODE_ID` revokes an admitted local P2P peer. After the command waits for this node's active send boundary, it blocks new inbound transactions, outbound and queued delivery, and reconnection at this node. It cannot retract data already handed to transport or revoke the peer on another node.
+- First-use and CLI instructions now describe SQLite storage and explicit Keychain migration accurately.
+
 ## 2.0.1b29 — public beta
 
 - Promote the qualified immutable DEV a69 invitation-feedback product tree. Consistently use session ID in invitation output and help, and print the copyable ID on its own line without trailing punctuation. Invitation codes, admission, RSS enrollment and stored/protocol identifiers are unchanged. Installed QA qualification passed before public-beta promotion.

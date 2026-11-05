@@ -7,10 +7,9 @@ Argparse-driven metadata construction for CLI commands.
 from __future__ import annotations
 
 import argparse
-import sys
 from typing import Dict, List, Optional
 
-from secrets_kit.backends.common import BACKEND_KEYCHAIN
+from secrets_kit.backends.common import BACKEND_SQLITE
 from secrets_kit.cli.defaults import _load_defaults
 from secrets_kit.cli.selection import _keychain_arg
 from secrets_kit.cli.taxonomy_prompt import resolve_name_for_cli
@@ -58,10 +57,8 @@ def resolve_domains_from_args(
 def build_metadata(*, args: argparse.Namespace, name: str, source: str) -> EntryMetadata:
     """Build EntryMetadata from CLI args, defaults, schema registry, and existing entry."""
     backend = getattr(args, "backend", None) or str(
-        _load_defaults().get("backend", BACKEND_KEYCHAIN)
+        _load_defaults().get("backend", BACKEND_SQLITE)
     )
-    if sys.platform != "darwin" and backend == BACKEND_KEYCHAIN:
-        backend = "sqlite"
 
     existing = read_metadata(
         service=args.service,

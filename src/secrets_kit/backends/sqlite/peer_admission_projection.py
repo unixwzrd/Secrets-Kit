@@ -27,6 +27,7 @@ from secrets_kit.identifiers import IdentifierValidationError, validate_identifi
 ADMISSION_STATE_REQUESTED = "admission_requested"
 ADMISSION_STATE_ACTIVE = "active"
 ADMISSION_STATE_REJECTED = "rejected"
+ADMISSION_STATE_REVOKED = "revoked"
 PEER_ADMISSION_GROUP_ID = "peer-group:admission"
 
 REQUEST_REQUIRED_FIELDS = frozenset(
@@ -134,6 +135,35 @@ def apply_peer_admission_reject(*, conn: sqlite3.Connection, transaction: Transa
         timestamp_field="rejected_at",
         unknown_message="cannot reject unknown peer admission request",
         already_message="peer admission already rejected",
+    )
+
+
+def apply_peer_admission_revoke(*, conn: sqlite3.Connection, transaction: Transaction) -> None:
+    """End active local admission and retain queued envelopes as denied evidence."""
+    node_id = _required_text(payload=transaction.payload, field_name="node_id")
+    if conn.execute("SELECT 1 FROM node_private WHERE node_id = ?", (node_id,)).fetchone():
+        raise SQLiteValidationError("local node identity cannot be revoked as a peer")
+    state = _node_state(conn=conn, node_id=node_id)
+    if state != ADMISSION_STATE_ACTIVE:
+        raise SQLiteValidationError(f"peer is not actively admitted: {node_id} state={state}")
+    revoked_at = _required_text(payload=transaction.payload, field_name="revoked_at")
+    conn.execute(
+        """UPDATE nodes SET state = ?, authorization_mode = ?, updated_at = ?,
+                  operator_comment = COALESCE(?, operator_comment) WHERE node_id = ?""",
+        (
+            ADMISSION_STATE_REVOKED,
+            AUTHORIZATION_MODE_NONE,
+            revoked_at,
+            _optional_text(payload=transaction.payload, field_name="operator_comment"),
+            node_id,
+        ),
+    )
+    conn.execute(
+        """UPDATE envelopes SET state = 'authorization_denied', failed_at = ?,
+                  next_attempt_at = NULL, last_error = 'peer revoked locally'
+           WHERE destination_node_id = ?
+             AND state IN ('pending', 'retry_pending', 'claimed', 'sending')""",
+        (revoked_at, node_id),
     )
 
 
@@ -361,9 +391,11 @@ def _validate_required_fields(
 __all__ = [
     "ADMISSION_STATE_ACTIVE",
     "ADMISSION_STATE_REJECTED",
+    "ADMISSION_STATE_REVOKED",
     "ADMISSION_STATE_REQUESTED",
     "PEER_ADMISSION_GROUP_ID",
     "apply_peer_admission_accept",
     "apply_peer_admission_reject",
+    "apply_peer_admission_revoke",
     "apply_peer_admission_request",
 ]

@@ -19,6 +19,7 @@ from secrets_kit.cli.selection import _backend_arg, _keychain_arg
 from secrets_kit.cli.tables import _format_tags, _print_table
 from secrets_kit.cli.taxonomy_prompt import resolve_name_for_cli
 from secrets_kit.crypto.cli import decrypt_payload, ensure_crypto_available
+from secrets_kit.crypto.cli.export_json import DEFAULT_MAX_ENCRYPTED_BACKUP_BYTES
 from secrets_kit.crypto.errors import CryptoUnavailable
 from secrets_kit.importers import (
     ImportCandidate,
@@ -38,6 +39,8 @@ from secrets_kit.registry import RegistryError
 from secrets_kit.registry.resolve import merge_import_metadata, read_metadata
 from secrets_kit.taxonomy.register import sync_vocabulary_on_write
 
+MAX_ENCRYPTED_BACKUP_BYTES = DEFAULT_MAX_ENCRYPTED_BACKUP_BYTES
+
 
 def _merge_candidates(*, groups: Iterable[List[ImportCandidate]]) -> Dict[str, ImportCandidate]:
     merged: Dict[str, ImportCandidate] = {}
@@ -54,7 +57,7 @@ def _apply_candidates(
     dry_run: bool,
     allow_empty: bool,
     path: Optional[str] = None,
-    backend: str = "keychain",
+    backend: str = "sqlite",
     args: Optional[argparse.Namespace] = None,
 ) -> Dict[str, int]:
     stats = {"created": 0, "updated": 0, "skipped": 0, "unchanged": 0}
@@ -120,8 +123,7 @@ def _apply_candidates(
                 args=args,
             )
             resolved_tags = [
-                resolve_name_for_cli(label="tag", raw=tag, args=args)
-                for tag in meta.tags
+                resolve_name_for_cli(label="tag", raw=tag, args=args) for tag in meta.tags
             ]
             vocab = sync_vocabulary_on_write(
                 entry_type=entry_type,
@@ -281,25 +283,55 @@ def cmd_import_encrypted(*, args: argparse.Namespace) -> int:
             use_stdin=args.password_stdin,
             prompt="backup file password for encrypted import: ",
         )
-        payload = json.loads(Path(args.file).read_text(encoding="utf-8"))
+        maximum = getattr(args, "max_backup_bytes", None)
+        if maximum is None:
+            maximum = MAX_ENCRYPTED_BACKUP_BYTES
+        if type(maximum) is not int or maximum <= 0:
+            raise ValueError("encrypted backup size limit must be positive")
+        with Path(args.file).open("rb") as source:
+            encoded = source.read(maximum + 1)
+        if len(encoded) > maximum:
+            raise ValueError("encrypted backup exceeds maximum size")
+        try:
+            payload = json.loads(encoded.decode("utf-8"))
+        except RecursionError:
+            raise ValueError("encrypted backup nesting is too deep") from None
         decrypted = decrypt_payload(payload=payload, password=password)
         if decrypted.get("format") != "seckit.export":
             return _fatal(message=msg("errors.import.unsupported_payload"), code=1)
-        entries = decrypted.get("entries", [])
+        if type(decrypted.get("version")) is not int or decrypted["version"] != 1:
+            raise ValueError("unsupported decrypted backup version")
+        entries = decrypted.get("entries")
+        if not isinstance(entries, list):
+            raise ValueError("decrypted backup entries must be a list")
 
         def load_candidates() -> Dict[str, ImportCandidate]:
             rows: List[ImportCandidate] = []
             for row in entries:
                 if not isinstance(row, dict):
-                    continue
-                meta = EntryMetadata.from_dict(row.get("metadata", {}))
-                rows.append(ImportCandidate(metadata=meta, value=str(row.get("value", "")).strip()))
+                    raise ValueError("decrypted backup entry must be an object")
+                raw_metadata = row.get("metadata")
+                value = row.get("value")
+                if not isinstance(raw_metadata, dict) or not isinstance(value, str):
+                    raise ValueError("decrypted backup entry has invalid metadata or value")
+                if not all(
+                    isinstance(raw_metadata.get(key), str) for key in ("name", "service", "account")
+                ):
+                    raise ValueError("decrypted backup entry has invalid identity")
+                try:
+                    meta = EntryMetadata.from_dict(raw_metadata)
+                except (KeyError, TypeError, ValueError, OverflowError):
+                    raise ValueError("decrypted backup entry has invalid metadata") from None
+                rows.append(ImportCandidate(metadata=meta, value=value))
             return {row.metadata.key(): row for row in rows}
 
+        # An encrypted backup can legitimately contain an empty secret.
+        args.allow_empty = True
         return _run_import(args=args, load_candidates=load_candidates)
     except (
         ValidationError,
         ValueError,
+        KeyError,
         RegistryError,
         BackendError,
         SQLiteBackendError,

@@ -120,7 +120,9 @@ def load_policy(path: Path | None = None) -> McpPolicy:
     if payload.get("version") != MCP_POLICY_VERSION:
         raise McpPolicyError("unsupported MCP policy")
     backend = payload.get("backend")
-    if backend not in {"keychain", "sqlite"}:
+    if backend == "keychain":
+        raise McpPolicyError("Keychain is retired; migrate credentials and change this MCP policy to sqlite")
+    if backend != "sqlite":
         raise McpPolicyError("invalid MCP policy")
     metadata_names = _policy_names(payload.get("metadata_names"))
     raw_retrieval = payload.get("retrieval_names")
@@ -303,8 +305,11 @@ def main() -> int:
     args = parser.parse_args()
     try:
         policy = load_policy(args.policy)
-    except McpPolicyError:
-        print("Secrets Kit MCP policy is unavailable or invalid", file=sys.stderr)
+    except McpPolicyError as exc:
+        if str(exc).startswith("Keychain is retired"):
+            print(str(exc), file=sys.stderr)
+        else:
+            print("Secrets Kit MCP policy is unavailable or invalid", file=sys.stderr)
         return 78
     for line in sys.stdin:
         try:

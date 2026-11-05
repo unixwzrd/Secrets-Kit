@@ -1,10 +1,12 @@
+> Source of truth: Secrets Kit documentation master. This public copy is a reviewed derivative.
+
 # Secrets Kit integration for Hermes
 
 Read [SKILL.md](SKILL.md) and [security boundaries](references/security-boundaries.md) before running the integration scripts.
 
-Use the exact qualified client tag supplied for this installation; the skill metadata's `0.1.0` identifies the integration package, not the client version. Obtain this directory from a verified immutable integration revision supplied by the operator; documentation fixes after a tag are not retroactively present in that tag.
+Public beta client candidate: `v2.0.2b1`. Use it only after the public artifact is published and independently verified. The skill metadata's `0.1.0` identifies the integration package, not the client version. Obtain this directory from a verified immutable integration revision supplied by the operator; documentation fixes after a tag are not retroactively present in that tag.
 
-The GitHub release asset bundle and this integration directory are different inputs. The current GitHub asset manifest uses `source-commit.txt`, not the legacy controller's `release-id`. Follow the skill's supported artifact-install path, then `configure`/`verify`; do not alter a release manifest to make the legacy `preflight`/`install` adapter accept it.
+The GitHub release asset bundle and this integration directory are different inputs. The tagged asset manifest uses `source-commit.txt`, not the legacy controller's `release-id`. Follow the skill's supported artifact-install path, then `configure`/`verify`; do not alter a release manifest to make the legacy `preflight`/`install` adapter accept it.
 
 ## Agent handoff prompt
 

@@ -19,12 +19,15 @@ from secrets_kit.backends.sqlite.peer_admission_auth import (
     PROOF_TYPE_ACCEPT,
     PROOF_TYPE_REJECT,
     PROOF_TYPE_REQUEST,
+    PROOF_TYPE_REVOKE,
     deterministic_admission_transaction_id,
     signed_admission_decision_payload,
     signed_admission_request_payload,
+    signed_admission_revocation_payload,
     verify_admission_decision_payload,
     verify_admission_request_payload,
 )
+from secrets_kit.backends.sqlite.peer_delivery_lock import peer_delivery_lock
 from secrets_kit.backends.sqlite.peer_registry import (
     AUTHORIZATION_MODE_ALL,
     AUTHORIZATION_MODE_ALLOW_LIST,
@@ -45,6 +48,7 @@ from secrets_kit.models import now_utc_iso
 PEER_ADMISSION_REQUEST = PROOF_TYPE_REQUEST
 PEER_ADMISSION_ACCEPT = PROOF_TYPE_ACCEPT
 PEER_ADMISSION_REJECT = PROOF_TYPE_REJECT
+PEER_ADMISSION_REVOKE = PROOF_TYPE_REVOKE
 
 PEER_ADMISSION_LOCAL_POLICY = TransactionSubmissionPolicy(
     mode=TransactionSubmissionMode.LOCAL,
@@ -227,6 +231,32 @@ def reject_peer_admission(*, node_id: str, operator_comment: str = "") -> PeerAd
         node_id=node_id,
         state="rejected",
         proof_payload=payload,
+    )
+
+
+def revoke_peer_admission(*, node_id: str, operator_comment: str = "") -> PeerAdmissionResult:
+    """Wait for this peer's sends, then atomically revoke local admission and queued work."""
+    conn = open_sqlite_backend()
+    try:
+        if get_peer_registry_entry(conn=conn, node_id=node_id) is None:
+            raise SQLiteValidationError(f"cannot revoke unknown or local peer: {node_id}")
+    finally:
+        conn.close()
+    with peer_delivery_lock(node_id=node_id, timeout_seconds=30):
+        payload = signed_admission_revocation_payload(
+            node_id=node_id, operator_comment=operator_comment
+        )
+        tx = create_peer_admission_transaction(
+            transaction_type=PEER_ADMISSION_REVOKE,
+            payload=payload,
+            origin_node_id=str(payload["signer_node_id"]),
+        )
+        _submit_peer_admission_transaction(transaction=tx)
+    return PeerAdmissionResult(
+        transaction_id=tx.transaction_id,
+        transaction_type=tx.transaction_type,
+        node_id=node_id,
+        state="revoked",
     )
 
 
@@ -455,6 +485,7 @@ __all__ = [
     "PEER_ADMISSION_ACCEPT",
     "PEER_ADMISSION_LOCAL_POLICY",
     "PEER_ADMISSION_REJECT",
+    "PEER_ADMISSION_REVOKE",
     "PEER_ADMISSION_REQUEST",
     "AUTHORIZATION_MODE_ALL",
     "AUTHORIZATION_MODE_ALLOW_LIST",
@@ -471,6 +502,7 @@ __all__ = [
     "local_peer_public_identity",
     "retain_local_peer_admission_request",
     "reject_peer_admission",
+    "revoke_peer_admission",
     "request_peer_admission",
     "import_peer_admission_decision",
 ]

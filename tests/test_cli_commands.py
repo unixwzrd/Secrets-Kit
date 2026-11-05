@@ -37,10 +37,13 @@ class CliCommandsTest(unittest.TestCase):
         from secrets_kit.backends.keychain.security_cli import SecurityCliStore
 
         store = SecurityCliStore()
-        with mock.patch.object(store, "_target", return_value=None), mock.patch(
-            "secrets_kit.backends.keychain.security_cli.run_security_capture",
-            return_value=argparse.Namespace(stdout="", stderr=""),
-        ) as capture:
+        with (
+            mock.patch.object(store, "_target", return_value=None),
+            mock.patch(
+                "secrets_kit.backends.keychain.security_cli.run_security_capture",
+                return_value=argparse.Namespace(stdout="", stderr=""),
+            ) as capture,
+        ):
             store.raw_metadata(service="test", account="test", name="TOKEN")
         self.assertNotIn("-g", capture.call_args.kwargs["args"])
         self.assertNotIn("-w", capture.call_args.kwargs["args"])
@@ -57,6 +60,7 @@ class CliCommandsTest(unittest.TestCase):
         self.assertNotIn("raw", metadata)
         self.assertNotIn(marker, json.dumps(metadata))
 
+    @unittest.skip("Keychain explain retired; migration redaction is tested separately")
     def test_explain_does_not_expose_keychain_password_output(self) -> None:
         """Trace captured Keychain output through metadata resolution and explain."""
         from secrets_kit.backends.keychain.security_cli import SecurityCliStore
@@ -65,14 +69,27 @@ class CliCommandsTest(unittest.TestCase):
         marker = "synthetic-explain-password-marker"
         store = SecurityCliStore()
         output = io.StringIO()
-        args = argparse.Namespace(name="TOKEN", service="test", account="test", backend="keychain", keychain=None)
-        with mock.patch.object(store, "_target", return_value=None), mock.patch(
-            "secrets_kit.backends.keychain.security_cli.run_security_capture",
-            return_value=argparse.Namespace(stdout='attributes:\n    "acct"<blob>="test"', stderr='password: "' + marker + '"'),
-        ), mock.patch("secrets_kit.registry.resolve.secret_exists", return_value=True), mock.patch(
-            "secrets_kit.registry.resolve.get_secret_metadata",
-            side_effect=lambda **_kwargs: store.raw_metadata(service="test", account="test", name="TOKEN"),
-        ), redirect_stdout(output):
+        args = argparse.Namespace(
+            name="TOKEN", service="test", account="test", backend="keychain", keychain=None
+        )
+        with (
+            mock.patch.object(store, "_target", return_value=None),
+            mock.patch(
+                "secrets_kit.backends.keychain.security_cli.run_security_capture",
+                return_value=argparse.Namespace(
+                    stdout='attributes:\n    "acct"<blob>="test"',
+                    stderr='password: "' + marker + '"',
+                ),
+            ),
+            mock.patch("secrets_kit.registry.resolve.secret_exists", return_value=True),
+            mock.patch(
+                "secrets_kit.registry.resolve.get_secret_metadata",
+                side_effect=lambda **_kwargs: store.raw_metadata(
+                    service="test", account="test", name="TOKEN"
+                ),
+            ),
+            redirect_stdout(output),
+        ):
             result = cmd_explain(args=args)
         self.assertEqual(result, 0)
         self.assertNotIn(marker, output.getvalue())
@@ -82,16 +99,19 @@ class CliCommandsTest(unittest.TestCase):
         """Fresh CLI defaults to SQLite; configured and explicit choices win."""
         for configured, explicit, expected in (
             ({}, None, "sqlite"),
-            ({"backend": "keychain"}, None, "keychain"),
             ({"backend": "sqlite"}, None, "sqlite"),
             ({"backend": "keychain"}, "sqlite", "sqlite"),
-            ({}, "keychain", "keychain"),
         ):
             with self.subTest(configured=configured, explicit=explicit):
                 args = argparse.Namespace(command="list", backend=explicit)
                 with mock.patch("secrets_kit.cli.defaults._load_defaults", return_value=configured):
                     _apply_defaults(args=args)
                 self.assertEqual(args.backend, expected)
+        for configured, explicit in (({"backend": "keychain"}, None), ({}, "keychain")):
+            args = argparse.Namespace(command="list", backend=explicit)
+            with mock.patch("secrets_kit.cli.defaults._load_defaults", return_value=configured):
+                with self.assertRaisesRegex(Exception, "retired"):
+                    _apply_defaults(args=args)
 
     def test_acceptance_fixtures_are_not_a_customer_option(self) -> None:
         """Reject the removed private fixture command."""
@@ -102,7 +122,11 @@ class CliCommandsTest(unittest.TestCase):
     def test_development_lab_is_not_a_customer_command(self) -> None:
         """Keep private test orchestration out of the installed CLI surface."""
         parser = build_parser()
-        choices = next(action.choices for action in parser._actions if isinstance(action, argparse._SubParsersAction))
+        choices = next(
+            action.choices
+            for action in parser._actions
+            if isinstance(action, argparse._SubParsersAction)
+        )
         self.assertNotIn("lab", choices)
         with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
             parser.parse_args(["lab", "init"])
@@ -114,7 +138,10 @@ class CliCommandsTest(unittest.TestCase):
             for tag in (None, "", "explicit"):
                 with self.subTest(rotation=rotation, tag=tag):
                     args = argparse.Namespace(command="list", tag=tag, rotation_days=rotation)
-                    with mock.patch("secrets_kit.cli.defaults._load_defaults", return_value={"tags": "default", "default_rotation_days": "90"}):
+                    with mock.patch(
+                        "secrets_kit.cli.defaults._load_defaults",
+                        return_value={"tags": "default", "default_rotation_days": "90"},
+                    ):
                         _apply_defaults(args=args)
                     self.assertEqual(args.tag, tag or "default")
                     self.assertEqual(args.rotation_days, 90 if rotation is None else rotation)
@@ -153,8 +180,6 @@ class CliCommandsTest(unittest.TestCase):
             "service",
             "doctor",
             "migrate",
-            "lock",
-            "unlock",
             "init",
             "config",
             "info",
@@ -270,11 +295,11 @@ class CliCommandsTest(unittest.TestCase):
                 mock.patch.object(Path, "home", return_value=home),
                 redirect_stdout(io.StringIO()),
             ):
-                code = cmd_config_set(args=argparse.Namespace(key="backend", value="keychain"))
+                code = cmd_config_set(args=argparse.Namespace(key="backend", value="sqlite"))
                 self.assertEqual(code, 0)
                 dpath = home / ".config" / "seckit" / "defaults.json"
                 payload = json.loads(dpath.read_text(encoding="utf-8"))
-                self.assertEqual(payload.get("backend"), "keychain")
+                self.assertEqual(payload.get("backend"), "sqlite")
 
     def test_config_set_rejects_invalid_backend(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -282,9 +307,7 @@ class CliCommandsTest(unittest.TestCase):
                 for bad in ("nosuch", "i" + "cloud"):
                     with self.subTest(bad=bad):
                         with redirect_stderr(io.StringIO()):
-                            code = cmd_config_set(
-                                args=argparse.Namespace(key="backend", value=bad)
-                            )
+                            code = cmd_config_set(args=argparse.Namespace(key="backend", value=bad))
                         self.assertEqual(code, 1)
 
     def test_config_unset_removes_key(self) -> None:
@@ -317,24 +340,22 @@ class CliCommandsTest(unittest.TestCase):
             ["set", "--name", "OPENAI_API_KEY", "--value", "x", "--kind", "token"]
         )
         self.assertEqual(args.kind, "token")
-        args = parser.parse_args(
-            [
-                "set",
-                "--name",
-                "OPENAI_API_KEY",
-                "--value",
-                "x",
-                "--kind",
-                "token",
-                "--keychain",
-                "/tmp/test.keychain-db",
-            ]
-        )
-        self.assertEqual(args.keychain, "/tmp/test.keychain-db")
-        args = parser.parse_args(
-            ["set", "--name", "OPENAI_API_KEY", "--value", "x", "--backend", "keychain"]
-        )
-        self.assertEqual(args.backend, "keychain")
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            parser.parse_args(
+                [
+                    "set",
+                    "--name",
+                    "OPENAI_API_KEY",
+                    "--value",
+                    "x",
+                    "--keychain",
+                    "/tmp/test.keychain-db",
+                ]
+            )
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            parser.parse_args(
+                ["set", "--name", "OPENAI_API_KEY", "--value", "x", "--backend", "keychain"]
+            )
 
         args = parser.parse_args(["import", "file", "--file", "secrets.json", "--kind", "auto"])
         self.assertEqual(args.kind, "auto")
@@ -367,7 +388,7 @@ class CliCommandsTest(unittest.TestCase):
             )
             with (
                 mock.patch.object(Path, "home", return_value=Path(tmp)),
-                mock.patch("secrets_kit.cli.commands.doctor.check_security_cli", return_value=True),
+                mock.patch("secrets_kit.cli.commands.doctor.sqlite_store") as mock_store,
                 mock.patch(
                     "secrets_kit.cli.commands.doctor.registry_path",
                     return_value=mock.MagicMock(
@@ -375,24 +396,26 @@ class CliCommandsTest(unittest.TestCase):
                         __str__=mock.MagicMock(return_value=f"{tmp}/registry.json"),
                     ),
                 ),
-                mock.patch("secrets_kit.cli.commands.doctor.doctor_roundtrip", return_value=None),
                 mock.patch(
                     "secrets_kit.cli.commands.doctor.load_schema_registry", return_value=catalog
                 ),
                 mock.patch(
                     "secrets_kit.cli.commands.doctor.list_secret_metadata", return_value=[meta]
                 ),
-                mock.patch("secrets_kit.cli.commands.doctor.read_metadata", return_value={"metadata": meta}),
+                mock.patch(
+                    "secrets_kit.cli.commands.doctor.read_metadata", return_value={"metadata": meta}
+                ),
                 redirect_stdout(out),
                 redirect_stderr(err),
             ):
-                code = cmd_doctor(args=argparse.Namespace())
+                code = cmd_doctor(args=argparse.Namespace(backend="sqlite"))
 
             self.assertEqual(code, 1)
             payload = json.loads(out.getvalue())
-            self.assertTrue(payload["security_cli"])
+            self.assertIsNone(payload["security_cli"])
             self.assertTrue(payload["registry"])
-            self.assertTrue(payload["keychain_roundtrip"])
+            self.assertTrue(payload["sqlite_roundtrip"])
+            mock_store.return_value.doctor_roundtrip.assert_called_once()
             self.assertEqual(payload["invalid_field_types"][0]["field"], "custom.owner")
             self.assertIn("metadata catalog validation failed", err.getvalue())
             self.assertTrue(payload["defaults"])
@@ -406,9 +429,7 @@ class CliCommandsTest(unittest.TestCase):
             redirect_stderr(err),
         ):
             code = cmd_lock(
-                args=argparse.Namespace(
-                    keychain="/tmp/login.keychain-db", dry_run=True, yes=False
-                )
+                args=argparse.Namespace(keychain="/tmp/login.keychain-db", dry_run=True, yes=False)
             )
 
         self.assertEqual(code, 0)
@@ -434,9 +455,13 @@ class CliCommandsTest(unittest.TestCase):
             mock.patch("secrets_kit.cli.commands.unlock.keychain_policy", return_value=None),
             redirect_stdout(out),
         ):
-            code = cmd_unlock(args=argparse.Namespace(
-                keychain="/tmp/login.keychain-db", timeout=3600, dry_run=True,
-            ))
+            code = cmd_unlock(
+                args=argparse.Namespace(
+                    keychain="/tmp/login.keychain-db",
+                    timeout=3600,
+                    dry_run=True,
+                )
+            )
         self.assertEqual(code, 0)
         self.assertIn("security unlock-keychain /tmp/login.keychain-db", out.getvalue())
 
@@ -448,16 +473,24 @@ class CliCommandsTest(unittest.TestCase):
             mock.patch("secrets_kit.cli.commands.unlock.sys.platform", "darwin"),
             mock.patch("secrets_kit.cli.commands.unlock.check_security_cli", return_value=True),
             mock.patch("secrets_kit.cli.commands.unlock.keychain_policy", return_value=None),
-            mock.patch("secrets_kit.cli.commands.unlock.keychain_accessible", side_effect=BackendError("synthetic Keychain lookup failure")),
+            mock.patch(
+                "secrets_kit.cli.commands.unlock.keychain_accessible",
+                side_effect=BackendError("synthetic Keychain lookup failure"),
+            ),
             mock.patch("secrets_kit.cli.commands.unlock.unlock_keychain") as unlock,
             mock.patch("secrets_kit.cli.commands.unlock._confirm") as confirm,
             redirect_stdout(io.StringIO()),
             redirect_stderr(err),
         ):
-            code = cmd_unlock(args=argparse.Namespace(
-                keychain="/tmp/login.keychain-db", timeout=3600,
-                dry_run=False, yes=False, harden=False,
-            ))
+            code = cmd_unlock(
+                args=argparse.Namespace(
+                    keychain="/tmp/login.keychain-db",
+                    timeout=3600,
+                    dry_run=False,
+                    yes=False,
+                    harden=False,
+                )
+            )
         self.assertEqual(code, 1)
         self.assertIn("synthetic Keychain lookup failure", err.getvalue())
         self.assertNotIn("Traceback", err.getvalue())
@@ -497,7 +530,7 @@ class CliCommandsTest(unittest.TestCase):
                         "kind": "api_key",
                         "default_rotation_days": 90,
                         "rotation_warn_days": 14,
-                        "backend": "keychain",
+                        "backend": "sqlite",
                     }
                 ),
                 encoding="utf-8",
@@ -522,7 +555,7 @@ class CliCommandsTest(unittest.TestCase):
             self.assertEqual(args.kind, "api_key")
             self.assertEqual(args.rotation_days, 90)
             self.assertEqual(args.rotation_warn_days, 14)
-            self.assertEqual(args.backend, "keychain")
+            self.assertEqual(args.backend, "sqlite")
 
     def test_apply_defaults_rejects_invalid_backend_in_defaults_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -580,7 +613,7 @@ class CliCommandsTest(unittest.TestCase):
             tag=None,
             rotation_days=None,
             rotation_warn_days=None,
-            backend="keychain",
+            backend="sqlite",
             keychain=None,
         )
         with tempfile.TemporaryDirectory() as tmp:
@@ -680,6 +713,7 @@ class CliCommandsTest(unittest.TestCase):
             delete_secret_mock.call_args.kwargs["keychain_path"], "/tmp/test.keychain-db"
         )
 
+    @unittest.skip("Keychain doctor retired; SQLite doctor is covered above")
     def test_doctor_passes_keychain_path(self) -> None:
         out = io.StringIO()
         err = io.StringIO()
@@ -1002,6 +1036,7 @@ class CliCommandsTest(unittest.TestCase):
         self.assertIn("name=APPLE_APP_PASSWORD", err.getvalue())
         self.assertIn("--names/--tag", err.getvalue())
 
+    @unittest.skip("Keychain metadata resolution retired; migration handles legacy comments")
     def test_read_metadata_returns_minimal_when_keychain_metadata_read_fails(self) -> None:
         from secrets_kit.backends.keychain import BackendError
         from secrets_kit.registry.resolve import read_metadata
@@ -1025,6 +1060,7 @@ class CliCommandsTest(unittest.TestCase):
         self.assertEqual(resolved["metadata"].source, "keychain-unmanaged")
         self.assertEqual(resolved["keychain_fields"], {})
 
+    @unittest.skip("Keychain metadata resolution retired; migration handles legacy comments")
     def test_read_metadata_returns_minimal_when_keychain_metadata_incomplete(self) -> None:
         from secrets_kit.registry.resolve import read_metadata
 
@@ -1048,7 +1084,7 @@ class CliCommandsTest(unittest.TestCase):
     def test_read_metadata_ignores_registry_only_secret(self) -> None:
         from secrets_kit.registry.resolve import read_metadata
 
-        with mock.patch("secrets_kit.registry.resolve.secret_exists", return_value=False):
+        with mock.patch("secrets_kit.registry.resolve.sqlite_secret_exists", return_value=False):
             resolved = read_metadata(
                 service="hermes",
                 account="miafour",
@@ -1165,11 +1201,17 @@ class CliCommandsTest(unittest.TestCase):
             self.assertIn(key, parsed)
 
     def test_info_keychain_unsupported_off_macos(self) -> None:
-        from secrets_kit.cli.commands.info import _keychain_status_dict
+        from secrets_kit.cli.commands.info import build_info_dict
 
-        with mock.patch("secrets_kit.cli.commands.info._is_macos", return_value=False):
-            kc = _keychain_status_dict()
-        self.assertFalse(kc["supported"])
+        with (
+            mock.patch("secrets_kit.cli.commands.info._is_macos", return_value=False),
+            mock.patch("secrets_kit.cli.commands.info._load_defaults", return_value={}),
+            mock.patch("secrets_kit.cli.commands.info.ensure_defaults_storage"),
+            mock.patch("secrets_kit.cli.commands.info._sqlite_status_dict", return_value={}),
+        ):
+            kc = build_info_dict()["keychain"]
+        self.assertFalse(kc["operational"])
+        self.assertFalse(kc["migration_only"])
 
     def test_info_parse_flags(self) -> None:
         parser = build_parser()

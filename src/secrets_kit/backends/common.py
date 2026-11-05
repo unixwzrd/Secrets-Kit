@@ -19,24 +19,26 @@ BACKEND_KEYCHAIN: Final[str] = "keychain"
 BACKEND_SQLITE: Final[str] = "sqlite"
 """Canonical backend id for the standalone local SQLite backend."""
 
-_KNOWN_NORMALIZED: frozenset[str] = frozenset({BACKEND_KEYCHAIN, BACKEND_SQLITE})
+_KNOWN_NORMALIZED: frozenset[str] = frozenset({BACKEND_SQLITE})
 
-BACKEND_CHOICES: tuple[str, ...] = (BACKEND_KEYCHAIN, BACKEND_SQLITE)
+BACKEND_CHOICES: tuple[str, ...] = (BACKEND_SQLITE,)
 
 
 def normalize_backend(backend: str) -> str:
     """Return canonical backend id."""
     raw = backend.strip().lower()
+    if raw == BACKEND_KEYCHAIN:
+        raise BackendError("Keychain is retired; run seckit migrate keychain before using SQLite")
     if raw not in _KNOWN_NORMALIZED:
         raise BackendError(
-            f"unsupported backend: {backend!r} (expected {BACKEND_KEYCHAIN} or {BACKEND_SQLITE})"
+            f"unsupported backend: {backend!r} (expected {BACKEND_SQLITE})"
         )
     return raw
 
 
 def is_keychain_backend(backend: str) -> bool:
-    """Return whether backend resolves to the canonical Keychain backend."""
-    return normalize_backend(backend) == BACKEND_KEYCHAIN
+    """Recognize legacy Keychain configuration without enabling it as a backend."""
+    return backend.strip().lower() == BACKEND_KEYCHAIN
 
 
 __all__ = [

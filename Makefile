@@ -5,6 +5,7 @@ UNITTEST_FLAGS ?= -b
 .DEFAULT_GOAL := help
 
 TEST_FAST := \
+	tests.test_peer_revocation \
 	tests.test_cli_peer_invitation \
 	tests.test_peer_invitation \
 	tests.test_rss_auth \

@@ -37,6 +37,10 @@ def register_export_command(
     p_export.add_argument("--recipient", help=msg("cli.export.recipient_help"))
     p_export.add_argument("--password")
     p_export.add_argument("--password-stdin", action="store_true")
+    p_export.add_argument(
+        "--max-backup-bytes", type=int,
+        help="explicit output byte limit for an encrypted backup larger than 128 MiB",
+    )
     p_export.add_argument("--names")
     p_export.add_argument("--tag")
     p_export.add_argument("--type", choices=["secret", "pii"])

@@ -17,6 +17,7 @@ from secrets_kit.cli.commands.peer import (
     cmd_peer_list,
     cmd_peer_reject,
     cmd_peer_request,
+    cmd_peer_revoke,
     cmd_peer_show,
 )
 from secrets_kit.cli.commands.peer_invitation import (
@@ -100,6 +101,13 @@ def register_peer_commands(
     reject_parser.add_argument("--comment", default="")
     reject_parser.add_argument("--json", action="store_true")
     reject_parser.set_defaults(func=cmd_peer_reject)
+
+    revoke_parser = peer_sub.add_parser("revoke", help=msg("cli.peer.revoke_help_text"))
+    revoke_parser.add_argument("--backend", choices=["sqlite"], default="sqlite")
+    revoke_parser.add_argument("node_id")
+    revoke_parser.add_argument("--comment", default="")
+    revoke_parser.add_argument("--json", action="store_true")
+    revoke_parser.set_defaults(func=cmd_peer_revoke)
 
     export_parser = peer_sub.add_parser(
         "export-identity",

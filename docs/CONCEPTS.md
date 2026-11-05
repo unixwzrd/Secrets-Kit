@@ -1,3 +1,5 @@
+> Source of truth: Secrets Kit documentation master. This public copy is a reviewed derivative.
+
 # Concepts — Secrets Kit CLI
 
 **Created**: 2026-05-07  
@@ -23,7 +25,6 @@ This page is the short mental model for operators.
 | `get`                      | **Retrieve** — redacted unless you opt into **`--raw`**                                                                                                                                                                   |
 | `export`                   | **Exported materialization** — bulk plaintext or an **externalized artifact** (short- or long-lived, depending on how you handle output)                                                                                  |
 | `run`                      | **Inject** — use canonical wording: *Injection is a runtime-scoped materialization path that transfers plaintext into another execution context.* Environment variables may propagate via inheritance unless constrained. |
-| `status`                   | **Operational health** — daemon-provided identity, endpoint, peer, route, and synchronization state; it does not read SQLite directly                                                        |
 | `doctor` / `info`          | **Diagnostics** — backend posture, defaults, and environment status                                                                                                                                                       |
 | `envelope` / `transaction` | **Inspection** — read-only views of persisted delivery artifacts and transaction history                                                                                                                                  |
 

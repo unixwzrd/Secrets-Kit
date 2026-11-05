@@ -11,7 +11,7 @@ import sqlite3
 from typing import Any
 
 from secrets_kit import __version__
-from secrets_kit.backends.common import BACKEND_SQLITE, normalize_backend
+from secrets_kit.backends.common import BACKEND_SQLITE, BackendError, normalize_backend
 from secrets_kit.backends.sqlite.exceptions import SQLiteBackendError, SQLiteValidationError
 from secrets_kit.backends.sqlite.gate import open_sqlite_backend, sqlite_path
 from secrets_kit.backends.sqlite.local_node import load_local_node_projection
@@ -38,7 +38,11 @@ ENVELOPE_STATES = (
 
 def build_runtime_status() -> dict[str, Any]:
     """Return runtime state without daemon or transport dependencies."""
-    backend = _configured_backend()
+    try:
+        backend = _configured_backend()
+    except BackendError as exc:
+        error = str(exc) if str(exc).startswith("Keychain is retired") else "invalid backend configuration"
+        return {"version": __version__, "available": False, "backend": "unsupported", "error": error, "peers": []}
     data: dict[str, Any] = {
         "version": __version__,
         "available": True,

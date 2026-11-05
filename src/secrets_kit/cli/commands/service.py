@@ -37,7 +37,7 @@ def cmd_service_copy(*, args: argparse.Namespace) -> int:
             type=args.type,
             kind=args.kind,
             all=True,
-            keychain=args.keychain,
+            keychain=getattr(args, "keychain", None),
             backend=backend,
         )
         selected = _select_entries(args=selector_args, require_explicit_selection=False)

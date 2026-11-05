@@ -1,3 +1,5 @@
+> Source of truth: Secrets Kit documentation master. This public copy is a reviewed derivative.
+
 # Metadata schema registry
 
 **Updated:** 2026-05-26
@@ -25,7 +27,7 @@ This document describes how Secrets-Kit stores typed metadata schemas for operat
 
 ## Authority
 
-- **Canonical store:** JSON document on the `schema_registry` **system object** (`seckit` / `__system__` / `__schema_registry__` on Keychain and SQLite).
+- **Catalog store:** `~/.config/seckit/registry.json` holds schema descriptors and is not secret, transaction, or metadata authority. SQLite remains the operational secret store; legacy Keychain comments are migration input only.
 - **Seeds only:** `secrets_kit/schemas/builtin/*.json` and optional `~/.config/seckit/schemas/*.json` are merged at `seckit init` or `seckit schema install` — not read on every CLI invocation.
 - **Export:** `seckit schema export` writes deterministic JSON (`sort_keys`, sorted `fields`, compact separators) for docs and controlled re-import.
 

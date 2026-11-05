@@ -1,3 +1,5 @@
+> Source of truth: Secrets Kit documentation master. This public copy is a reviewed derivative.
+
 # ADR: IPC and local peer transport semantics
 
 **Created**: 2026-05-08

@@ -1,6 +1,6 @@
-# ADR: Remote Secret Sync terminology and authority boundaries
+> Source of truth: Secrets Kit documentation master. This public copy is a reviewed derivative.
 
-<!-- Derived from separation-governance/Secrets-Kit-Docs/REMOTE_SECRET_SYNC_ADR.md. -->
+# ADR: Remote Secret Sync terminology and authority boundaries
 
 **Created**: 2026-05-20
 **Updated**: 2026-09-07
@@ -108,6 +108,6 @@ This ADR does not introduce:
 ## Related documents
 
 - [RSS_CUSTOMER_GUIDE.md](RSS_CUSTOMER_GUIDE.md)
-- [PROTOCOL_TRANSPORT_ARCHITECTURE.md](PROTOCOL_TRANSPORT_ARCHITECTURE.md)
+- [SECURITY_MODEL.md](SECURITY_MODEL.md)
 - [IPC_SEMANTICS_ADR.md](IPC_SEMANTICS_ADR.md)
 - [RUNTIME_SESSION_ADR.md](RUNTIME_SESSION_ADR.md)

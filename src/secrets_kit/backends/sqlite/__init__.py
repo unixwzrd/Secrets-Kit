@@ -46,6 +46,7 @@ from secrets_kit.backends.sqlite.peer_admission import (
     PEER_ADMISSION_ACCEPT,
     PEER_ADMISSION_REJECT,
     PEER_ADMISSION_REQUEST,
+    PEER_ADMISSION_REVOKE,
     PeerAdmissionResult,
     PeerInspection,
     PeerPublicIdentity,
@@ -59,6 +60,7 @@ from secrets_kit.backends.sqlite.peer_admission import (
     local_peer_public_identity,
     reject_peer_admission,
     request_peer_admission,
+    revoke_peer_admission,
 )
 from secrets_kit.backends.sqlite.peer_endpoints import (
     PEER_ENDPOINT_EXPIRE,
@@ -128,6 +130,7 @@ __all__ = [
     "LOCAL_TRANSACTION_POLICY",
     "PEER_ADMISSION_ACCEPT",
     "PEER_ADMISSION_REJECT",
+    "PEER_ADMISSION_REVOKE",
     "PEER_ADMISSION_REQUEST",
     "PEER_ENDPOINT_EXPIRE",
     "PEER_ENDPOINT_REGISTER",
@@ -202,6 +205,7 @@ __all__ = [
     "provision_sqlite_datastore",
     "rebuild_secret_projections",
     "reject_peer_admission",
+    "revoke_peer_admission",
     "replay_transactions",
     "request_peer_admission",
     "register_local_endpoint",

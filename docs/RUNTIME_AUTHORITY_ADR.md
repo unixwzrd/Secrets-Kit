@@ -1,3 +1,5 @@
+> Source of truth: Secrets Kit documentation master. This public copy is a reviewed derivative.
+
 # ADR: Runtime authority and materialization model
 
 **Created**: 2026-05-05  
@@ -7,7 +9,7 @@ Normative vocabulary for **protected authority handling**, **materialization**, 
 
 ## Related documents
 
-- [LOCAL_FIRST_DATASTORE_ARCHITECTURE.md](LOCAL_FIRST_DATASTORE_ARCHITECTURE.md) — current datastore, transaction, and projection architecture
+- [LOCAL_FIRST_DATASTORE_ARCHITECTURE.md](LOCAL_FIRST_DATASTORE_ARCHITECTURE.md) — current semantic authority for object identity, transactions, projections, and envelope lifecycle vocabulary
 - [METADATA_SCHEMAS.md](METADATA_SCHEMAS.md) — current operator metadata-schema behavior
 - [SECURITY_MODEL.md](SECURITY_MODEL.md) — operator-facing security posture  
 - [RUNTIME_SESSION_ADR.md](RUNTIME_SESSION_ADR.md) — local runtime session, ownership, same-host authority, caching bias

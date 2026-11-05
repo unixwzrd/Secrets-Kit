@@ -14,6 +14,7 @@ from secrets_kit.backends.sqlite.peer_admission_projection import (
     apply_peer_admission_accept,
     apply_peer_admission_reject,
     apply_peer_admission_request,
+    apply_peer_admission_revoke,
 )
 from secrets_kit.backends.sqlite.peer_endpoint_projection import apply_peer_endpoint_transaction
 from secrets_kit.backends.sqlite.projections import (
@@ -57,6 +58,9 @@ def apply_transaction(*, conn: sqlite3.Connection, transaction: Transaction) -> 
         return
     if transaction.transaction_type == "peer.admission.reject":
         apply_peer_admission_reject(conn=conn, transaction=transaction)
+        return
+    if transaction.transaction_type == "peer.admission.revoke":
+        apply_peer_admission_revoke(conn=conn, transaction=transaction)
         return
     if transaction.transaction_type.startswith("peer.endpoint."):
         apply_peer_endpoint_transaction(conn=conn, transaction=transaction)

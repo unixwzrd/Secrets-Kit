@@ -41,6 +41,7 @@ CONTROL_TRANSACTION_TYPES = frozenset(
         "peer.admission.request",
         "peer.admission.accept",
         "peer.admission.reject",
+        "peer.admission.revoke",
         "peer.endpoint.register",
         "peer.endpoint.update",
         "peer.endpoint.replace",

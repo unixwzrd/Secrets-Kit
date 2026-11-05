@@ -24,7 +24,6 @@ def register_info_command(
     p_info.add_argument(
         "--backend", choices=list(BACKEND_CHOICES), help=msg("cli.info.backend_help")
     )
-    p_info.add_argument("--keychain", help=msg("cli.common.keychain_help"))
     p_info.set_defaults(func=cmd_info, info_json=False)
 
 

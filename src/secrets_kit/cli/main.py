@@ -41,6 +41,12 @@ def _daemon_events_after_success(*, args: object) -> tuple[str, ...]:
         if peer_command in _PEER_MUTATION_COMMANDS:
             events.append("delivery-wake")
         return tuple(events)
+    if command == "migrate" and getattr(args, "migrate_command", None) == "keychain":
+        return (
+            ("delivery-wake",)
+            if getattr(args, "apply", False) and getattr(args, "authorize_sync", False)
+            else ()
+        )
     if command in _DELIVERY_MUTATION_COMMANDS:
         return ("delivery-wake",)
     return ()
@@ -62,7 +68,10 @@ def main() -> int:
             "status",
             "transaction",
             "uninstall",
-        }:
+        } and not (
+            getattr(args, "command", None) == "migrate"
+            and getattr(args, "migrate_command", None) == "keychain"
+        ):
             _apply_defaults(args=args)
     except ValidationError as exc:
         return _fatal(message=str(exc), code=1)

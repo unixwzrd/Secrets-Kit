@@ -13,15 +13,7 @@ import sys
 from typing import Dict, Optional, cast
 
 from secrets_kit import __version__
-from secrets_kit.backends.common import BACKEND_SQLITE, normalize_backend
-from secrets_kit.backends.keychain import (
-    BackendError,
-    check_security_cli,
-    keychain_accessible,
-    keychain_path,
-    keychain_policy,
-)
-from secrets_kit.backends.sqlite import is_sqlite_backend
+from secrets_kit.backends.common import BACKEND_SQLITE, BackendError, normalize_backend
 from secrets_kit.backends.sqlite.exceptions import SQLiteBackendError
 from secrets_kit.backends.sqlite.gate import (
     SQLITE_PATH_ENV,
@@ -34,7 +26,6 @@ from secrets_kit.backends.sqlite.storage_mode import (
     read_sqlite_storage_mode,
 )
 from secrets_kit.cli.defaults import _CONFIG_STORABLE_KEYS, _load_defaults
-from secrets_kit.cli.selection import _keychain_arg
 from secrets_kit.locale import msg
 from secrets_kit.registry import (
     RegistryError,
@@ -46,53 +37,6 @@ from secrets_kit.registry import (
 
 def _is_macos() -> bool:
     return sys.platform == "darwin"
-
-
-def _keychain_status_dict(*, path: Optional[str] = None) -> Dict[str, object]:
-    """Build keychain status fields (macOS ``security`` CLI only)."""
-    if not _is_macos():
-        return {
-            "supported": False,
-            "platform": sys.platform,
-            "reason": msg("cli.info.keychain_macos_only"),
-        }
-    if not check_security_cli():
-        return {
-            "supported": True,
-            "available": False,
-            "error": msg("errors.security_cli_not_found"),
-        }
-    target = keychain_path(path=path)
-    try:
-        policy = keychain_policy(path=target)
-    except BackendError as exc:
-        return {
-            "supported": True,
-            "available": True,
-            "path": target,
-            "accessible": False,
-            "encryption": {
-                "enabled": True,
-                "mode": "macOS Keychain",
-                "warning": None,
-            },
-            "error": str(exc),
-        }
-    return {
-        "supported": True,
-        "available": True,
-        "path": target,
-        "accessible": keychain_accessible(path=target),
-        "encryption": {
-            "enabled": True,
-            "mode": "macOS Keychain",
-            "warning": None,
-        },
-        "no_timeout": policy["no_timeout"],
-        "lock_on_sleep": policy["lock_on_sleep"],
-        "timeout_seconds": policy["timeout_seconds"],
-        "raw": policy["raw"],
-    }
 
 
 def _sqlite_status_dict() -> Dict[str, object]:
@@ -158,6 +102,8 @@ def _effective_backend(*, args: argparse.Namespace) -> str:
             return BACKEND_SQLITE
     defaults = _load_defaults()
     raw = defaults.get("backend")
+    if str(raw).strip().lower() == "keychain":
+        return "keychain-retired"
     if raw:
         try:
             return normalize_backend(str(raw))
@@ -176,7 +122,7 @@ def build_info_dict(*, args: Optional[argparse.Namespace] = None) -> Dict[str, o
         "python": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
         "backend": backend,
         "backend_availability": {
-            "keychain": _is_macos(),
+            "keychain": False,
             "sqlite": True,
         },
     }
@@ -192,23 +138,9 @@ def build_info_dict(*, args: Optional[argparse.Namespace] = None) -> Dict[str, o
         info["registry_path"] = None
         info["defaults"] = {}
 
-    info["keychain"] = _keychain_status_dict(
-        path=_keychain_arg(args) if hasattr(args, "keychain") else None
-    )
-    if is_sqlite_backend(backend=backend) or not _is_macos():
-        info["sqlite"] = _sqlite_status_dict()
-    else:
-        info["sqlite"] = {
-            "included": False,
-            "reason": msg("cli.info.sqlite_inactive_backend", backend=backend),
-        }
+    info["keychain"] = {"operational": False, "migration_only": _is_macos()}
+    info["sqlite"] = _sqlite_status_dict()
     return info
-
-
-def _print_keychain_warnings(*, keychain: Dict[str, object]) -> None:
-    if keychain.get("supported") and keychain.get("no_timeout"):
-        target = keychain.get("path", "")
-        print(msg("cli.keychain_status.warning.relaxed_policy", target=target), file=sys.stderr)
 
 
 def _print_sqlite_warnings(*, sqlite: Dict[str, object]) -> None:
@@ -244,20 +176,8 @@ def _print_info_text(*, data: Dict[str, object]) -> None:
     raw_kc = data.get("keychain")
     kc = cast(Dict[str, object], raw_kc) if isinstance(raw_kc, dict) else {}
     lines.append("keychain:")
-    if kc.get("supported") is False:
-        lines.append(f"  note: {kc.get('reason')}")
-    elif not kc.get("available", True):
-        lines.append(f"  error: {kc.get('error', 'unavailable')}")
-    else:
-        lines.append(f"  path: {kc.get('path')}")
-        lines.append(f"  accessible: {kc.get('accessible')}")
-        encryption = kc.get("encryption")
-        if isinstance(encryption, dict):
-            lines.append(f"  encryption_enabled: {encryption.get('enabled')}")
-            lines.append(f"  encryption_mode: {encryption.get('mode')}")
-        lines.append(f"  no_timeout: {kc.get('no_timeout')}")
-        lines.append(f"  lock_on_sleep: {kc.get('lock_on_sleep')}")
-        lines.append(f"  timeout_seconds: {kc.get('timeout_seconds')}")
+    lines.append(f"  operational: {kc.get('operational')}")
+    lines.append(f"  migration_only: {kc.get('migration_only')}")
     raw_sqlite = data.get("sqlite")
     sqlite = cast(Dict[str, object], raw_sqlite) if isinstance(raw_sqlite, dict) else {}
     lines.append("sqlite:")
@@ -304,9 +224,6 @@ def cmd_info(*, args: argparse.Namespace) -> int:
         print(json.dumps(data, indent=2, sort_keys=True))
     else:
         _print_info_text(data=data)
-    kc = data.get("keychain")
-    if isinstance(kc, dict):
-        _print_keychain_warnings(keychain=kc)
     sqlite = data.get("sqlite")
     if isinstance(sqlite, dict):
         _print_sqlite_warnings(sqlite=sqlite)

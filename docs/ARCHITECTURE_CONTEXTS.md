@@ -1,3 +1,5 @@
+> Source of truth: Secrets Kit documentation master. This public copy is a reviewed derivative.
+
 # Architecture Contexts
 - [Architecture Contexts](#architecture-contexts)
   - [Summary](#summary)
@@ -17,11 +19,11 @@
 
 Secrets-Kit currently has several concepts historically called "registry." They are not the same subsystem, and the shared word should not be used as evidence that they share authority, storage semantics, or cleanup fate.
 
-This document separates the bounded contexts so later cleanup can proceed in small, safe passes. It does not authorize source moves, module renames, runtime changes, SQLite schema changes, or deletion of compatibility surfaces.
+This document separates the bounded contexts so later cleanup can proceed in small, safe passes. Its 2026-06 shipped layout is historical; the current operational store is SQLite and Keychain remains read-only migration input. It does not authorize source moves, module renames, runtime changes, SQLite schema changes, or deletion of compatibility surfaces.
 
 ## Shipped (2026-06)
 
-Operator-facing layout in this repository today:
+Operator-facing layout recorded in 2026-06:
 
 | Area                              | Path                                                 |
 | --------------------------------- | ---------------------------------------------------- |
@@ -72,11 +74,11 @@ Current examples:
 - `src/secrets_kit/backends/keychain/inventory.py`
 - `src/secrets_kit/backends/compat/keychain_projection.py`
 
-Purpose:
+Legacy migration purpose:
 
 - structured metadata stored in the Keychain comment field
 - required because Keychain is constrained key/value storage
-- valid Keychain compatibility surface
+- migration-only Keychain compatibility surface
 - must not define SQLite persistence architecture
 
 ### 3. Daemon Endpoint and Routing Cache

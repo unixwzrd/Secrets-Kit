@@ -24,6 +24,7 @@ from secrets_kit.crypto.cli import (
     encrypt_payload,
     ensure_crypto_available,
 )
+from secrets_kit.crypto.cli.export_json import DEFAULT_MAX_ENCRYPTED_BACKUP_BYTES
 from secrets_kit.crypto.errors import CryptoUnavailable
 from secrets_kit.exporters import (
     export_dotenv_placeholders,
@@ -33,6 +34,10 @@ from secrets_kit.exporters import (
 from secrets_kit.locale import msg
 from secrets_kit.models import ValidationError
 from secrets_kit.registry import RegistryError
+
+
+class BackupSizeError(ValueError):
+    """Safe, value-free encrypted backup size error."""
 
 
 def cmd_export(*, args: argparse.Namespace) -> int:
@@ -100,6 +105,13 @@ def cmd_export(*, args: argparse.Namespace) -> int:
             plain = build_plain_export(entries=items)
             encrypted = encrypt_payload(payload=plain, password=password)
             output = json.dumps(encrypted.__dict__, indent=2, sort_keys=True)
+            maximum = getattr(args, "max_backup_bytes", None)
+            if maximum is None:
+                maximum = DEFAULT_MAX_ENCRYPTED_BACKUP_BYTES
+            if type(maximum) is not int or maximum <= 0:
+                raise BackupSizeError("encrypted backup size limit must be positive")
+            if len(output.encode("utf-8")) + 1 > maximum:
+                raise BackupSizeError("encrypted backup exceeds maximum size")
             if args.out:
                 write_protected_export(
                     destination=Path(args.out), payload=(output + "\n").encode("utf-8")
@@ -109,6 +121,8 @@ def cmd_export(*, args: argparse.Namespace) -> int:
             return 0
 
         return _fatal(message=msg("errors.unsupported_format", format=args.format), code=1)
+    except BackupSizeError as exc:
+        return _fatal(message=str(exc), code=1)
     except (OSError, ValueError, subprocess.TimeoutExpired):
         return _fatal(message=msg("errors.export.write_failed"), code=1)
     except (

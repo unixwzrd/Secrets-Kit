@@ -15,6 +15,7 @@ from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PublicKey
 
 from secrets_kit.backends.sqlite.exceptions import SQLiteValidationError
 from secrets_kit.backends.sqlite.gate import open_sqlite_backend
+from secrets_kit.backends.sqlite.local_node import load_local_node_projection
 from secrets_kit.backends.sqlite.models import Transaction
 from secrets_kit.backends.sqlite.node_identity import load_sqlite_node_identity_material
 from secrets_kit.backends.sqlite.peer_registry import (
@@ -39,6 +40,7 @@ ADMISSION_PROOF_VERSION = 1
 PROOF_TYPE_REQUEST = "peer.admission.request"
 PROOF_TYPE_ACCEPT = "peer.admission.accept"
 PROOF_TYPE_REJECT = "peer.admission.reject"
+PROOF_TYPE_REVOKE = "peer.admission.revoke"
 
 _REQUEST_REQUIRED = frozenset(
     {
@@ -72,6 +74,88 @@ _DECISION_REQUIRED = frozenset(
         "signature",
     }
 )
+_REVOCATION_REQUIRED = frozenset(
+    {
+        "proof_version",
+        "proof_type",
+        "revocation_id",
+        "node_id",
+        "signer_node_id",
+        "signer_signing_algorithm",
+        "signer_signing_public_key",
+        "revoked_at",
+        "nonce",
+        "signature",
+    }
+)
+
+
+def signed_admission_revocation_payload(
+    *, node_id: str, operator_comment: str = ""
+) -> dict[str, object]:
+    """Sign a local-only revocation with this SQLite node's identity."""
+    validate_identifier(value=node_id, expected_type="node", field="node_id")
+    conn = open_sqlite_backend()
+    try:
+        identity = load_sqlite_node_identity_material(conn=conn)
+    finally:
+        conn.close()
+    payload: dict[str, object] = {
+        "proof_version": ADMISSION_PROOF_VERSION,
+        "proof_type": PROOF_TYPE_REVOKE,
+        "revocation_id": random_identifier(identifier_type="transaction"),
+        "node_id": node_id,
+        "signer_node_id": identity.node_id,
+        "signer_signing_algorithm": identity.signing.metadata.algorithm,
+        "signer_signing_public_key": encode_b64url(identity.signing.public_key),
+        "revoked_at": now_utc_iso(),
+        "nonce": _nonce(),
+    }
+    if operator_comment:
+        payload["operator_comment"] = operator_comment
+    payload["signature"] = encode_b64url(
+        sign_ed25519(
+            private_key=identity.signing.private_key,
+            message=canonical_json_bytes(_without_signature(payload=payload)),
+        )
+    )
+    return payload
+
+
+def verify_admission_revocation_payload(
+    *, conn: sqlite3.Connection, payload: Mapping[str, object]
+) -> None:
+    """Require a valid proof from this local node, including during replay."""
+    _require_fields(payload=payload, fields=_REVOCATION_REQUIRED)
+    _require_int(payload=payload, field_name="proof_version", expected=ADMISSION_PROOF_VERSION)
+    _require_text(payload=payload, field_name="proof_type", expected=PROOF_TYPE_REVOKE)
+    _require_identifier(payload=payload, field_name="revocation_id", expected_type="transaction")
+    _require_identifier(payload=payload, field_name="node_id", expected_type="node")
+    signer_node_id = _require_identifier(
+        payload=payload, field_name="signer_node_id", expected_type="node"
+    )
+    _require_text(payload=payload, field_name="revoked_at")
+    _require_text(payload=payload, field_name="nonce")
+    signer_key = _public_key(
+        payload=payload,
+        key_field="signer_signing_public_key",
+        algorithm_field="signer_signing_algorithm",
+        expected_algorithm="ed25519",
+        key_kind="signing",
+    )
+    local_node = load_local_node_projection(conn=conn)
+    if (
+        local_node is None
+        or signer_node_id != local_node.node_id
+        or signer_key != local_node.signing_public_key
+    ):
+        raise SQLiteValidationError("peer revocation must be signed by the local node")
+    if not verify_ed25519(
+        public_key=signer_key,
+        message=canonical_json_bytes(_without_signature(payload=payload)),
+        signature=_signature(payload=payload),
+    ):
+        raise SQLiteValidationError("peer revocation signature verification failed")
 
 
 def signed_admission_request_payload(
@@ -314,6 +398,17 @@ def verify_peer_admission_transaction(
             raise SQLiteValidationError(
                 "peer admission decision origin_node_id must match signer_node_id"
             )
+        return
+    if transaction.transaction_type == PROOF_TYPE_REVOKE:
+        verify_admission_revocation_payload(conn=conn, payload=transaction.payload)
+        if transaction.origin_node_id != transaction.payload["signer_node_id"]:
+            raise SQLiteValidationError("peer revocation origin_node_id must match signer_node_id")
+        if transaction.transaction_id != deterministic_admission_transaction_id(
+            proof_type=PROOF_TYPE_REVOKE, payload=transaction.payload
+        ):
+            raise SQLiteValidationError("peer revocation transaction_id does not match proof")
+        return
+    raise SQLiteValidationError("peer admission transaction type is unsupported")
 
 
 def deterministic_admission_transaction_id(*, proof_type: str, payload: Mapping[str, object]) -> str:
@@ -324,6 +419,10 @@ def deterministic_admission_transaction_id(*, proof_type: str, payload: Mapping[
     elif proof_type in {PROOF_TYPE_ACCEPT, PROOF_TYPE_REJECT}:
         stable_id = _require_identifier(
             payload=payload, field_name="decision_id", expected_type="transaction"
+        )
+    elif proof_type == PROOF_TYPE_REVOKE:
+        stable_id = _require_identifier(
+            payload=payload, field_name="revocation_id", expected_type="transaction"
         )
     else:
         raise SQLiteValidationError("peer admission proof_type is unsupported")
@@ -503,14 +602,17 @@ __all__ = [
     "ADMISSION_PROOF_VERSION",
     "PROOF_TYPE_ACCEPT",
     "PROOF_TYPE_REJECT",
+    "PROOF_TYPE_REVOKE",
     "PROOF_TYPE_REQUEST",
     "admission_decision_signing_bytes",
     "admission_request_signing_bytes",
     "deterministic_admission_transaction_id",
     "signed_admission_decision_payload",
+    "signed_admission_revocation_payload",
     "signed_admission_request_payload",
     "verify_admission_decision_payload",
     "verify_admission_decision_signature",
+    "verify_admission_revocation_payload",
     "verify_admission_request_payload",
     "verify_peer_admission_transaction",
 ]

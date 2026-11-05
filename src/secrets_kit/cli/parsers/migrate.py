@@ -8,7 +8,11 @@ from __future__ import annotations
 
 import argparse
 
-from secrets_kit.cli.commands.migrate import cmd_migrate_dotenv, cmd_migrate_metadata
+from secrets_kit.cli.commands.migrate import (
+    cmd_migrate_dotenv,
+    cmd_migrate_keychain,
+    cmd_migrate_metadata,
+)
 from secrets_kit.locale import msg
 
 
@@ -60,6 +64,24 @@ def register_migrate_commands(
     p_migrate_metadata.add_argument("--dry-run", action="store_true")
     p_migrate_metadata.add_argument("--force", action="store_true")
     p_migrate_metadata.set_defaults(func=cmd_migrate_metadata)
+
+    p_migrate_keychain = migrate_sub.add_parser(
+        "keychain", help="Inventory or explicitly copy legacy Keychain items into SQLite"
+    )
+    p_migrate_keychain.add_argument(
+        "--keychain", help="source Keychain path; defaults to login Keychain"
+    )
+    p_migrate_keychain.add_argument("--service", required=True)
+    p_migrate_keychain.add_argument("--account", required=True)
+    p_migrate_keychain.add_argument(
+        "--apply", action="store_true", help="copy after dry-run review"
+    )
+    p_migrate_keychain.add_argument(
+        "--authorize-sync",
+        action="store_true",
+        help="also queue newly copied credentials for already eligible peers",
+    )
+    p_migrate_keychain.set_defaults(func=cmd_migrate_keychain)
 
 
 __all__ = ["register_migrate_commands"]

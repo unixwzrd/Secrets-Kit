@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import List, Optional
 
 from secrets_kit.backends.common import (
-    BACKEND_KEYCHAIN,
     BACKEND_SQLITE,
     BackendError,
     normalize_backend,
@@ -222,7 +221,7 @@ def cmd_init_operator(*, args: argparse.Namespace) -> int:
             backend=backend_arg,
             sqlite_storage_mode=storage_mode,
         )
-        backend = normalize_backend(str(payload.get("backend", BACKEND_KEYCHAIN)))
+        backend = normalize_backend(str(payload.get("backend", BACKEND_SQLITE)))
         if backend == BACKEND_SQLITE and storage_mode is None:
             storage_mode = _operator_init_storage_mode(args=args, home=home)
             payload["sqlite_storage_mode"] = storage_mode

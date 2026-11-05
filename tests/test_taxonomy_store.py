@@ -57,13 +57,12 @@ class TaxonomyStoreRoundtripTest(unittest.TestCase):
         registry = load_bundled_taxonomy_seeds()
 
         with mock.patch("secrets_kit.taxonomy.registry_store.write_secret") as write_secret:
-            save_taxonomy_registry(registry=registry, backend="keychain")
+            with self.assertRaisesRegex(Exception, "retired"):
+                save_taxonomy_registry(registry=registry, backend="keychain")
 
-        write_secret.assert_called_once()
-        self.assertEqual(write_secret.call_args.kwargs["backend"], "keychain")
-        self.assertEqual(write_secret.call_args.kwargs["name"], "__taxonomy_registry__")
+        write_secret.assert_not_called()
 
-    @unittest.skipUnless(os.uname().sysname == "Darwin", "macOS Keychain only")
+    @unittest.skip("Keychain backend retired; migration coverage is in test_keychain_migration")
     def test_keychain_taxonomy_registry_roundtrip(self) -> None:
         fixture = make_temp_keychain(password="tax-store-pass")
         try:

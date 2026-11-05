@@ -10,6 +10,7 @@ metadata:
     tags: [secrets, mcp, security]
     category: security
 ---
+> Source of truth: Secrets Kit documentation master. This public copy is a reviewed derivative.
 
 # Install Secrets Kit for Hermes
 
@@ -17,7 +18,7 @@ Install a pinned Secrets Kit release under the Unix account that runs Hermes. Im
 
 ## Required inputs
 
-- The approved exact release tag for this installation; beta qualification does not imply a stable production release.
+- The approved exact release tag; public beta candidate: `v2.0.2b1`. Use this tag only after its public artifact is published and independently verified.
 - The release repository, downloaded asset directory and independently trusted manifest checksum.
 - The integration directory from a separately verified immutable source revision or integration bundle. A skill file alone is not the scripts and references it links to.
 - The absolute Hermes executable path and existing `HERMES_HOME`.
@@ -28,7 +29,7 @@ Read [security boundaries](references/security-boundaries.md) before acting. Nev
 
 ## Install from the GitHub artifacts
 
-The current GitHub release layout contains `install.sh`, `source-commit.txt`, `manifest.sha256`, a client wheel, a pinned libp2p companion wheel and a source archive. It does not contain the legacy controller's `release-id` layout.
+The tagged release contains `install.sh`, `source-commit.txt`, `manifest.sha256`, a client wheel, a pinned libp2p companion wheel and a source archive. It does not contain the legacy controller's `release-id` layout.
 
 Do not run the controller's legacy `preflight` or `install` actions against these assets, fabricate `release-id`, or rewrite the release manifest to satisfy them. Use the supported artifact installer below, then the controller's `configure` and `verify` actions. Legacy bundle-adapter modernization is separate from this documented path.
 
@@ -40,10 +41,7 @@ Do not run the controller's legacy `preflight` or `install` actions against thes
 ```bash
 shasum -a 256 manifest.sha256
 shasum -a 256 -c manifest.sha256
-: "${SECKIT_APPROVED_TAG:?set the exact independently approved release tag}"
-wheel="seckit-${SECKIT_APPROVED_TAG#v}-py3-none-any.whl"
-test -f "$wheel"
-SECKIT_WHEEL_URL="file://$PWD/$wheel" bash ./install.sh --ref "$SECKIT_APPROVED_TAG" --yes --no-init --no-shell-profile
+SECKIT_WHEEL_URL="file://$PWD/seckit-2.0.2b1-py3-none-any.whl" bash ./install.sh --ref v2.0.2b1 --yes --no-init --no-shell-profile
 "$HOME/.local/bin/seckit" --version
 "$HOME/.local/bin/seckit" doctor --install-check
 ```
@@ -79,9 +77,8 @@ Restart Hermes and repeat verification. Preserve unrelated MCP servers. Leave `.
 ## Upgrade an existing installation
 
 ```bash
-: "${SECKIT_APPROVED_TAG:?set the exact independently approved release tag}"
 "$HOME/.local/bin/seckit" upgrade --check
-"$HOME/.local/bin/seckit" upgrade --ref "$SECKIT_APPROVED_TAG"
+"$HOME/.local/bin/seckit" upgrade --ref v2.0.2b1
 "$HOME/.local/bin/seckit" daemon service status
 ```
 

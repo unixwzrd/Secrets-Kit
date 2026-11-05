@@ -1,7 +1,9 @@
+> Source of truth: Secrets Kit documentation master. This public copy is a reviewed derivative.
+
 # SecretStore contract
 
 **Created**: 2026-05-05  
-**Updated**: 2026-05-26
+**Updated**: 2026-11-03
 
 This note summarizes the current :class:`~secrets_kit.backends.base.SecretStore` protocol. Authoritative code remains `src/secrets_kit/backends/base.py`; semantics for resolve, materialize, inject, and export are in
 
@@ -15,10 +17,11 @@ This note summarizes the current :class:`~secrets_kit.backends.base.SecretStore`
 
 ## Scope
 
-`SecretStore` is the local storage authority interface used by the CLI dispatch layer. Current public backend ids are:
+`SecretStore` is the local storage authority interface used by the CLI dispatch layer. The operational backend id is:
 
-- `keychain`
 - `sqlite`
+
+Legacy `keychain` input is accepted only by explicitly invoked macOS migration; normal secret operations reject it.
 
 The interface is intentionally small. It is not a daemon API, remote sync API, transport protocol, or diagnostics schema.
 
@@ -34,9 +37,9 @@ The interface is intentionally small. It is not a daemon API, remote sync API, t
 
 ## Backend notes
 
-- The Keychain implementation uses macOS generic-password items and Keychain comment JSON for non-secret metadata projection.
-- The SQLite implementation is local storage with transaction-backed projections.
-- SQLite transaction and projection internals are documented separately in [LOCAL_FIRST_DATASTORE_ARCHITECTURE.md](LOCAL_FIRST_DATASTORE_ARCHITECTURE.md).
+- SQLite uses local structured storage with transaction-backed projections.
+- Legacy macOS generic-password items and Keychain comment JSON are read only for explicit migration into SQLite.
+- SQLite transaction and projection internals are documented separately in [LOCAL_FIRST_DATASTORE_ARCHITECTURE.md](LOCAL_FIRST_DATASTORE_ARCHITECTURE.md) and [LOCAL_FIRST_DATASTORE_ARCHITECTURE.md](LOCAL_FIRST_DATASTORE_ARCHITECTURE.md).
 
 ## Non-goals
 

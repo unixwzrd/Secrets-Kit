@@ -26,7 +26,6 @@ def build_common_parser() -> argparse.ArgumentParser:
     common.add_argument("--account")
     common.add_argument("--service")
     common.add_argument("--backend", choices=list(BACKEND_CHOICES))
-    common.add_argument("--keychain", help=msg("cli.common.keychain_help"))
     return common
 
 

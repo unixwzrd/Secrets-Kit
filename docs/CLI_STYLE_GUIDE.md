@@ -1,3 +1,5 @@
+> Source of truth: Secrets Kit documentation master. This public copy is a reviewed derivative.
+
 # CLI style guide — Secrets Kit
 
 **Created**: 2026-05-07  

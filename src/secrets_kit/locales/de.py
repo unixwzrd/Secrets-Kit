@@ -232,6 +232,7 @@ STRINGS = {
     "cli.peer.all_service_groups_help_text": "Angenommenen Peer für alle Dienstgruppen autorisieren",
     "cli.peer.import_acceptance_help_text": "Signierte Peer-Zulassungsannahme oder -ablehnung importieren und prüfen",
     "cli.peer.reject_help_text": "Ausstehende Peer-Zulassungsanfrage ablehnen",
+    "cli.peer.revoke_help_text": "Aktiven Peer auf diesem Knoten widerrufen",
     "cli.peer.export_identity_help_text": "Lokale öffentliche Knotenidentität zur Zulassung exportieren",
     "cli.peer.list_help_text": "Bekannten Peer-Zulassungsstatus auflisten",
     "cli.peer.show_help_text": "Einen bekannten Peer-Zulassungsstatus anzeigen",

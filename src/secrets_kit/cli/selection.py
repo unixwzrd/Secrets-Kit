@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse
 from typing import Dict, List, Optional
 
-from secrets_kit.backends.common import BACKEND_KEYCHAIN
+from secrets_kit.backends.common import BACKEND_SQLITE
 from secrets_kit.backends.dispatch import build_env_map, list_secret_metadata
 from secrets_kit.models import EntryMetadata, validate_key_name
 from secrets_kit.registry.resolve import read_metadata
@@ -20,7 +20,7 @@ def _keychain_arg(args: argparse.Namespace) -> Optional[str]:
 
 
 def _backend_arg(args: argparse.Namespace) -> str:
-    return getattr(args, "backend", BACKEND_KEYCHAIN)
+    return getattr(args, "backend", BACKEND_SQLITE)
 
 
 def _select_entries(

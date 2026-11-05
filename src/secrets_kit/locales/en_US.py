@@ -90,6 +90,7 @@ STRINGS = {
     "cli.peer.all_service_groups_help_text": "Authorize the accepted peer for all service groups",
     "cli.peer.import_acceptance_help_text": "Import and verify a signed peer admission acceptance or rejection",
     "cli.peer.reject_help_text": "Reject a pending peer admission request",
+    "cli.peer.revoke_help_text": "Revoke an active peer on this node",
     "cli.peer.export_identity_help_text": "Export local public node identity for admission",
     "cli.peer.list_help_text": "List known peer admission state",
     "cli.peer.show_help_text": "Show one known peer admission state",

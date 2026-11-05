@@ -64,7 +64,10 @@ class DaemonArchitectureBoundaryTest(unittest.TestCase):
             _refresh_runtime_routes,
         )
 
-        records = [{"peer_id": "peer", "endpoint": "tcp://127.0.0.1:41000"}]
+        records = [
+            {"peer_id": "peer", "endpoint": "/ip4/127.0.0.1/tcp/41000/p2p/12D3KooWEmKKnZoADrxx55LV7zAwpDWMCgbucL1jLKcsrQ2Nms9F"},
+            {"peer_id": "unusable", "endpoint": "/ip4/127.0.0.1/tcp/41001"},
+        ]
         table = mock.Mock()
         with mock.patch("secrets_kit.daemon.server.subprocess.run", return_value=subprocess.CompletedProcess(
             args=[], returncode=0, stdout=json.dumps({"version": 1, "routes": records}).encode()
@@ -74,7 +77,7 @@ class DaemonArchitectureBoundaryTest(unittest.TestCase):
         self.assertEqual(worker.call_args.kwargs["timeout"], RUNTIME_HANDOFF_TIMEOUT_SECONDS)
         self.assertEqual(worker.call_args.kwargs["stdin"], subprocess.DEVNULL)
         self.assertEqual(worker.call_args.kwargs["stderr"], subprocess.DEVNULL)
-        table.replace_from_runtime.assert_called_once_with(records=records, adapter="libp2p")
+        table.replace_from_runtime.assert_called_once_with(records=[records[0]], adapter="libp2p")
 
     def test_route_refresh_failure_does_not_replace_routes(self) -> None:
         from secrets_kit.daemon.server import _refresh_runtime_routes
@@ -233,11 +236,19 @@ class DaemonArchitectureBoundaryTest(unittest.TestCase):
 
     def test_status_backend_default_is_sqlite_on_all_platforms(self) -> None:
         for platform in ("darwin", "linux"):
-            for defaults in ({}, {"backend": "sqlite"}, {"backend": "keychain"}):
+            for defaults in ({}, {"backend": "sqlite"}):
                 with self.subTest(platform=platform, defaults=defaults), mock.patch(
                     "sys.platform", platform
                 ), mock.patch("secrets_kit.runtime.status.read_defaults", return_value=defaults):
                     self.assertEqual(_configured_backend(), defaults.get("backend", "sqlite"))
+
+    def test_status_reports_retired_keychain_default(self) -> None:
+        with mock.patch(
+            "secrets_kit.runtime.status.read_defaults", return_value={"backend": "keychain"}
+        ):
+            result = build_runtime_status()
+        self.assertFalse(result["available"])
+        self.assertIn("Keychain is retired", result["error"])
 
     def test_status_backend_read_failure_does_not_select_keychain(self) -> None:
         for error in (RegistryError("invalid defaults"), OSError("unreadable defaults")):
@@ -454,6 +465,22 @@ class DaemonArchitectureBoundaryTest(unittest.TestCase):
         routing.replace_from_runtime.assert_called_once_with(records=records, adapter="direct_tcp")
         self.assertNotIn("transport_routes", response["data"]["runtime"])
 
+    def test_status_filters_unusable_libp2p_runtime_routes(self) -> None:
+        records = [
+            {"peer_id": "peer-1", "endpoint": "/ip4/127.0.0.1/tcp/41000"},
+            {"peer_id": "peer-2", "endpoint": "/ip4/127.0.0.1/tcp/41001/p2p/12D3KooWEmKKnZoADrxx55LV7zAwpDWMCgbucL1jLKcsrQ2Nms9F"},
+        ]
+        adapter = mock.Mock(name="libp2p-adapter")
+        adapter.name = "libp2p"
+        adapter.snapshot.return_value.as_dict.return_value = {"transport": "libp2p"}
+        routing = mock.Mock()
+        with mock.patch(
+            "secrets_kit.daemon.server._invoke_runtime_status",
+            return_value={"available": True, "peers": [], "transport_routes": records},
+        ):
+            _status_response(transport_adapter=adapter, routing_table=routing)
+        routing.replace_from_runtime.assert_called_once_with(records=[records[1]], adapter="libp2p")
+
     def test_status_missing_route_snapshot_does_not_clear_existing_routes(self) -> None:
         for records in (None, "invalid"):
             routing = mock.Mock()
@@ -513,6 +540,54 @@ class DaemonArchitectureBoundaryTest(unittest.TestCase):
         route = table.resolve(peer_id=peer_id, adapter="libp2p")
         self.assertEqual(route.endpoint, bootstrap.endpoint)
         self.assertEqual(route.source, "bootstrap")
+
+    def test_unusable_runtime_endpoint_does_not_replace_libp2p_bootstrap(self) -> None:
+        from secrets_kit.daemon.server import _usable_runtime_routes
+
+        peer_id = "node:00000000-0000-0000-0000-000000000002"
+        bootstrap = PeerRoute(
+            peer_id=peer_id,
+            endpoint="/ip4/127.0.0.1/tcp/41001/p2p/12D3KooWPeer",
+            adapter="libp2p",
+        )
+        for endpoint in (
+            "/ip4/127.0.0.1/tcp/41002",
+            "/ip4/127.0.0.1/tcp/41002/p2p/12D3KooWPeer/tcp/443",
+            "tcp://127.0.0.1:41002/p2p/12D3KooWPeer",
+        ):
+            with self.subTest(endpoint=endpoint):
+                table = RoutingTable([bootstrap])
+                table.replace_from_runtime(
+                    records=_usable_runtime_routes(
+                        records=[{"peer_id": peer_id, "endpoint": endpoint}], adapter="libp2p"
+                    ),
+                    adapter="libp2p",
+                )
+                route = table.resolve(peer_id=peer_id, adapter="libp2p")
+                self.assertEqual(route.endpoint, bootstrap.endpoint)
+                self.assertEqual(route.source, "bootstrap")
+
+    def test_usable_runtime_endpoint_replaces_libp2p_bootstrap(self) -> None:
+        from secrets_kit.daemon.server import _usable_runtime_routes
+
+        peer_id = "node:00000000-0000-0000-0000-000000000002"
+        endpoint = "/ip4/127.0.0.1/tcp/41002/p2p/12D3KooWEmKKnZoADrxx55LV7zAwpDWMCgbucL1jLKcsrQ2Nms9F"
+        table = RoutingTable([
+            PeerRoute(
+                peer_id=peer_id,
+                endpoint="/ip4/127.0.0.1/tcp/41001/p2p/12D3KooWPeer",
+                adapter="libp2p",
+            )
+        ])
+        table.replace_from_runtime(
+            records=_usable_runtime_routes(
+                records=[{"peer_id": peer_id, "endpoint": endpoint}], adapter="libp2p"
+            ),
+            adapter="libp2p",
+        )
+        route = table.resolve(peer_id=peer_id, adapter="libp2p")
+        self.assertEqual(route.endpoint, endpoint)
+        self.assertEqual(route.source, "runtime_endpoint")
 
     def test_runtime_refresh_does_not_erase_validated_discovery_route(self) -> None:
         peer_id = "node:00000000-0000-0000-0000-000000000002"

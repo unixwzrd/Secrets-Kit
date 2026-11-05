@@ -25,7 +25,6 @@ from secrets_kit.backends.common import (
     normalize_backend,
 )
 from secrets_kit.backends.keychain.comment_codec import (
-    format_keychain_comment,
     parse_keychain_comment,
 )
 from secrets_kit.backends.keychain.security_run import (
@@ -112,27 +111,8 @@ class SecurityCliStore(SecretStore):
         comment: str = "",
         label: Optional[str] = None,
     ) -> None:
-        if metadata is not None and not comment:
-            comment = format_keychain_comment(metadata=metadata)
-        if self.exists(service=service, account=account, name=name):
-            self.delete(service=service, account=account, name=name)
-        svc = backend_service_name(service=service, name=name)
-        args = [
-            "add-generic-password",
-            "-a",
-            account,
-            "-s",
-            svc,
-            "-l",
-            label or name,
-            "-j",
-            comment,
-            "-w",
-            value,
-        ]
-        if self.path:
-            args.extend(["-T", "/usr/bin/security"])
-        run_security(args=self._append_target(args))
+        _ = service, account, name, value, metadata, comment, label
+        raise BackendError("Keychain writes are retired; use encrypted SQLite storage")
 
     def get(self, *, service: str, account: str, name: str) -> str:
         svc = backend_service_name(service=service, name=name)

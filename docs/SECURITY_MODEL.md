@@ -1,7 +1,10 @@
+> Source of truth: Secrets Kit documentation master. This public copy is a reviewed derivative.
+
 # Security Model
 
-**Created**: 2026-03-10  
-**Updated**: 2026-08-20
+**Created**: 2026-03-10
+
+**Updated**: 2026-11-04
 
 - [Security Model](#security-model)
   - [Runtime layers](#runtime-layers)
@@ -15,7 +18,7 @@
   - [What this does not protect against](#what-this-does-not-protect-against)
   - [launchd and unattended services](#launchd-and-unattended-services)
   - [Permissions and drift](#permissions-and-drift)
-  - [Keychain fields and limits](#keychain-fields-and-limits)
+  - [Legacy Keychain migration](#legacy-keychain-migration)
   - [Sync behavior](#sync-behavior)
   - [Practical takeaway](#practical-takeaway)
   - [Back to README](#back-to-readme)
@@ -32,8 +35,8 @@ CLI / runtime layer
     → command parsing, selection, launch/injection flows
 
 Local authority layer
-    → keychain backend
     → sqlite backend
+    → explicit legacy Keychain migration input
 
 Metadata / index layer
     → operator store files
@@ -43,17 +46,15 @@ Metadata / index layer
 Transport / synchronization layer
     → explicit export/import artifacts
     → daemon transport abstraction (py-libp2p default; opaque envelope movement)
-    → future RSS/P2P replication transports
+    → authenticated LAN P2P and RSS forwarding of encrypted peer envelopes
 ```
 
-Backend identity and security posture are separate concerns. `keychain` and `sqlite` are local storage authorities. The daemon transport abstraction and future RSS work transport artifacts between local stores and are not themselves authoritative secret backends.
+SQLite is the operational local storage authority. Keychain is a read-only migration source and is not selectable for normal secret operations. The daemon transport abstraction and RSS transport encrypted artifacts between local stores and are not themselves authoritative secret backends.
 
 ## Where values live
 
-- secret values are stored in the configured backend
-- the Keychain backend uses macOS generic-password items and may target either the login Keychain or a dedicated keychain file via `--keychain PATH`
-- the SQLite backend stores local authority records in SQLite
-- authoritative metadata lives in the configured backend authority
+- secret values and authoritative metadata are stored in SQLite
+- legacy macOS generic-password items may be read only during explicit migration from the login Keychain or a selected Keychain file
 - `~/.config/seckit/registry.json` stores local schema/catalog definitions only
 - operator defaults live in `~/.config/seckit/defaults.json`
 - the SQLite datastore records its immutable storage mode inside SQLite
@@ -63,11 +64,13 @@ Backend identity and security posture are separate concerns. `keychain` and `sql
 - peer identity keys are separate signing/encryption keys used for node identity and authenticated peer envelopes
 - peer identity keys and the operational libp2p identity are distinct from the local SQLite storage key
 
-Security posture is a property of backend configuration, not backend identity. The Keychain backend uses platform storage. Storage protection is determined by backend crypto/storage configuration. Current transport plumbing and future P2P/RSS layers are not queried as authoritative secret stores.
+Storage protection is determined by SQLite's immutable storage mode and local keys. Current transport plumbing and P2P/RSS layers are not queried as authoritative secret stores.
 
 The registry exists so the tool can validate and normalize metadata against local catalog rules without becoming inventory or metadata authority.
 
 SQLite storage keys are local datastore protection keys. They must not be shared between real peers. For encrypted SQLite synchronization, a sender decrypts only the local storage fields immediately before destination-specific envelope encryption. After authenticated envelope decryption, the receiving peer re-encrypts those fields with its independent local storage key. RSS sees only the destination-encrypted opaque envelope and never receives either local storage key or plaintext payload.
+
+Owner-only filesystem permissions restrict ordinary local users, but they do not protect against an operating-system administrator who can access both the encrypted SQLite database and its local storage key. An administrator with that access can decrypt local secrets. RSS and other remote synchronization infrastructure receive neither the local storage key nor plaintext secret payloads.
 
 Envelope payload encryption uses node encryption identities and destination-specific protocol metadata. It does not use `sqlite-storage.key`, does not change SQLite storage mode, and does not make transport, relay, daemon, or Peer Registry components secret authority.
 
@@ -184,26 +187,17 @@ Secrets Kit helps with a very common local problem:
 - raw tokens committed by mistake
 - values left behind in project directories and archives
 
-Moving those values into Keychain and launching processes through `seckit run` is a meaningful improvement over plain-text sprawl. Shell export remains available for interactive sessions, but it should not be the default process-launch pattern.
+Moving those values into encrypted SQLite and launching processes through `seckit run` is a meaningful improvement over plain-text sprawl. Shell export remains available for interactive sessions, but it should not be the default process-launch pattern.
 
 ## What this does not protect against
 
 Secrets Kit does not make a compromised local machine safe.
 
-If malware, a hostile script, or an already-compromised shell session can access the Keychain or a launched process environment, Secrets Kit cannot override that reality. Child processes launched with `seckit run` can read every selected variable they inherit. Secrets Kit also is not a remote secret service, policy engine, or multi-host trust system.
+If malware, a hostile script, or an already-compromised shell session can access the local SQLite key or a launched process environment, Secrets Kit cannot override that reality. Child processes launched with `seckit run` can read every selected variable they inherit. RSS is an encrypted forwarding service, not a remote plaintext secret store. Peer admission creates an explicit multi-host trust relationship; it does not make a compromised authorized peer safe.
 
 ## launchd and unattended services
 
-The login keychain is a user-session credential store. It is appropriate for interactive user tools and LaunchAgents that run while the user is logged in and the login keychain is accessible. It is not a reliable storage backend for unattended services that must keep running after logout or start after reboot before user login.
-
-For unattended launchd services, use a dedicated service keychain:
-
-- user-owned background service: LaunchAgent plus `~/Library/Keychains/seckit-service.keychain-db`
-- machine service: LaunchDaemon plus `/Library/Application Support/SecretsKit/seckit-service.keychain-db`
-
-The service keychain is still encrypted. Reboot-safe daemon mode requires unlock material. Secrets-Kit's smoke-test model stores a random service-keychain password in a root-owned `0600` file for LaunchDaemon mode. That file is sensitive service credential material and must be protected like an API token.
-
-A dedicated service keychain is not a security bypass. It is an explicit service credential store for cases where the operational requirement is "run without a logged-in desktop user."
+Normal operations use the encrypted SQLite operator store. A legacy service Keychain may be selected only as an explicit migration source; it remains untouched after migration. Unattended launchd access to the operator store and its local key requires the same OS account and filesystem permissions as interactive use.
 
 ## Permissions and drift
 
@@ -216,55 +210,41 @@ A dedicated service keychain is not a security bypass. It is an explicit service
 - operator-store paths must be owned by the current user
 - operator-store paths must not be symbolic links
 - runtime refuses unsafe operator-store permissions instead of silently repairing them
-- `doctor` can report drift between the local index and the Keychain
+- `doctor` reports SQLite operator-store health
 - `doctor`, `list`, and `explain` can surface rotation and expiry warnings
 
 Security invariants:
 
-- the configured backend is secret authority;
+- SQLite is secret authority;
 - `registry.json` is never secret authority;
 - SQLite transactions are replay authority;
 - SQLite projections are derived state;
 - transport layers are not secret authority;
 - runtime never silently repairs operator-store security;
-- future daemon, P2P, and RSS components should reuse the common operator-store validation path.
+- daemon, P2P, and RSS components must use the common operator-store validation path.
 
 Future integrity mechanisms may strengthen validation while preserving these invariants. Examples include payload hashes, row hashes, transaction signatures, replay integrity verification, or similar mechanisms. Specific algorithms are intentionally not specified here.
 
-## Keychain fields and limits
+## Legacy Keychain migration
 
-The macOS `security` CLI supports a limited generic-password field set:
+On macOS, `seckit migrate keychain --service SERVICE --account ACCOUNT [--keychain PATH]` produces a dry-run inventory of the selected scope without requesting password values. Dry-run also works before SQLite initialization and marks target states unavailable. Applying migration requires a valid encrypted SQLite operator store. For a legacy home with no SQLite database, `seckit init sqlite` provisions the target while retaining existing defaults and catalog data; never run it against an existing SQLite database, because that command recreates the database. Use `seckit init` only for a fresh operator home; it resets an existing home's defaults and catalog. Review the inventory, then repeat the migration command with `--apply` to copy. Migration never runs during initialization, startup, or upgrade. Original Keychain records and existing SQLite data are preserved.
 
-- native lookup/identity fields:
-  - account
-  - service
-  - label
-  - comment
-- readable raw timestamps may be exposed by the CLI, but not in a stable high-level format suitable for authoritative metadata
+Known legacy generic-password records use `SERVICE:NAME` and `ACCOUNT`. The migrator accepts the structured JSON metadata formerly stored in the Keychain comment field, or a record with no comment and minimal generated metadata. Invalid, duplicate, ambiguous, or unsupported records stop the selected migration scope. Inventory subprocess output is bounded to 8 MiB while being read, with at most 10,000 parsed items; an individual password read is limited to 1 MiB. Password bytes are read directly from the selected Keychain through the macOS Security framework, never through subprocess arguments, logs, diagnostics, or temporary files. UTF-8 values are copied byte-exactly, including empty values and whitespace; unsupported encodings fail closed. The legacy CLI may already have stored some Unicode or newline-containing inputs as hex text. Migration preserves the bytes actually stored in Keychain and does not guess or decode ambiguous hex text. A different existing SQLite value or metadata, including a deleted identity, prevents copying. An interrupted run can be repeated: matching verified records are skipped and only absent records are copied.
 
-What it does not provide is a rich custom schema. Secrets-Kit therefore stores extensible metadata as compact JSON in the keychain comment field. That is where fields like:
+Migrated credentials are local only by default; their transaction history creates no outbound envelopes. `--apply --authorize-sync` first copies and verifies the entire selected scope, then explicitly queues retained transactions for peers currently eligible to receive them. The same command can be repeated after a local-only migration or after a new peer becomes eligible: it verifies unchanged Keychain and SQLite values, then creates missing envelopes without rewriting credentials. If copying fails partway, no synchronization is queued; a later run verifies and skips matching copied items. Authorization requires the original Keychain source and one unchanged active SQLite secret transaction per selected item. No Keychain write or automatic deletion occurs. After verifying migration, set a retained legacy `backend=keychain` default to `sqlite` with `seckit config set backend sqlite`; an overriding `SECKIT_DEFAULT_BACKEND` environment variable must also be changed. Normal operations then use SQLite exclusively. Preserve the original Keychain until the SQLite inventory and values have been independently verified.
 
-- `source_url`
-- `source_label`
-- `rotation_days`
-- `rotation_warn_days`
-- `domains`
-- `custom`
-
-are carried.
-
-The practical size limit for comment JSON is determined by what macOS will store and return reliably for a generic-password item. Treat it as small structured metadata, not an unlimited document store.
+Encrypted JSON backup import accepts the documented scrypt profile `n=16384`, `r=8`, `p=1`, with a 16-byte salt, and rejects unsupported parameters before key derivation. The default encrypted export and import byte limit is 128 MiB. An operator may set `--max-backup-bytes N` on encrypted export or import to use a reviewed larger size; import reads no more than `N+1` bytes before rejecting an oversized file. Secret value whitespace is preserved exactly. Existing backups produced by Secrets Kit use the documented scrypt profile; a historical file above the default size requires an explicit size limit selected by the operator.
 
 ## Sync behavior
 
-**Supported cross-host operator workflow:** explicit **export** and **import** with an operator-selected file-transfer path.
+Cross-host workflows use explicit **export** and **import** with an operator-selected file-transfer path, or synchronization between explicitly admitted peers over authenticated P2P or RSS.
 
-**Daemon/envelope transport boundary:** **the runtime owns state; the daemon owns movement.** The daemon uses a stable adapter contract and bounded built-in registry; it is not a protocol, crypto, database, transaction, policy, reconciliation, synchronization, or secret authority. `PyLibP2PTransport` is the preferred production adapter and uses Noise only. `DirectTCPTransport` is an explicitly selected compatibility adapter; startup never silently downgrades to it. Application envelopes received by an adapter are supplied unchanged to the runtime through an internal runtime interface. The runtime owns decryption, signature verification, Peer Registry authorization, transaction validation, transaction application, reconciliation, and protocol acknowledgements.
+**Daemon/envelope transport boundary:** **the runtime owns state; the daemon owns movement.** The daemon uses a stable adapter contract and bounded built-in registry; it is not a protocol, crypto, database, transaction, policy, reconciliation, synchronization, or secret authority. `PyLibP2PTransport` is the default operational adapter and uses Noise only. `DirectTCPTransport` requires an explicit unsafe test flag; startup never silently downgrades to it. Application envelopes received by an adapter are supplied unchanged to the runtime through an internal runtime interface. The runtime owns decryption, signature verification, Peer Registry authorization, transaction validation, transaction application, reconciliation, and protocol acknowledgements.
 
 Transport adapters own transport identity. The runtime owns application identity. Adapters must not generate, interpret, authorize, or persist Secrets Kit node identities. Runtime code treats transport identity as opaque binding material and must not interpret PeerIDs, multiaddrs, sockets, or transport-specific addressing. Libp2p PeerIDs and relay-path metadata never replace Secrets Kit node identity or application authorization.
 
 SECIO, plaintext libp2p, and TLS fallback are excluded from the Secrets Kit py-libp2p profile. The preferred production dependency remains an official upstream py-libp2p release supporting a Noise-only dependency graph. Until available, the installer may deterministically relocate an approved upstream native dependency inside the isolated local runtime as defined by [NATIVE_DEPENDENCY_RELOCATION_ADR.md](NATIVE_DEPENDENCY_RELOCATION_ADR.md).
-Secrets Kit does not publish or redistribute modified third-party wheels.
+Each release candidate must qualify the provenance and security status of its pinned py-libp2p dependency before promotion.
 
 Libp2p's secure handshake and Identify protocol authenticate the transport PeerID and its signed peer records. They do not authenticate the separate Secrets Kit node UUID. The daemon therefore carries a challenge-bound mapping claim after Identify. Runtime-owned code signs the local claim and validates a remote claim against the explicitly admitted peer's signing key; the daemon only checks that the opaque claimed transport identity matches the active libp2p connection. A discovered, unidentified, unadmitted, mismatched, or invalidly signed candidate cannot become an application route.
 
@@ -274,14 +254,15 @@ Operational status is a control-plane view of node health. It is not an applicat
 
 Synchronization components transport transaction envelopes. They are not secret authority, datastore authority, crypto authority, identity authority, policy authority, or RSS authority. CLI-originated mutations and remotely received mutations must pass through the same transaction validation, persistence, application, projection, and envelope pipeline. Read-only commands such as `get`, `list`, and `explain` resolve authority but do not create transactions.
 
-Future peer bootstrap is explicit admission. Discovery may locate a candidate node but must not authorize it. RSS registration and billing identity are separate from cryptographic node identity unless a later ADR deliberately connects them.
+Peer bootstrap uses explicit admission. Discovery may locate a candidate node but must not authorize it. RSS registration and billing identity are separate from cryptographic node identity unless a later ADR deliberately connects them.
 
-Current local automated synchronization tests demonstrate isolated SQLite nodes exchanging transaction envelopes over daemon TCP on one machine. They do not demonstrate authenticated production P2P synchronization, discovery, NAT traversal, RSS transport, hosted RSS infrastructure, or cross-host synchronization.
-Local authenticated peer admission is demonstrated separately: signed admission requests and signed admission decisions prove possession before admission transactions are persisted, while explicit operator acceptance remains required.
+Signed admission requests and decisions prove possession before admission transactions are persisted; explicit operator acceptance remains required. This does not make discovery an authorization mechanism or guarantee general NAT traversal or transport availability.
 
-Signed and encrypted transaction envelopes have been revalidated locally through the remediated daemon/runtime boundary. The daemon carries opaque bytes and receives only transport handoff results; runtime-owned code verifies signatures, decrypts payloads, authorizes peers, submits transactions, and owns durable delivery state. This evidence does not prove production cross-host P2P, discovery, NAT traversal, RSS, or hosted behavior.
+The daemon carries opaque envelope bytes and receives transport handoff results; runtime-owned code verifies signatures, decrypts payloads, authorizes peers, submits transactions, and owns durable delivery state.
 
 Peer Registry authorization is required for synchronization. Static daemon peer configuration is transport bootstrap only and does not grant trust. Admission and service-group synchronization authorization are separate: `peer accept NODE_ID` admits with authorization mode `none`, repeated `--service-group-id` grants an explicit allow-list, and `--all-service-groups` is the only explicit wildcard. Empty or missing allow-list rows deny service-group-scoped datastore synchronization.
+
+An explicitly invoked `seckit peer revoke NODE_ID` ends an active peer's local admission through a canonical, replayable transaction. It does not propagate a revocation instruction to other nodes or erase historical transactions, delivered secrets, or peer identity records. `peer reject` remains limited to pending requests. A successful revoke waits for any local outbound send already in progress to finish, then commits the revoked projection and denies queued envelopes while holding the same peer delivery boundary. From that commit onward, this node rejects the peer's inbound transactions and new application identity bindings, creates no new envelopes for it, and starts no outbound delivery to it. A payload already handed to transport before the commit may still be processed remotely afterward; revocation cannot retract it. If the delivery boundary cannot be acquired, the operation must fail without claiming that revocation took effect.
 
 Node identity initialization target:
 
@@ -295,16 +276,14 @@ Node identity initialization target:
 
 Final key storage, wrapping, rotation, and bootstrap protocol formats remain open implementation decisions.
 
-Protocol-visible identity uses immutable typed UUID identifiers. Human-readable names are mutable projections, not routing, admission, authorization, replay, reconciliation, or billing identity. See [PROTOCOL_IDENTITY_AND_NAMING_ADR.md](PROTOCOL_IDENTITY_AND_NAMING_ADR.md).
+Protocol-visible identity uses immutable typed UUID identifiers. Human-readable names are mutable projections, not routing, admission, authorization, replay, reconciliation, or billing identity. See [LOCAL_FIRST_DATASTORE_ARCHITECTURE.md](LOCAL_FIRST_DATASTORE_ARCHITECTURE.md).
 
-**Superseded peer-bundle design:** [PEER_SYNC.md](PEER_SYNC.md) is retained as a superseded redirect. It must not be used as current command reference.
+Secrets-Kit does **not** use Apple-managed Keychain replication. Cross-host operator work uses explicit encrypted artifacts or authorized peer synchronization.
 
-Secrets-Kit does **not** implement Apple-managed Keychain replication. Cross-host operator work is **your** artifact movement, not OS sync of Keychain items.
-
-**Resilience, noisy export, uninstall:** export/import is the current documented resilience path; full plaintext export is **explicit and high-friction**, not a default backup. Current uninstall is manual per node; the next RC requires a bounded supported uninstaller with preserved data by default, explicit purge, and no dark patterns. See [OPERATOR_LIFECYCLE.md](OPERATOR_LIFECYCLE.md).
+**Resilience, noisy export, uninstall:** export/import is the documented resilience path; full plaintext export is **explicit and high-friction**, not a default backup. The supported uninstaller preserves customer data by default; permanent removal requires explicit bounded selections. See [OPERATOR_LIFECYCLE.md](OPERATOR_LIFECYCLE.md).
 
 ## Practical takeaway
 
 Use Secrets Kit when you want a more disciplined local workflow for tokens, passwords, API keys, and PII on macOS. Do not use it as an excuse to stop thinking about process isolation, machine trust, or downstream runtime behavior.
 
-## [Back to README](ROOT_README.md)
+## [Back to README](../README.md)

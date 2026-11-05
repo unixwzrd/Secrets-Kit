@@ -1,30 +1,32 @@
+> Source of truth: Secrets Kit documentation master. This public copy is a reviewed derivative.
+
 # Workflows — Secrets Kit
 
 **Created**: 2026-05-07  
-**Updated**: 2026-07-16
+**Updated**: 2026-11-04
 
 Task-oriented recipes. Command taxonomy and flags: [CLI_REFERENCE.md](CLI_REFERENCE.md). Concepts: [CONCEPTS.md](CONCEPTS.md).
 
 - [Workflows — Secrets Kit](#workflows--secrets-kit)
-  - [Local development (macOS + Keychain)](#local-development-macos--keychain)
+  - [Local development (encrypted SQLite)](#local-development-encrypted-sqlite)
   - [CI/CD runtime injection](#cicd-runtime-injection)
   - [Backup / export](#backup--export)
   - [Migration from dotenv](#migration-from-dotenv)
   - [Daemon and transport inspection](#daemon-and-transport-inspection)
   - [Backend diagnostics](#backend-diagnostics)
-  - [Disposable testing keychains](#disposable-testing-keychains)
+  - [Legacy Keychain migration](#legacy-keychain-migration)
   - [Browse vocabulary (types, kinds, tags)](#browse-vocabulary-types-kinds-tags)
   - [Store an API key with provider metadata](#store-an-api-key-with-provider-metadata)
   - [Appendix: Common operator flow categories](#appendix-common-operator-flow-categories)
 
-## Local development (macOS + Keychain)
+## Local development (encrypted SQLite)
 
-1. `seckit info` and `seckit unlock` if needed (unlock is **macOS** Keychain only).  
-2. `echo 'value' \| seckit set --name KEY --stdin --service my-stack --account local-dev …`  
-3. `seckit list --service my-stack --account local-dev`  
-4. `seckit run --service my-stack --account local-dev -- your-command`
+1. Confirm `seckit info` reports encrypted SQLite; do not reinitialize an existing store.
+2. Store a value using `seckit set --name KEY --stdin --service my-stack --account local-dev`, supplying the value on stdin.
+3. Inspect `seckit list --service my-stack --account local-dev` without printing secret values.
+4. Launch with `seckit run --service my-stack --account local-dev -- your-command`.
 
-SQLite local-storage loop: use **`--backend sqlite`** and optionally `SECKIT_SQLITE_PATH` per [DEFAULTS.md](DEFAULTS.md).
+Use `--backend sqlite` only when an explicit backend selection is useful; see [DEFAULTS.md](DEFAULTS.md) for an optional local database path override.
 
 ## CI/CD runtime injection
 
@@ -35,7 +37,7 @@ SQLite local-storage loop: use **`--backend sqlite`** and optionally `SECKIT_SQL
 ## Backup / export
 
 - **Encrypted JSON:** `seckit export … --format encrypted-json --out backup.json` (materialization into a file you protect).  
-- **Cross-host today:** combine encrypted export/import with your own file transfer. The current source also contains local daemon/envelope synchronization and local lab orchestration for isolated localhost peers, but that daemon implementation is under architectural boundary review. Cross-host P2P, peer discovery, RSS synchronization, and peer-bundle operator commands are not current CLI workflows.
+- **Cross-host:** move an encrypted export/import artifact through an operator-selected transfer path, or explicitly admit and authorize peers for encrypted transaction synchronization over LAN P2P or RSS.
 
 ## Migration from dotenv
 
@@ -46,20 +48,22 @@ SQLite local-storage loop: use **`--backend sqlite`** and optionally `SECKIT_SQL
 
 - **`seckit daemon status`** checks whether the local daemon is reachable and reports runtime metadata.
 - **`seckit daemon ping`** round-trips through the Unix socket and prints `pong` when reachable.
-- **`seckit status`** asks the local daemon for current operational health, including identity, endpoint, daemon lifecycle, peer authorization/reachability, routing gaps, transaction/envelope counters, and synchronization timestamps. It never reads SQLite directly.
+- **`seckit status`** summarizes daemon reachability, datastore posture, transaction lifecycle counts, envelope lifecycle counts, peer eligibility, and recent synchronization timestamps.
 - **`seckit envelope list`** and **`seckit envelope show <envelope_id>`** inspect persisted outbound delivery artifacts.
 - **`seckit transaction list`** and **`seckit transaction show <transaction_id>`** inspect recorded SQLite transactions without replaying, repairing, or starting the daemon.
 
 ## Backend diagnostics
 
 - **`seckit doctor`** for JSON posture.  
-- **`seckit status`** for current operational health and lifecycle counts from the daemon.
+- **`seckit status`** for current operational health and lifecycle counts.
 - **`seckit info`** for version, defaults, and backend status.
 - **`seckit envelope ...`** and **`seckit transaction ...`** for read-only SQLite transport/history inspection.
 
-## Disposable testing keychains
+## Legacy Keychain migration
 
-- Tests and operators may use temporary keychains; see test fixtures and scripts under `scripts/`.
+- On macOS, `seckit migrate keychain --service SERVICE --account ACCOUNT` performs an explicit dry-run inventory without retrieving secret values; it can run before SQLite initialization. Review the inventory, initialize an encrypted SQLite target if needed without recreating an existing database, then repeat with `--apply`. Only known, unambiguous legacy records are supported; unsupported or ambiguous records fail closed. Original Keychain records and existing SQLite data are preserved. Migrated values are local-only unless synchronization is separately authorized; a later authorization can queue existing migrated transactions without rewriting their values. See [SECURITY_MODEL.md](SECURITY_MODEL.md#legacy-keychain-migration).
+
+- To revoke an admitted peer locally, run `seckit peer revoke NODE_ID`. This records revocation through the transaction pipeline and denies future inbound transactions, new outbound envelopes, queued delivery, and reconnection at this node. Revocation is local to this node and cannot retract a payload already handed to the transport. `seckit peer reject NODE_ID` remains for pending admission requests.
 
 ## Browse vocabulary (types, kinds, tags)
 
@@ -99,4 +103,4 @@ Use this map when deciding where to read first:
 | Dotenv migration              | `import`, `migrate dotenv`                             |
 | Daemon / transport inspection | `daemon`, `envelope`, `transaction`                    |
 | Backend diagnostics           | `doctor`, `info`, `envelope`, `transaction`            |
-| Disposable keychains          | test fixtures and scripts under `scripts/`             |
+| Legacy Keychain migration     | `migrate keychain` on macOS with an explicit scope     |

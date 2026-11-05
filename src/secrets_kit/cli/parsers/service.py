@@ -34,7 +34,6 @@ def register_service_commands(
     p_service_copy.add_argument("--from-account")
     p_service_copy.add_argument("--to-account")
     p_service_copy.add_argument("--backend", choices=list(BACKEND_CHOICES))
-    p_service_copy.add_argument("--keychain", help=msg("cli.common.keychain_help"))
     p_service_copy.add_argument("--names")
     p_service_copy.add_argument("--tag")
     p_service_copy.add_argument("--type", choices=["secret", "pii"])

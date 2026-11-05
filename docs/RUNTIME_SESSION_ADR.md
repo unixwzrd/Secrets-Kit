@@ -1,3 +1,5 @@
+> Source of truth: Secrets Kit documentation master. This public copy is a reviewed derivative.
+
 # ADR: Local runtime session semantics
 
 **Created**: 2026-05-08

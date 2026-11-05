@@ -235,6 +235,7 @@ STRINGS = {
     "cli.peer.all_service_groups_help_text": "Autoriser le pair accepté pour tous les groupes de services",
     "cli.peer.import_acceptance_help_text": "Importer et vérifier une acceptation ou un refus d’admission signé",
     "cli.peer.reject_help_text": "Refuser une demande d’admission en attente",
+    "cli.peer.revoke_help_text": "Révoquer un pair actif sur ce nœud",
     "cli.peer.export_identity_help_text": "Exporter l’identité publique locale du nœud pour l’admission",
     "cli.peer.list_help_text": "Lister l’état d’admission connu des pairs",
     "cli.peer.show_help_text": "Afficher l’état d’admission connu d’un pair",

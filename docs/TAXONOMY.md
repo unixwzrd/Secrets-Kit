@@ -1,3 +1,5 @@
+> Source of truth: Secrets Kit documentation master. This public copy is a reviewed derivative.
+
 # Taxonomy registry (entry types, kinds, tags)
 
 **Updated:** 2026-05-26
@@ -12,7 +14,7 @@ Secrets-Kit separates **vocabulary** (type / kind / tags) from the **metadata sc
     - [`taxonomy show`](#taxonomy-show)
     - [`taxonomy export` / `install`](#taxonomy-export--install)
   - [Related: `seckit set` normalization](#related-seckit-set-normalization)
-  - [Keychain vs SQLite](#keychain-vs-sqlite)
+  - [Legacy Keychain input and SQLite](#legacy-keychain-input-and-sqlite)
 
 ## Canonical semantics
 
@@ -108,6 +110,6 @@ On `seckit set`, `--type` and `--kind` are validated against the taxonomy regist
 
 See [CLI_REFERENCE.md](CLI_REFERENCE.md) for the full command tree.
 
-## Keychain vs SQLite
+## Legacy Keychain input and SQLite
 
-Keychain stores vocabulary in the system object JSON (and per-secret metadata strings). SQLite adds relational projections and vocabulary transactions on write; vocabulary transaction text fields must be strings.
+Legacy Keychain installations may contain vocabulary in system-object JSON and per-secret metadata strings; they are migration inputs only. SQLite uses relational projections and vocabulary transactions on write; vocabulary transaction text fields must be strings.

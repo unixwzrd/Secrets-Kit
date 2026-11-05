@@ -60,7 +60,6 @@ def register_import_commands(
     p_import_file.add_argument("--type", choices=["secret", "pii"])
     p_import_file.add_argument("--kind", help=msg("cli.import_cmd.kind_help_text"))
     p_import_file.add_argument("--backend", choices=list(BACKEND_CHOICES))
-    p_import_file.add_argument("--keychain", help=msg("cli.common.keychain_help"))
     p_import_file.add_argument("--dry-run", action="store_true")
     p_import_file.add_argument("--allow-overwrite", action="store_true")
     p_import_file.add_argument("--allow-empty", action="store_true")
@@ -72,9 +71,12 @@ def register_import_commands(
     )
     p_import_encrypted.add_argument("--file", required=True)
     p_import_encrypted.add_argument("--backend", choices=list(BACKEND_CHOICES))
-    p_import_encrypted.add_argument("--keychain", help=msg("cli.common.keychain_help"))
     p_import_encrypted.add_argument("--password")
     p_import_encrypted.add_argument("--password-stdin", action="store_true")
+    p_import_encrypted.add_argument(
+        "--max-backup-bytes", type=int,
+        help="explicit input byte limit for a reviewed backup larger than 128 MiB",
+    )
     p_import_encrypted.add_argument("--dry-run", action="store_true")
     p_import_encrypted.add_argument("--allow-overwrite", action="store_true")
     p_import_encrypted.add_argument("--allow-empty", action="store_true")

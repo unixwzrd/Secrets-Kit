@@ -28,6 +28,7 @@ from secrets_kit.cli.operator_defaults import initial_operator_defaults, resolve
 from secrets_kit.crypto.storage.sqlite import SQLITE_STORAGE_KEY_ENV
 from secrets_kit.registry import (
     defaults_path,
+    ensure_registry_storage,
     load_catalog,
     load_defaults,
     registry_path,
@@ -111,21 +112,25 @@ class InitCommandTest(unittest.TestCase):
         self.assertEqual(payload["account"], "tester")
         self.assertEqual(payload["default_rotation_days"], 90)
 
-    def test_initial_operator_defaults_accept_backend_override(self) -> None:
-        payload = initial_operator_defaults(account="tester", backend="keychain")
-        self.assertEqual(payload["backend"], "keychain")
+    def test_initial_operator_defaults_reject_keychain_override(self) -> None:
+        with self.assertRaisesRegex(Exception, "retired"):
+            initial_operator_defaults(account="tester", backend="keychain")
 
     def test_init_parser_accepts_backend_but_rejects_runtime_dev_alias(self) -> None:
         parser = build_parser()
         args = parser.parse_args(["init", "--backend", "sqlite", "--yes"])
         self.assertEqual(args.backend, "sqlite")
-        with redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()), self.assertRaises(SystemExit):
+        with (
+            redirect_stderr(io.StringIO()),
+            redirect_stdout(io.StringIO()),
+            self.assertRaises(SystemExit),
+        ):
             parser.parse_args(["init", "--dev"])
 
     def test_init_operator_writes_defaults_and_catalog_registry(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            args = argparse.Namespace(yes=True, home=str(home), init_target=None, backend="keychain")
+            args = argparse.Namespace(yes=True, home=str(home), init_target=None, backend="sqlite")
             with (
                 mock.patch("sys.platform", "darwin"),
                 redirect_stdout(io.StringIO()),
@@ -133,7 +138,7 @@ class InitCommandTest(unittest.TestCase):
                 code = cmd_init_operator(args=args)
             self.assertEqual(code, 0)
             defaults = load_defaults(home=home)
-            self.assertEqual(defaults["backend"], "keychain")
+            self.assertEqual(defaults["backend"], "sqlite")
             self.assertIn(GENERIC_SCHEMA_ID, load_catalog(home=home).schemas)
             self.assertTrue(defaults_path(home=home).exists())
             self.assertTrue(registry_path(home=home).exists())
@@ -272,6 +277,30 @@ class InitCommandTest(unittest.TestCase):
             ):
                 code = cmd_init_operator(args=args)
             self.assertEqual(code, 1)
+
+    def test_sqlite_init_for_legacy_home_preserves_defaults_and_catalog(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "legacy-home"
+            save_defaults(
+                payload={
+                    "backend": "keychain",
+                    "account": "legacy-account",
+                    "custom_marker": "preserve",
+                },
+                home=home,
+            )
+            ensure_registry_storage(home=home)
+            before_schemas = set(load_catalog(home=home).schemas)
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                code = cmd_init_sqlite(
+                    args=argparse.Namespace(yes=True, home=str(home), init_target="sqlite")
+                )
+            self.assertEqual(code, 0)
+            defaults = load_defaults(home=home)
+            self.assertEqual(defaults["backend"], "sqlite")
+            self.assertEqual(defaults["account"], "legacy-account")
+            self.assertEqual(defaults["custom_marker"], "preserve")
+            self.assertTrue(before_schemas <= set(load_catalog(home=home).schemas))
 
     def test_init_sqlite_recreates_database(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

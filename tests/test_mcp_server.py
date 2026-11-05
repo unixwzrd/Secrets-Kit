@@ -172,6 +172,13 @@ class McpServerTest(unittest.TestCase):
             self.assertEqual(policy.metadata_names, frozenset({"API_TOKEN", "OTHER_TOKEN"}))
             self.assertEqual(policy.retrieval_names, frozenset({"API_TOKEN"}))
 
+            payload["backend"] = "keychain"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertRaisesRegex(McpPolicyError, "migrate credentials"):
+                load_policy(path)
+            payload["backend"] = "sqlite"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+
             path.chmod(0o644)
             with self.assertRaises(McpPolicyError):
                 load_policy(path)

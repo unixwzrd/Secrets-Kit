@@ -70,7 +70,6 @@ def register_secret_commands(
     p_list.add_argument("--stale", type=int, help=msg("cli.list.stale_help"))
     p_list.add_argument("--format", choices=["table", "json"], default="table")
     p_list.add_argument("--backend", choices=list(BACKEND_CHOICES))
-    p_list.add_argument("--keychain", help=msg("cli.common.keychain_help"))
     p_list.set_defaults(func=cmd_list)
 
     p_explain = subparsers.add_parser("explain", parents=[common], help=msg("cli.explain.help"))

@@ -21,7 +21,7 @@
 
 **Repository:** `Secrets-Kit` · **CLI:** `seckit` · **Release status:** public beta available; no stable release yet
 
-Secrets Kit is a local-first secrets CLI for macOS and Linux. It supports macOS Keychain and encrypted SQLite storage, authenticated encrypted peer synchronization, optional RSS forwarding, selected environment injection through `seckit run`, and policy-scoped read-only stdio MCP access.
+Secrets Kit is a local-first secrets CLI for macOS and Linux. It uses encrypted SQLite storage, authenticated encrypted peer synchronization, optional RSS forwarding, selected environment injection through `seckit run`, and policy-scoped read-only stdio MCP access. Existing macOS Keychain records can be imported through an explicit, read-only migration.
 
 ## Beyond AI agents
 
@@ -53,7 +53,7 @@ If that trust model is unclear, stop and use a managed secret store you already 
 
 | In scope | Out of scope |
 | --- | --- |
-| macOS or Linux; installer-managed runtime; `security` + login Keychain on macOS | Hosted vault, HSM, zero-knowledge guarantees |
+| macOS or Linux; installer-managed runtime; encrypted SQLite storage | Hosted vault, HSM, zero-knowledge guarantees |
 | Encrypted peer synchronization and explicit export/import | Automatic trust in unknown peers or hosted custody of customer secrets |
 | `seckit run`, import/export, encrypted cross-host backup | Availability guarantees; protection on an already-compromised machine/session |
 
@@ -63,16 +63,16 @@ If any row above is unclear, do not use this tool for real secrets yet.
 
 End users do not need to install Python, uv, virtual environments, or Git. The installer provisions the runtime automatically.
 
-For the current public beta (`v2.0.1b29`), run the exact qualified first-machine command below. No GitHub sign-in is needed. Do not use GitHub's **Source code** archives as installers.
+For the current public beta (`v2.0.2b1`), run the exact qualified first-machine command below. No GitHub sign-in is needed. Do not use GitHub's **Source code** archives as installers.
 
 ```bash
-bash -o pipefail -c 'curl -fsSL https://github.com/unixwzrd/Secrets-Kit/releases/download/v2.0.1b29/install.sh | bash'
+bash -o pipefail -c 'curl -fsSL https://github.com/unixwzrd/Secrets-Kit/releases/download/v2.0.2b1/install.sh | bash'
 ```
 
 If `curl` is unavailable, use `wget` instead:
 
 ```bash
-bash -o pipefail -c 'wget -qO- https://github.com/unixwzrd/Secrets-Kit/releases/download/v2.0.1b29/install.sh | bash'
+bash -o pipefail -c 'wget -qO- https://github.com/unixwzrd/Secrets-Kit/releases/download/v2.0.2b1/install.sh | bash'
 ```
 
 The installer supplies and verifies its release identity and managed runtime; no separate Python, uv, Git, archive extraction, or manual package download is required. Open a new Terminal after installation so its PATH setup takes effect. Do not run `seckit init` over an existing store. See [installation troubleshooting](docs/INSTALL.md) as needed. Private DEV/QA builds require approved repository access and their own exact release artifacts; this public beta command does not install those builds.
@@ -99,7 +99,7 @@ Private DEV and QA builds and the public beta are separate release channels. Do 
 
 Follow [User installation](#user-installation) above for the pinned verified artifact command.
 
-Full installation and upgrade instructions: [INSTALL.md](docs/INSTALL.md). Keychain is macOS-specific; encrypted SQLite supports peer synchronization on macOS and Linux. Development checkout: `make install-dev`. Lint: `make lint`.
+Full installation and upgrade instructions: [INSTALL.md](docs/INSTALL.md). Encrypted SQLite is the operational backend on macOS and Linux; legacy Keychain records can be migrated explicitly on macOS. Development checkout: `make install-dev`. Lint: `make lint`.
 
 ```bash
 seckit --version
@@ -120,10 +120,9 @@ The installer records the release repository, channel, and RSS operator origin. 
 
 ```bash
 seckit info
-seckit unlock
 echo 'example' | seckit set --name DEMO_KEY --stdin --kind generic --service my-stack --account local-dev
 seckit list --service my-stack --account local-dev
-seckit run --service my-stack --account local-dev -- python3 -c 'import os; print("DEMO" in os.environ)'
+seckit run --service my-stack --account local-dev -- python3 -c 'import os; print("DEMO_KEY" in os.environ)'
 ```
 
 **Longer walkthrough:** [Quickstart](docs/QUICKSTART.md)

@@ -215,9 +215,10 @@ def _status_response(
     runtime = _invoke_runtime_status()
     records = runtime.pop("transport_routes", None)
     if routing_table is not None and isinstance(records, list):
+        adapter = transport_adapter.name if transport_adapter else "direct_tcp"
         routing_table.replace_from_runtime(
-            records=records,
-            adapter=(transport_adapter.name if transport_adapter else "direct_tcp"),
+            records=_usable_runtime_routes(records=records, adapter=adapter),
+            adapter=adapter,
         )
     metadata = (
         transport_adapter.snapshot().as_dict()
@@ -480,6 +481,28 @@ def _advertised_endpoint(
     return f"tcp://{transport_host}:{tcp_port}"
 
 
+def _usable_runtime_routes(
+    *, records: list[dict[str, object]], adapter: str
+) -> list[dict[str, object]]:
+    """Keep only runtime locators the selected transport can actually dial."""
+    if adapter != "libp2p":
+        return records
+    from libp2p.peer.peerinfo import info_from_p2p_addr
+    from multiaddr import Multiaddr
+
+    usable: list[dict[str, object]] = []
+    for record in records:
+        endpoint = record.get("endpoint") if isinstance(record, dict) else None
+        if not isinstance(endpoint, str):
+            continue
+        try:
+            info_from_p2p_addr(Multiaddr(endpoint))
+        except ValueError:
+            continue
+        usable.append(record)
+    return usable
+
+
 def _refresh_runtime_routes(*, routing_table: RoutingTable, adapter: str) -> None:
     """Refresh daemon routes from runtime-owned active endpoint records."""
     try:
@@ -497,7 +520,10 @@ def _refresh_runtime_routes(*, routing_table: RoutingTable, adapter: str) -> Non
         value = json.loads(completed.stdout.decode("utf-8"))
         records = value.get("routes")
         if isinstance(records, list):
-            routing_table.replace_from_runtime(records=records, adapter=adapter)
+            routing_table.replace_from_runtime(
+                records=_usable_runtime_routes(records=records, adapter=adapter),
+                adapter=adapter,
+            )
     except (OSError, subprocess.TimeoutExpired, ValueError, json.JSONDecodeError):
         LOGGER.debug("runtime route refresh failed", exc_info=True)
 

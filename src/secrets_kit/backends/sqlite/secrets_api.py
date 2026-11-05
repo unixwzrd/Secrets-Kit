@@ -10,10 +10,12 @@ import base64
 import hashlib
 import json
 import sqlite3
+from dataclasses import replace
 from typing import Any
 
 from secrets_kit.backends.base import SecretStore
 from secrets_kit.backends.sqlite.connection import transaction
+from secrets_kit.backends.sqlite.envelopes import persist_outbound_envelopes_for_configured_peers
 from secrets_kit.backends.sqlite.exceptions import SQLiteBackendError, SQLiteValidationError
 from secrets_kit.backends.sqlite.gate import open_sqlite_backend
 from secrets_kit.backends.sqlite.local_hierarchy import (
@@ -27,10 +29,13 @@ from secrets_kit.backends.sqlite.local_node import load_local_node_projection
 from secrets_kit.backends.sqlite.storage_mode import read_sqlite_storage_mode
 from secrets_kit.backends.sqlite.transaction_engine import (
     LOCAL_TRANSACTION_POLICY,
+    RESTORE_TRANSACTION_POLICY,
+    TransactionSubmissionPolicy,
     submit_transaction,
 )
 from secrets_kit.backends.sqlite.transactions import (
     create_transaction,
+    get_transaction,
 )
 from secrets_kit.backends.sqlite.vocabulary_projections import (
     vocabulary_entry_kind_payload,
@@ -60,6 +65,120 @@ def set_sqlite_secret(
     value: str,
     metadata: EntryMetadata,
 ) -> None:
+    """Store a normal local secret and queue it for eligible peers."""
+    _set_sqlite_secret(
+        service=service,
+        account=account,
+        name=name,
+        value=value,
+        metadata=metadata,
+        policy=LOCAL_TRANSACTION_POLICY,
+        refuse_existing=False,
+    )
+
+
+def import_sqlite_secret_local(
+    *, service: str, account: str, name: str, value: str, metadata: EntryMetadata
+) -> None:
+    """Import one secret into canonical SQLite history without outbound envelopes."""
+    _set_sqlite_secret(
+        service=service,
+        account=account,
+        name=name,
+        value=value,
+        metadata=metadata,
+        policy=RESTORE_TRANSACTION_POLICY,
+        refuse_existing=True,
+    )
+
+
+def import_sqlite_secret_for_sync(
+    *, service: str, account: str, name: str, value: str, metadata: EntryMetadata
+) -> None:
+    """Import one secret and queue it for eligible peers after explicit authorization."""
+    _set_sqlite_secret(
+        service=service,
+        account=account,
+        name=name,
+        value=value,
+        metadata=metadata,
+        policy=LOCAL_TRANSACTION_POLICY,
+        refuse_existing=True,
+    )
+
+
+def authorize_existing_sqlite_secret_for_sync(
+    *, service: str, account: str, name: str
+) -> None:
+    """Queue one verified, single-set local secret for currently eligible peers.
+
+    This only creates durable envelopes. It does not modify the projection,
+    transaction history, secret value, or peer admission state.
+    """
+    conn = open_sqlite_backend()
+    try:
+        with transaction(conn=conn):
+            secret_id = _secret_id(service=service, account=account, name=name)
+            active = conn.execute(
+                "SELECT 1 FROM secrets WHERE secret_id = ? AND state = 'active'",
+                (secret_id,),
+            ).fetchone()
+            history = conn.execute(
+                """SELECT rowid, transaction_id, transaction_type FROM transactions
+                   WHERE transaction_type IN ('secret.set', 'secret.delete')
+                     AND json_extract(payload, '$.secret_id') = ?
+                   ORDER BY rowid LIMIT 2""",
+                (secret_id,),
+            ).fetchall()
+            if active is None or len(history) != 1 or history[0]["transaction_type"] != "secret.set":
+                raise SQLiteBackendError("sync authorization requires one unchanged active secret")
+            secret_tx = get_transaction(conn=conn, transaction_id=history[0]["transaction_id"])
+            if secret_tx.state != "applied":
+                raise SQLiteBackendError("sync authorization requires applied local history")
+            predecessors = conn.execute(
+                """SELECT transaction_id, transaction_type FROM transactions
+                   WHERE rowid < ? ORDER BY rowid DESC LIMIT 2""",
+                (history[0]["rowid"],),
+            ).fetchall()
+            if [row["transaction_type"] for row in predecessors] != [
+                "vocabulary.entry_kind.upsert", "vocabulary.entry_type.upsert"
+            ]:
+                raise SQLiteBackendError("sync authorization prerequisites are unavailable")
+            for row in reversed(predecessors):
+                prior = get_transaction(conn=conn, transaction_id=row["transaction_id"])
+                expected = secret_tx.payload.get(
+                    "entry_type" if prior.transaction_type.endswith("entry_type.upsert") else "entry_kind"
+                )
+                if prior.state != "applied" or prior.payload.get("name") != expected:
+                    raise SQLiteBackendError("sync authorization prerequisites do not match")
+                persist_outbound_envelopes_for_configured_peers(
+                    conn=conn, transaction=_pending_outbound_copy(prior)
+                )
+            persist_outbound_envelopes_for_configured_peers(
+                conn=conn, transaction=_pending_outbound_copy(secret_tx)
+            )
+    finally:
+        conn.close()
+
+
+def _pending_outbound_copy(tx: Any) -> Any:
+    """Reset lifecycle fields only in the envelope copy of retained history."""
+    return replace(
+        tx, state="pending", received_at=None, applied_at=None,
+        acknowledged_at=None, cleared_at=None,
+    )
+
+
+def _set_sqlite_secret(
+    *,
+    service: str,
+    account: str,
+    name: str,
+    value: str,
+    metadata: EntryMetadata,
+    policy: TransactionSubmissionPolicy,
+    refuse_existing: bool,
+) -> None:
     """
     Store one secret through canonical SQLite transaction and projection paths.
 
@@ -85,10 +204,23 @@ def set_sqlite_secret(
     try:
         storage_mode = read_sqlite_storage_mode(conn=conn)
         with transaction(conn=conn):
+            if refuse_existing:
+                secret_id = _secret_id(service=service, account=account, name=name)
+                existing_projection = conn.execute(
+                    "SELECT 1 FROM secrets WHERE secret_id = ?", (secret_id,)
+                ).fetchone()
+                existing_history = conn.execute(
+                    """SELECT 1 FROM transactions
+                       WHERE transaction_type IN ('secret.set', 'secret.delete')
+                         AND json_extract(payload, '$.secret_id') = ? LIMIT 1""",
+                    (secret_id,),
+                ).fetchone()
+                if existing_projection is not None or existing_history is not None:
+                    raise SQLiteBackendError("migration target already exists")
             _ensure_local_projection_parents(conn=conn, account=account, service=service)
             origin_node_id = _local_origin_node_id(conn=conn)
             organization_id, client_id, principal_owner_id = local_host_scope(conn=conn)
-            _emit_vocabulary_transactions_for_metadata(conn=conn, metadata=metadata)
+            _emit_vocabulary_transactions_for_metadata(conn=conn, metadata=metadata, policy=policy)
             tx = create_transaction(
                 transaction_id=_new_transaction_id(),
                 transaction_type="secret.set",
@@ -106,7 +238,7 @@ def set_sqlite_secret(
                     storage_mode=storage_mode,
                 ),
             )
-            submit_transaction(conn=conn, transaction=tx, policy=LOCAL_TRANSACTION_POLICY)
+            submit_transaction(conn=conn, transaction=tx, policy=policy)
     except (sqlite3.Error, SQLiteValidationError) as exc:
         raise SQLiteBackendError(str(exc)) from exc
     finally:
@@ -363,7 +495,7 @@ def list_active_sqlite_metadata(
             FROM secrets s
             JOIN entry_types et ON et.entry_type_id = s.entry_type_id
             JOIN entry_kinds ek ON ek.entry_kind_id = s.entry_kind_id
-            WHERE {' AND '.join(where)}
+            WHERE {" AND ".join(where)}
             ORDER BY s.service, s.account, s.name
             """,
             tuple(params),
@@ -550,6 +682,7 @@ def _emit_vocabulary_transactions_for_metadata(
     *,
     conn: sqlite3.Connection,
     metadata: EntryMetadata,
+    policy: TransactionSubmissionPolicy,
 ) -> None:
     """Emit vocabulary upserts for entry_type and entry_kind before secret.set."""
     origin_node_id = _local_origin_node_id(conn=conn)
@@ -581,7 +714,7 @@ def _emit_vocabulary_transactions_for_metadata(
             owner_id=principal_owner_id,
             payload=payload,
         )
-        submit_transaction(conn=conn, transaction=tx, policy=LOCAL_TRANSACTION_POLICY)
+        submit_transaction(conn=conn, transaction=tx, policy=policy)
 
 
 def _local_origin_node_id(*, conn: sqlite3.Connection) -> str:

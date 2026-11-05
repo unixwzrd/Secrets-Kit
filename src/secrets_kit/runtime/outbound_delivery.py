@@ -15,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 from secrets_kit.backends.sqlite.connection import transaction as sqlite_transaction
 from secrets_kit.backends.sqlite.envelopes import persist_outbound_envelopes
 from secrets_kit.backends.sqlite.gate import open_sqlite_backend
+from secrets_kit.backends.sqlite.peer_delivery_lock import peer_delivery_lock
 from secrets_kit.backends.sqlite.peer_registry import is_peer_synchronization_eligible
 from secrets_kit.backends.sqlite.transaction_scope import service_group_scope_id
 from secrets_kit.backends.sqlite.transactions import get_transaction
@@ -75,50 +76,54 @@ def process_pending_outbound_envelopes(
                 failure_reason=f"peer delivery was not selected: peer_id={destination_node_id}",
             )
             continue
-        if not is_peer_synchronization_eligible(conn=conn, node_id=destination_node_id):
-            _mark_envelope_authorization_denied(
+        # This lock also covers the local revoke commit. Keep authorization,
+        # transport handoff, and receipt state inside one peer delivery boundary.
+        with peer_delivery_lock(node_id=destination_node_id):
+            if not is_peer_synchronization_eligible(conn=conn, node_id=destination_node_id):
+                _mark_envelope_authorization_denied(
+                    conn=conn,
+                    row=row,
+                    failure_reason=f"peer is not synchronization eligible: peer_id={destination_node_id}",
+                )
+                continue
+            try:
+                service_group_id = service_group_scope_id(
+                    transaction=get_transaction(conn=conn, transaction_id=row["transaction_id"])
+                )
+            except Exception as exc:
+                _mark_envelope_authorization_denied(
+                    conn=conn,
+                    row=row,
+                    failure_reason=f"transaction scope is invalid: {exc}",
+                )
+                continue
+            if not is_peer_synchronization_eligible(
                 conn=conn,
-                row=row,
-                failure_reason=f"peer is not synchronization eligible: peer_id={destination_node_id}",
-            )
-            continue
-        try:
-            service_group_id = service_group_scope_id(
-                transaction=get_transaction(conn=conn, transaction_id=row["transaction_id"])
-            )
-        except Exception as exc:
-            _mark_envelope_authorization_denied(
-                conn=conn,
-                row=row,
-                failure_reason=f"transaction scope is invalid: {exc}",
-            )
-            continue
-        if not is_peer_synchronization_eligible(
-            conn=conn,
-            node_id=destination_node_id,
-            service_group_id=service_group_id,
-        ):
-            _mark_envelope_authorization_denied(
-                conn=conn,
-                row=row,
-                failure_reason=(
-                    "peer is not authorized for service group: "
-                    f"peer_id={destination_node_id} service_group_id={service_group_id}"
-                ),
-            )
-            continue
-        _mark_envelope_sending(conn=conn, envelope_id=row["envelope_id"])
-        outcome = deliver_outbound_envelope(row=row)
-        if not outcome.delivered:
-            failed_peers.add(destination_node_id)
-            _mark_peer_retry_pending(
-                conn=conn,
-                row=row,
-                failure_reason=outcome.failure_reason,
-            )
-            continue
-        if _mark_envelope_sent_if_sending(conn=conn, envelope_id=row["envelope_id"]):
-            sent_count += 1
+                node_id=destination_node_id,
+                service_group_id=service_group_id,
+            ):
+                _mark_envelope_authorization_denied(
+                    conn=conn,
+                    row=row,
+                    failure_reason=(
+                        "peer is not authorized for service group: "
+                        f"peer_id={destination_node_id} service_group_id={service_group_id}"
+                    ),
+                )
+                continue
+            if not _mark_envelope_sending(conn=conn, envelope_id=row["envelope_id"]):
+                continue
+            outcome = deliver_outbound_envelope(row=row)
+            if not outcome.delivered:
+                failed_peers.add(destination_node_id)
+                _mark_peer_retry_pending(
+                    conn=conn,
+                    row=row,
+                    failure_reason=outcome.failure_reason,
+                )
+                continue
+            if _mark_envelope_sent_if_sending(conn=conn, envelope_id=row["envelope_id"]):
+                sent_count += 1
     return sent_count
 
 

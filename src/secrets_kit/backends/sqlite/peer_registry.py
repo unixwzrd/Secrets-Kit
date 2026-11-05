@@ -22,6 +22,7 @@ from secrets_kit.identifiers import validate_identifier
 ADMISSION_STATE_REQUESTED = "admission_requested"
 ADMISSION_STATE_ACTIVE = "active"
 ADMISSION_STATE_REJECTED = "rejected"
+ADMISSION_STATE_REVOKED = "revoked"
 AUTHORIZATION_STATE_AUTHORIZED = "authorized"
 AUTHORIZATION_STATE_UNAUTHORIZED = "unauthorized"
 AUTHORIZATION_MODE_NONE = "none"

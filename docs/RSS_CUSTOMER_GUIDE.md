@@ -1,9 +1,9 @@
+> Source of truth: Secrets Kit documentation master. This public copy is a reviewed derivative.
+
 # Remote Secrets Sync beta customer guide
 
-<!-- Derived from separation-governance/Secrets-Kit-Docs/RSS_CUSTOMER_GUIDE.md. -->
-
 **Created**: 2026-08-03
-**Updated**: 2026-09-29
+**Updated**: 2026-11-04
 
 Remote Secrets Sync (RSS) lets two authorized Secrets Kit peers exchange encrypted synchronization envelopes when direct communication is unavailable.
 RSS never receives secret plaintext, customer private keys, or datastore contents.
@@ -30,7 +30,7 @@ The enrollment command retrieves the provisioning bundle only after verified pay
 If enrollment is interrupted after provisioning, rerun `seckit rss enroll`.
 Secrets Kit reuses the protected retained state instead of requesting or overwriting another RET.
 
-The owner claim requires the protected original Checkout receipt and proof from the enrolled device. Save the displayed account ID and one-time recovery codes offline before acknowledging them. The owner key stays with this Unix user and is separate from peer and RSS device keys. Existing beta customers with the original receipt can claim after upgrading; if the receipt and recovery codes are both gone, contact support for a one-time, identity-verified legacy recovery. Ordinary peer authorization cannot manage billing or devices.
+The owner claim requires the protected original Checkout receipt and proof from the enrolled device. Save the displayed account ID and one-time recovery codes offline before acknowledging them. The owner key stays with this Unix user and is separate from peer and RSS device keys. Existing beta customers with the original receipt can claim after upgrading. If an older paid account has never been claimed and its original receipt is lost, contact support about the one-time, identity-verified legacy recovery path. That path cannot recover an already claimed owner account whose recovery codes are lost. Ordinary peer authorization cannot manage billing or devices.
 
 Verify supervision with:
 
