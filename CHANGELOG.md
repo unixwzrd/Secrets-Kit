@@ -4,6 +4,10 @@ Customer-facing changes. This file is derived from the authoritative public chan
 
 ## Unreleased
 
+## 2.0.2 — stable release
+
+- Secrets Kit 2.0.2 brings the qualified encrypted SQLite client, authenticated peer synchronization, and optional paid Remote Sync to the stable channel. Stable and opt-in beta clients share one production subscription, device enrollment, and relay service. Paid Checkout requires no beta invitation; hosted access still requires verified payment and device authorization.
+
 ## 2.0.2b2 — public beta
 
 - Public beta and stable clients use the same production Remote Sync subscription, device enrollment, and relay service. Paid Checkout no longer prompts for a beta invitation. Verified payment and device authorization remain required for hosted synchronization.
