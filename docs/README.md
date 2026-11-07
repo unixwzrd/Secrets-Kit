@@ -3,7 +3,7 @@
 # Secrets Kit documentation
 
 **Created:** 2026-03-10
-**Updated:** 2026-08-20
+**Updated:** 2026-11-07
 
 Use this page as the public documentation map. The root [README](../README.md) stays short; day-to-day detail lives here.
 
@@ -16,11 +16,11 @@ Use this page as the public documentation map. The root [README](../README.md) s
 
 | Doc                                            | Purpose                                                                     |
 | ---------------------------------------------- | --------------------------------------------------------------------------- |
-| [QUICKSTART.md](QUICKSTART.md)                 | Shortest path: install, unlock keychain, set/list/run                       |
+| [QUICKSTART.md](QUICKSTART.md)                 | Shortest path: install, check encrypted SQLite, set/list/run                |
 | [USAGE.md](USAGE.md)                           | Entry point + links to CLI docs (minimal examples)                          |
 | [DEFAULTS.md](DEFAULTS.md)                     | `defaults.json`, env vars, `seckit config`                                  |
 | [SECURITY_MODEL.md](SECURITY_MODEL.md)         | What the tool does and does not protect                                     |
-| [OPERATOR_LIFECYCLE.md](OPERATOR_LIFECYCLE.md) | Export/resilience policy and current/next-RC uninstall contract              |
+| [OPERATOR_LIFECYCLE.md](OPERATOR_LIFECYCLE.md) | Export/resilience policy and current 2.0.2 uninstall contract               |
 | [INTEGRATIONS.md](INTEGRATIONS.md)             | Patterns for apps, agents, and runtimes (includes legacy OpenClaw examples) |
 | [EXAMPLES.md](EXAMPLES.md)                     | Small scripts and command snippets                                          |
 | [examples/](examples/)                         | Runnable shell examples                                                     |

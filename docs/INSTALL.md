@@ -2,7 +2,7 @@
 
 # Install Secrets-Kit
 
-**Updated**: 2026-10-11
+**Updated**: 2026-11-07
 
 Canonical operator install for macOS and Linux.
 
@@ -34,19 +34,19 @@ The installer pins `fastecdsa==3.0.1` and `cryptography==50.0.1`. It uses compat
 
 For non-editable Intel macOS installs, zeroconf uses its upstream-supported pure-Python path (`SKIP_CYTHON=1`). The UV package-install subprocess searches only the managed runtime's bin directory, preventing optional build probes from invoking Apple's Git/Xcode wrappers. The rest of installation and verification retains its normal environment. This does not introduce a locally maintained native dependency build or downgrade zeroconf below libp2p's requirement.
 
-Customer beta platforms are macOS 14 or newer on ARM64, macOS x86_64, and Linux x86_64. Linux ARM remains an internal relay/infrastructure qualification platform and may use an explicitly enabled internal source build; it is not a supported compiler-free customer beta platform.
+Supported 2.0.2 GA customer platforms are macOS 14 or newer on ARM64 or x86_64 and glibc-based Linux x86_64. Linux ARM64 (aarch64) has a bundled prebuilt native dependency, and private b1 preserving upgrades passed on ARM hosts, but the exact public 2.0.2 clean customer installer was not qualified there. Linux ARM64 is not a supported 2.0.2 GA customer platform.
 
 End users do not need to install Python, uv, virtual environments, or Git. The installer provisions **Python 3.12** via UV and installs the explicitly selected tag, or the latest release in the active channel when no tag is supplied. Git is only needed for development checkouts or non-release install paths.
 
 ## Install
 
-For public beta installation, use the exact immutable release installer URL supplied with the beta instructions. Set `INSTALLER_URL` to that public release asset URL, then run:
+For stable 2.0.2 installation, use the exact immutable installer URL in the root [README](../README.md#user-installation). For an opt-in public beta or another pinned release, set `INSTALLER_URL` to that release's public `install.sh` asset URL, then run:
 
 ```bash
 bash -o pipefail -c 'curl -fsSL "$INSTALLER_URL" | bash'
 ```
 
-Export `INSTALLER_URL` before using the command above so the child Bash receives it. The beta guide supplies literal commands that need no variable setup. The tester does not need GitHub CLI or a GitHub account. If curl is absent, use `bash -o pipefail -c 'wget -qO- "$INSTALLER_URL" | bash'`. Alternatively, download the same `install.sh` from the supplied public release URL and run `bash ./install.sh` from its folder. These are alternatives, not additional steps after a successful install. Run the per-user installer as the intended Unix user, not with sudo.
+Export `INSTALLER_URL` before using the command above so the child Bash receives it. The stable README supplies a literal command that needs no variable setup. Public releases need no GitHub CLI or GitHub account. If curl is absent, use `bash -o pipefail -c 'wget -qO- "$INSTALLER_URL" | bash'`. Alternatively, download the same `install.sh` from the supplied public release URL and run `bash ./install.sh` from its folder. These are alternatives, not additional steps after a successful install. Run the per-user installer as the intended Unix user, not with sudo.
 
 For supported Bash and Zsh shells, the generated single-file installer adds a marked Secrets Kit PATH block to the selected shell profile, including when downloaded and piped into Bash. Open a new terminal after installation, then run:
 
@@ -74,7 +74,7 @@ bash -o pipefail -c 'wget -qO- "$INSTALLER_URL" | bash'
 
 These are alternative commands, not additional installation steps. `INSTALLER_URL` must be the supplied public release asset URL, not a GitHub repository page or source archive.
 
-If verification fails, installation stops. Download a fresh script from the maintainer and retry; if it fails again, send a sanitized error, not credentials or full logs. The beta guide covers managed daemon startup and subsequent tests.
+If verification fails, installation stops. Download a fresh script from the maintainer and retry; if it fails again, send a sanitized error, not credentials or full logs. The customer guide covers managed daemon startup and RSS enrollment.
 
 ### Optional installer checksum
 
@@ -216,7 +216,9 @@ The mode is persisted inside the SQLite database and is not switchable at runtim
 
 ## Independent installation without SSH
 
-When the machines cannot reach each other over SSH, run the same pinned public installer independently under the intended user on each machine. No inbound SSH or SSH keys are needed. Both machines need outbound HTTPS for the invitation mailbox; the RSS path also needs access to the configured relays. A fresh unpaired installation can correctly report `WAITING FOR PEERS` until authorization and a usable route are established.
+For production 2.0.2, use the [SSH peer installation and enrollment](#remote-install) procedure. The optional persistent peer-invitation mailbox is not enabled in production; contact support if SSH is unavailable. Peer invitations below are a separate, conditional peer-authorization workflow, not the retired beta Checkout invitation system. Ordinary paid Checkout and enrollment require no beta invitation.
+
+Where a peer-invitation mailbox is configured, run the same pinned public installer independently under the intended user on each machine. No inbound SSH or SSH keys are needed. Both machines need outbound HTTPS for that mailbox; the RSS path also needs access to the configured relays. A fresh unpaired installation can correctly report `WAITING FOR PEERS` until authorization and a usable route are established.
 
 For RSS sharing, the source machine must first complete its single Checkout, RSS enrollment and billing-owner claim as described in [RSS_CUSTOMER_GUIDE.md](RSS_CUSTOMER_GUIDE.md). The target requires its own device credential under the same subscription, not another Checkout. On the source, create a short-lived invitation for the intended service/account:
 
@@ -232,7 +234,7 @@ seckit daemon service status
 seckit status
 ```
 
-Require authorized sharing, a healthy managed service and usable routes; allow up to two minutes for discovery without rewriting secrets or starting another invitation. The billing owner checks `seckit rss devices list` for a distinct target connection under the existing purchased capacity. If capacity is full, use the owner's customer billing portal to approve the additional charge and confirm paid capacity before completing enrollment. Peer authorization and RSS billing authority remain separate. Report an expired or failed session without exchanging peer files, private keys or enrollment tokens. For a LAN-only invitation, omit `--rss`; no paid RSS subscription is needed, but the HTTPS mailbox and a reachable direct transport path are still required.
+Require authorized sharing, a healthy managed service and usable routes; allow up to two minutes for discovery without rewriting secrets or starting another invitation. The billing owner checks `seckit rss devices list` for a distinct target connection under the existing purchased capacity. If capacity is full, contact support to adjust the existing subscription; self-service Portal quantity changes are disabled. Wait for verified payment, entitlement capacity and provisioning before completing another device enrollment. Peer authorization and RSS billing authority remain separate. Report an expired or failed session without exchanging peer files, private keys or enrollment tokens. For a LAN-only invitation, omit `--rss`; no paid RSS subscription is needed, but the HTTPS mailbox and a reachable direct transport path are still required.
 
 To upgrade or preserve-reinstall an independently installed peer, run that release's pinned installer under its existing user. Do not repeat the invitation or RSS enrollment. SSH authorization transports public identity information; neither installation path shares private identity keys or the SQLite storage key.
 
