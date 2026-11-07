@@ -499,7 +499,6 @@ class ReleasePreflightTests(unittest.TestCase):
         urls = {
             "RSS_OPERATOR_URL_DEV": "https://dev.example.invalid",
             "RSS_OPERATOR_URL_QA": "https://qa.example.invalid",
-            "RSS_OPERATOR_URL_BETA": "https://beta.example.invalid",
             "RSS_OPERATOR_URL_PRODUCTION": "https://production.example.invalid",
         }
 
@@ -525,10 +524,11 @@ class ReleasePreflightTests(unittest.TestCase):
             with self.subTest(repository=repository, ref=ref):
                 result = select(f"unixwzrd/{repository}", ref)
                 self.assert_passes(result)
-                self.assertEqual(result.stdout.strip(), urls[f"RSS_OPERATOR_URL_{channel.upper()}"])
+                expected_channel = "PRODUCTION" if channel == "beta" else channel.upper()
+                self.assertEqual(result.stdout.strip(), urls[f"RSS_OPERATOR_URL_{expected_channel}"])
         self.assert_fails(select("unixwzrd/Secrets-Kit", "refs/tags/v1.2.3a4"))
         self.assert_fails(select("unixwzrd/Secrets-Kit-Private", "refs/heads/beta"))
-        self.assert_fails(select("unixwzrd/Secrets-Kit", "refs/heads/beta", missing="RSS_OPERATOR_URL_BETA"))
+        self.assert_fails(select("unixwzrd/Secrets-Kit", "refs/heads/beta", missing="RSS_OPERATOR_URL_PRODUCTION"))
 
     def test_channel_neutral_install_and_integration_docs_do_not_pin_old_candidates(self) -> None:
         root = Path(__file__).resolve().parents[1]

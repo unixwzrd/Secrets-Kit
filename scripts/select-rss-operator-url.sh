@@ -28,8 +28,7 @@ esac
 case "$channel" in
   dev) url="${RSS_OPERATOR_URL_DEV:-}" ;;
   qa) url="${RSS_OPERATOR_URL_QA:-}" ;;
-  beta) url="${RSS_OPERATOR_URL_BETA:-}" ;;
-  production) url="${RSS_OPERATOR_URL_PRODUCTION:-}" ;;
+  beta|production) url="${RSS_OPERATOR_URL_PRODUCTION:-}" ;;
 esac
 [[ -n "$url" ]] || { printf 'Missing RSS operator URL for %s\n' "$channel" >&2; exit 1; }
 printf '%s\n' "$url"

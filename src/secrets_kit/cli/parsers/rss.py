@@ -42,6 +42,7 @@ def register_rss_commands(
         default=None,
         help=msg("cli.rss.operator_url_help"),
     )
+    checkout.add_argument("--test-invitation", action="store_true", help=argparse.SUPPRESS)
     checkout.set_defaults(func=cmd_rss_checkout)
     enroll = rss_sub.add_parser("enroll", help=msg("cli.rss.enroll_help"))
     enroll.add_argument("--bundle-stdin", action="store_true", help=argparse.SUPPRESS)

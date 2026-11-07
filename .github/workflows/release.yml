@@ -116,7 +116,6 @@ jobs:
         env:
           RSS_OPERATOR_URL_DEV: ${{ vars.SECKIT_RSS_OPERATOR_URL_DEV }}
           RSS_OPERATOR_URL_QA: ${{ vars.SECKIT_RSS_OPERATOR_URL_QA }}
-          RSS_OPERATOR_URL_BETA: ${{ vars.SECKIT_BETA_OPERATOR_URL }}
           RSS_OPERATOR_URL_PRODUCTION: ${{ vars.SECKIT_RSS_OPERATOR_URL_PRODUCTION }}
         run: |
           mkdir installer-input

@@ -4,6 +4,10 @@ Customer-facing changes. This file is derived from the authoritative public chan
 
 ## Unreleased
 
+## 2.0.2b2 — public beta
+
+- Public beta and stable clients use the same production Remote Sync subscription, device enrollment, and relay service. Paid Checkout no longer prompts for a beta invitation. Verified payment and device authorization remain required for hosted synchronization.
+
 ## 2.0.2b1 — public beta
 
 - Encrypted SQLite is the operational credential store. On macOS, existing Secrets Kit Keychain records can be inventoried and migrated by an explicit command. Migration leaves original records in place, does not overwrite conflicts, and keeps imported credentials local until synchronization is separately authorized.

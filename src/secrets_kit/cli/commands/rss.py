@@ -157,7 +157,7 @@ def _checkout_connection_units(*, requested: int | None, interactive: bool) -> i
 
 
 def cmd_rss_checkout(*, args: argparse.Namespace) -> int:
-    """Start Stripe Checkout; read an optional beta invitation without echoing it."""
+    """Start paid Checkout; request a hidden invitation only for explicit TEST use."""
     try:
         invite_code = None
         interactive = sys.stdin.isatty()
@@ -165,9 +165,11 @@ def cmd_rss_checkout(*, args: argparse.Namespace) -> int:
             requested=args.connection_units,
             interactive=interactive,
         )
-        if interactive:
+        if getattr(args, "test_invitation", False) and not interactive:
+            raise ValueError("TEST Checkout invitation requires an interactive terminal")
+        if getattr(args, "test_invitation", False):
             invite_code = getpass.getpass(
-                "Beta invitation code (press Enter if none): "
+                "TEST Checkout invitation code: "
             ).strip() or None
         checkout_url, receipt = start_rss_checkout(
             connection_units=connection_units,

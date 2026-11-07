@@ -1,16 +1,17 @@
-> Source of truth: Secrets Kit documentation master. This public copy is a reviewed derivative.
+# Remote Secrets Sync customer guide
 
-# Remote Secrets Sync beta customer guide
+<!-- Derived from separation-governance/Secrets-Kit-Docs/RSS_CUSTOMER_GUIDE.md. -->
 
 **Created**: 2026-08-03
-**Updated**: 2026-11-04
+**Updated**: 2026-11-07
 
 Remote Secrets Sync (RSS) lets two authorized Secrets Kit peers exchange encrypted synchronization envelopes when direct communication is unavailable.
 RSS never receives secret plaintext, customer private keys, or datastore contents.
+The public stable and opt-in beta clients use the same production RSS account, subscription, entitlement, and enrolled device identities. A paid customer may upgrade between those client channels without another Checkout, invitation, or enrollment. New customers need one verified paid subscription; RSS access is unavailable without an active entitlement and authorized device.
 
 ## Subscribe and enroll the first peer
 
-Start Checkout from the installed product. The interactive command suggests at least two units, or the number of known authorized peers plus this machine, whichever is greater. You can enter another valid quantity or pass `--connection-units N` explicitly:
+Start Checkout from the installed product. No invitation code is needed for ordinary paid Checkout. The interactive command suggests at least two units, or the number of known authorized peers plus this machine, whichever is greater. You can enter another valid quantity or pass `--connection-units N` explicitly:
 
 ```bash
 seckit rss checkout
@@ -50,9 +51,9 @@ seckit install user@host
 
 This installs and authorizes the peer, then sends one short-lived enrollment token over SSH so the target creates its own RSS private key and connection ID. No identity export or private key transfer is needed. `seckit install @host` uses the current username.
 
-If paid capacity is full, the command shows the purchased and provisioned counts and a Stripe-hosted billing-portal link. Increase the quantity on the existing subscription, complete payment, and rerun the same install command. Capacity is granted only after Ops verifies and applies the paid quantity; a browser return alone does not grant a slot.
+If paid capacity is full, the command shows the purchased and provisioned counts and a Stripe-hosted billing-portal link. For the initial GA offer, contact support privately to request more subscription units; self-service quantity changes are disabled in the portal. Additional units are prorated and invoiced. Rerun the install command after Ops verifies payment and applies the new capacity; a browser return alone does not grant a slot.
 
-To open the portal at any time, or inspect and permanently revoke a selected device:
+To manage payment methods or cancel at the end of the paid period, open the portal. To inspect and permanently revoke a selected device:
 
 ```bash
 seckit rss billing portal
@@ -60,7 +61,7 @@ seckit rss devices list
 seckit rss devices revoke CONNECTION_ID
 ```
 
-Revocation frees a device slot but does not lower the subscription quantity. The result remains `pending_enforcement` until both relays acknowledge the signed revocation. A replacement machine receives a new connection ID; the old credential cannot be restored. Lower the quantity separately in the portal if desired.
+Revocation frees a device slot but does not lower the subscription quantity. The result remains `pending_enforcement` until both relays acknowledge the signed revocation. A replacement machine receives a new connection ID; the old credential cannot be restored. To reduce purchased units, contact support privately; reductions may create a prorated account credit but do not issue an automatic cash refund. The two-unit minimum remains in force.
 
 ## Deterministic fallback and errors
 
@@ -73,4 +74,4 @@ Secrets Kit fails closed for broadly readable or foreign-owned credential files,
 
 Payment failure, cancellation, or revocation suspends new access and terminates active forwarding. Preserve the local customer identity during an ordinary reinstall. If the billing-owner machine is lost, install on a replacement and run `seckit rss owner recover --account-id ACCOUNT_ID`; supply one saved recovery code when prompted. This rotates the owner key and issues a new offline code set. It does not revive a revoked RSS device or bypass paid capacity.
 
-The lower-level `seckit rss configure` and identity-transfer commands remain for explicit recovery/compatibility only. They are not the normal beta customer workflow.
+The lower-level `seckit rss configure` and identity-transfer commands remain for explicit recovery/compatibility only. They are not the normal customer workflow.
