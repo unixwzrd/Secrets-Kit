@@ -215,6 +215,10 @@ printf 'VALIDATED|%s|%s|%s|%s|%s\\n' \\
         self.assertIn("--ref\nv2.3.4\n", result.stdout)
         self.assertIn("seckit-2.3.4-py3-none-any.whl", result.stdout)
 
+    def test_builder_rejects_oversized_repository_before_loading_assets(self):
+        with self.assertRaisesRegex(ValueError, "Expected CI owner/repository"):
+            self.build(repository="owner/" + "-" * 10000)
+
     def test_branch_build_pins_commit_and_records_source_ref(self):
         self.build(ref="refs/heads/qa")
         result = self.run_installer()

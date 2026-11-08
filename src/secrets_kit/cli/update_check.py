@@ -186,7 +186,7 @@ def _release_context(*, home: Path | None = None) -> tuple[str, str]:
             channel = "prerelease" if any(char.isalpha() for char in __version__) else "release"
     if channel not in {"release", "prerelease"}:
         raise ValueError("unsupported_release_channel")
-    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
+    if len(repo) > 255 or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
         raise ValueError("invalid_github_repository")
     return repo, channel
 

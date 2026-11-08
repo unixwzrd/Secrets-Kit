@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import ipaddress
 import json
 import os
 import re
@@ -111,15 +112,31 @@ def _normalize_ssh_target(target: str) -> str:
             raise InstallTargetError("remote target is empty after '@'")
         if "@" in host_part:
             raise InstallTargetError("use user@host or @host (not @user@host)")
-        return f"{_local_ssh_username()}@{host_part}"
-    if "@" in trimmed:
+        user = _local_ssh_username()
+        host = host_part
+    elif "@" in trimmed:
         user, _, host = trimmed.partition("@")
         if not user or not host:
             raise InstallTargetError("use user@host or @host")
-        return trimmed
-    raise InstallTargetError(
-        f"remote install requires '@' in the target (try @{trimmed} or user@{trimmed})"
-    )
+    else:
+        raise InstallTargetError(
+            f"remote install requires '@' in the target (try @{trimmed} or user@{trimmed})"
+        )
+    # The destination is passed to ssh as one argument. Reject option-like
+    # usernames and shell/config metacharacters before it reaches that boundary.
+    plain_host = re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]*", host) is not None
+    ipv6_host = False
+    if not plain_host and "%" not in host:
+        literal = host[1:-1] if host.startswith("[") and host.endswith("]") else host
+        try:
+            ipaddress.IPv6Address(literal)
+            ipv6_host = True
+        except ValueError:
+            pass
+    if (not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]*", user)
+            or not (plain_host or ipv6_host)):
+        raise InstallTargetError("remote target must be a plain user@host name")
+    return f"{user}@{host}"
 
 
 def _prepare_remote_install(*, args: argparse.Namespace) -> str | None:
@@ -264,6 +281,7 @@ def _remote_installer_argv(*, args: argparse.Namespace) -> list[str]:
 
 
 def _remote_ssh_command(*, host: str, args: argparse.Namespace) -> list[str]:
+    host = _normalize_ssh_target(host)
     remote_args = _remote_installer_argv(args=args)
 
     remote_cmd = f"{_remote_version_pin_env(args=args)}bash -s --"
@@ -276,6 +294,7 @@ def _remote_ssh_command(*, host: str, args: argparse.Namespace) -> list[str]:
         "BatchMode=yes",
         "-o",
         "ConnectTimeout=10",
+        "--",
         host,
         remote_cmd,
     ]
@@ -297,7 +316,7 @@ def _matching_remote_receipt(*, host: str, args: argparse.Namespace) -> bool:
     ):
         return False
     completed = subprocess.run(
-        ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host,
+        ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "--", host,
          '"$HOME/.local/bin/seckit" install --receipt-json'],
         capture_output=True, text=True, check=False, timeout=20,
     )
@@ -340,7 +359,7 @@ def _shared_loopback_launcher(*, host: str, args: argparse.Namespace) -> Path | 
         f"{shlex.quote(str(launcher))} host show --prefix {shlex.quote(str(prefix))} --joined"
     )
     completed = subprocess.run(
-        ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host, remote_command],
+        ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "--", host, remote_command],
         capture_output=True, text=True, check=False, timeout=25,
     )
     if completed.returncode:

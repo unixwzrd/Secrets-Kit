@@ -56,6 +56,13 @@ def _release(tag: str, *, prerelease: bool) -> dict[str, object]:
 
 
 class UpgradeTests(unittest.TestCase):
+    def test_release_context_rejects_oversized_repository(self) -> None:
+        with mock.patch("secrets_kit.cli.update_check._shared_release_state", return_value=None), \
+             mock.patch("secrets_kit.cli.update_check._safe_install_state", return_value={}), \
+             mock.patch.dict(os.environ, {"SECKIT_GITHUB_REPO": "owner/" + "-" * 10000}):
+            with self.assertRaisesRegex(ValueError, "invalid_github_repository"):
+                update_context()
+
     def test_shared_release_origin_overrides_stale_user_receipt(self) -> None:
         def allow_fixture_component(path: Path, *, directory: bool) -> None:
             try:
