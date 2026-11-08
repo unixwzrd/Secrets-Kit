@@ -102,7 +102,7 @@ def parse_installer_pins(payload: bytes) -> dict[str, tuple[str, str]]:
 def build_installer(bundle: Path, output: Path, *, repository: str, ref: str,
                     commit: str, version: str, rss_operator_url: str = "") -> None:
     """Bind validated build identity to verified inputs; never replace outputs."""
-    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
+    if len(repository) > 255 or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
         raise ValueError("Expected CI owner/repository")
     if not re.fullmatch(r"[a-f0-9]{40}", commit):
         raise ValueError("Expected exact source commit")

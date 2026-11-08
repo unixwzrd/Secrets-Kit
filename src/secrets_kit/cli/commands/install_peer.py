@@ -56,7 +56,7 @@ def _peer_command(
     else:
         remote_launcher = shlex.quote(str(shared_launcher)) if shared_launcher else '"$HOME/.local/bin/seckit"'
         remote = remote_launcher + " peer " + " ".join(shlex.quote(part) for part in parts)
-        argv = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host, remote]
+        argv = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "--", host, remote]
     completed = subprocess.run(
         argv,
         input=json.dumps(payload) if payload is not None else None,
@@ -205,7 +205,7 @@ def _status_command(*, host: str | None, shared_launcher: Path | None = None) ->
         argv = [_local_seckit_command(shared_launcher=shared_launcher), "status", "--json"]
     else:
         remote_launcher = shlex.quote(str(shared_launcher)) if shared_launcher else '"$HOME/.local/bin/seckit"'
-        argv = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host,
+        argv = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "--", host,
                 f"{remote_launcher} status --json"]
     completed = subprocess.run(argv, text=True, capture_output=True, check=False, timeout=30)
     if completed.returncode:
@@ -229,7 +229,7 @@ def enroll_installed_rss_peer(*, host: str, shared_launcher: Path | None = None)
         raise ValueError("enroll this RSS device before adding another")
     launcher = shlex.quote(str(shared_launcher)) if shared_launcher else '"$HOME/.local/bin/seckit"'
     command = [
-        "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host,
+        "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "--", host,
         f"{launcher} rss local-status",
     ]
     observed = subprocess.run(command, capture_output=True, text=True, check=False, timeout=30)
@@ -327,7 +327,7 @@ def _wait_route_command(*, host: str | None, peer_id: str, shared_launcher: Path
     else:
         remote_launcher = shlex.quote(str(shared_launcher)) if shared_launcher else '"$HOME/.local/bin/seckit"'
         argv = [
-            "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host,
+            "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "--", host,
             f"{remote_launcher} internal wait-route {shlex.quote(peer_id)}",
         ]
     try:
@@ -368,7 +368,7 @@ def handoff_direct_candidates(*, host: str, shared_launcher: Path | None = None)
             argv = [_local_seckit_command(shared_launcher=shared_launcher), "internal", "direct-candidate", "--stdin"]
         else:
             launcher = shlex.quote(str(shared_launcher)) if shared_launcher else '"$HOME/.local/bin/seckit"'
-            argv = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", side,
+            argv = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "--", side,
                     f"{launcher} internal direct-candidate --stdin"]
         try:
             # A failed direct attempt may still have an enrolled RSS fallback.

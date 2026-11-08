@@ -1440,6 +1440,35 @@ UPGRADE=1
         with mock.patch.dict("os.environ", {"USER": "alice"}, clear=False):
             self.assertEqual(_normalize_ssh_target("@rocky"), "alice@rocky")
         self.assertEqual(_normalize_ssh_target("bob@rocky"), "bob@rocky")
+        self.assertEqual(_normalize_ssh_target("bob@::1"), "bob@::1")
+
+    def test_remote_ssh_target_rejects_option_and_metacharacter_injection(self) -> None:
+        from secrets_kit.cli.commands.install_cmd import InstallTargetError
+
+        for target in (
+            "-oProxyCommand=touch /tmp/marker@host",
+            "bob@host;touch /tmp/marker",
+            "bob@host\nProxyCommand=touch",
+            "@-oProxyCommand=touch",
+        ):
+            with self.subTest(target=target), self.assertRaises(InstallTargetError):
+                _normalize_ssh_target(target)
+        with mock.patch.dict("os.environ", {"USER": "-oProxyCommand=touch"}, clear=False):
+            with self.assertRaises(InstallTargetError):
+                _normalize_ssh_target("@host")
+
+    def test_remote_ssh_command_ends_options_before_target(self) -> None:
+        args = argparse.Namespace(ref=None, repo_url=None, install_url=None, upgrade=False,
+                                  dev=False, yes=False, no_init=False)
+        argv = _remote_ssh_command(host="bob@rocky", args=args)
+        self.assertEqual(argv[argv.index("--") + 1], "bob@rocky")
+
+    def test_peer_ssh_command_ends_options_before_target(self) -> None:
+        completed = subprocess.CompletedProcess([], 0, "{}", "")
+        with mock.patch("secrets_kit.cli.commands.install_peer.subprocess.run", return_value=completed) as run:
+            _peer_command(host="bob@rocky", parts=["export-identity", "--json"])
+        argv = run.call_args.args[0]
+        self.assertEqual(argv[argv.index("--") + 1], "bob@rocky")
 
     def test_normalize_ssh_target_rejects_bare_host(self) -> None:
         from secrets_kit.cli.commands.install_cmd import InstallTargetError
