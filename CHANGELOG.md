@@ -4,6 +4,11 @@ Customer-facing changes. This file is derived from the authoritative public chan
 
 ## Unreleased
 
+## 2.0.3b3 — public beta
+
+- Choose paid Remote Sync capacity at Checkout and manage later changes with account-owner confirmation and Stripe billing previews. Verified payment determines the available device slots.
+- Enroll within paid capacity, revoke a device, and replace it using the released slot after both relays acknowledge revocation. Beta and stable clients share the same subscription and enrolled devices.
+
 ## 2.0.2b2 — public beta
 
 - Public beta and stable clients use the same production Remote Sync subscription, device enrollment, and relay service. Paid Checkout no longer prompts for a beta invitation. Verified payment and device authorization remain required for hosted synchronization.

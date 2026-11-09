@@ -157,24 +157,16 @@ def _checkout_connection_units(*, requested: int | None, interactive: bool) -> i
 
 
 def cmd_rss_checkout(*, args: argparse.Namespace) -> int:
-    """Start paid Checkout; request a hidden invitation only for explicit TEST use."""
+    """Start paid Checkout with the customer's selected node quantity."""
     try:
-        invite_code = None
         interactive = sys.stdin.isatty()
         connection_units = _checkout_connection_units(
             requested=args.connection_units,
             interactive=interactive,
         )
-        if getattr(args, "test_invitation", False) and not interactive:
-            raise ValueError("TEST Checkout invitation requires an interactive terminal")
-        if getattr(args, "test_invitation", False):
-            invite_code = getpass.getpass(
-                "TEST Checkout invitation code: "
-            ).strip() or None
         checkout_url, receipt = start_rss_checkout(
             connection_units=connection_units,
             operator_url=args.operator_url or _installed_operator_url(),
-            invite_code=invite_code,
         )
     except (OSError, ValueError, RSSAuthenticationError) as exc:
         return _fatal(message=str(exc), code=1)
@@ -236,16 +228,16 @@ def cmd_rss_local_status(*, args: argparse.Namespace) -> int:
 
 def _show_recovery_codes(codes: tuple[str, ...]) -> int:
     """Require an interactive offline-code acknowledgement before local cleanup."""
-    print(f"Save this RSS account ID and owner recovery codes offline: {customer_admin_account_id()}")
-    print("Each code works once:")
+    print(msg("cli.rss.owner_codes_intro", account_id=customer_admin_account_id()))
+    print(msg("cli.rss.owner_codes_single_use"))
     for code in codes:
         print(code)
-    answer = input("I saved the recovery codes offline [y/N]: ").strip().lower()
+    answer = input(msg("cli.rss.owner_recovery_codes_saved_prompt")).strip().lower()
     if answer not in {"y", "yes"}:
-        print("Recovery codes remain in the owner-only pending file until you confirm.")
+        print(msg("cli.rss.owner_codes_pending"))
         return 1
     finish_customer_admin_claim()
-    print("RSS owner authority is ready.")
+    print(msg("cli.rss.owner_ready"))
     return 0
 
 
@@ -253,7 +245,7 @@ def cmd_rss_owner_claim(*, args: argparse.Namespace) -> int:
     """Bind paid Checkout to a separate owner key on its enrolled first peer."""
     _ = args
     if not sys.stdin.isatty() or not sys.stdout.isatty():
-        return _fatal(message="RSS owner setup requires an interactive terminal", code=1)
+        return _fatal(message=msg("cli.rss.owner_claim_interactive"), code=1)
     try:
         codes = pending_customer_admin_codes() or claim_customer_admin()
         return _show_recovery_codes(codes)
@@ -264,11 +256,11 @@ def cmd_rss_owner_claim(*, args: argparse.Namespace) -> int:
 def cmd_rss_owner_recover(*, args: argparse.Namespace) -> int:
     """Rotate owner authority using one offline one-time code."""
     if not sys.stdin.isatty() or not sys.stdout.isatty():
-        return _fatal(message="RSS owner recovery requires an interactive terminal", code=1)
+        return _fatal(message=msg("cli.rss.owner_recover_interactive"), code=1)
     try:
         codes = pending_customer_admin_codes()
         if codes is None:
-            code = getpass.getpass("One-time RSS owner recovery code: ").strip()
+            code = getpass.getpass(msg("cli.rss.owner_recovery_code_prompt")).strip()
             codes = recover_customer_admin(
                 account_id=args.account_id,
                 operator_url=args.operator_url or _installed_operator_url(),
@@ -285,7 +277,7 @@ def cmd_rss_devices_list(*, args: argparse.Namespace) -> int:
     try:
         status, result = admin_action(action="devices.list", parameters={})
         if status != 200:
-            raise RSSAuthenticationError("RSS device list was not confirmed")
+            raise RSSAuthenticationError(msg("cli.rss.devices_list_unavailable"))
     except (OSError, ValueError, RSSAuthenticationError) as exc:
         return _fatal(message=str(exc), code=1)
     print(json.dumps(result, sort_keys=True))
@@ -295,20 +287,17 @@ def cmd_rss_devices_list(*, args: argparse.Namespace) -> int:
 def cmd_rss_devices_revoke(*, args: argparse.Namespace) -> int:
     """Permanently revoke one selected device, not the subscription quantity."""
     if not sys.stdin.isatty():
-        return _fatal(message="RSS device revocation requires an interactive terminal", code=1)
-    answer = input(
-        f"Permanently revoke RSS device {args.connection_id} and free its slot? "
-        "The old credential cannot be restored. [y/N] "
-    ).strip().lower()
+        return _fatal(message=msg("cli.rss.devices_revoke_interactive"), code=1)
+    answer = input(msg("cli.rss.devices_revoke_confirm", connection_id=args.connection_id)).strip().lower()
     if answer not in {"y", "yes"}:
-        return _fatal(message="RSS device revocation cancelled", code=1)
+        return _fatal(message=msg("cli.rss.devices_revoke_cancelled"), code=1)
     try:
         status, result = admin_action(
             action="devices.revoke",
             parameters={"connection_id": args.connection_id, "confirm": True},
         )
         if status != 200:
-            raise RSSAuthenticationError("RSS device revocation was not confirmed")
+            raise RSSAuthenticationError(msg("cli.rss.devices_revoke_unconfirmed"))
     except (OSError, ValueError, RSSAuthenticationError) as exc:
         return _fatal(message=str(exc), code=1)
     print(json.dumps(result, sort_keys=True))
@@ -322,10 +311,69 @@ def cmd_rss_billing_portal(*, args: argparse.Namespace) -> int:
         status, result = admin_action(action="billing.portal", parameters={})
         url = result.get("portal_url")
         if status != 200 or not isinstance(url, str) or not url.startswith("https://billing.stripe.com/"):
-            raise RSSAuthenticationError("Stripe billing portal is unavailable")
+            raise RSSAuthenticationError(msg("cli.rss.billing_portal_unavailable"))
     except (OSError, ValueError, RSSAuthenticationError) as exc:
         return _fatal(message=str(exc), code=1)
     print(json.dumps({"portal_url": url}, sort_keys=True))
+    return 0
+
+
+def cmd_rss_billing_units(*, args: argparse.Namespace) -> int:
+    """Request a signed, payment-contingent change to this account's paid capacity."""
+    if not sys.stdin.isatty():
+        return _fatal(message=msg("cli.rss.billing_units_interactive"), code=1)
+    try:
+        units = args.units
+        if units < 2:
+            raise ValueError(msg("cli.rss.billing_units_minimum", minimum=2))
+        status, quote = admin_action(action="billing.preview", parameters={"units": units})
+        if status == 409 and isinstance(quote, dict):
+            if quote.get("status") == "deprovision_devices_first":
+                raise ValueError(msg("cli.rss.billing_units_deprovision",
+                                     provisioned=quote.get("provisioned_units", "?")))
+            if quote.get("status") == "revocation_pending":
+                raise ValueError(msg("cli.rss.billing_units_revocation_pending"))
+            raise ValueError(msg("cli.rss.billing_units_pending"))
+        if status != 200 or not isinstance(quote, dict):
+            raise RSSAuthenticationError(msg("cli.rss.billing_units_unavailable"))
+        current = quote.get("current_units")
+        provisioned = quote.get("provisioned_units")
+        minimum = quote.get("minimum_units")
+        unit_cents = quote.get("unit_amount_cents")
+        amount_due = quote.get("amount_due_cents")
+        adjustment = quote.get("adjustment_total_cents")
+        proration_date = quote.get("proration_date")
+        if (any(type(value) is not int for value in
+                (current, provisioned, minimum, unit_cents, amount_due, adjustment, proration_date))
+                or quote.get("currency") != "usd" or quote.get("interval") != "month"
+                or quote.get("requested_units") != units
+                or minimum < 2 or unit_cents < 1 or amount_due < 0 or proration_date < 1):
+            raise RSSAuthenticationError(msg("cli.rss.billing_units_invalid_preview"))
+        if units < minimum:
+            raise ValueError(msg("cli.rss.billing_units_minimum", minimum=minimum))
+        if units < provisioned:
+            raise ValueError(msg("cli.rss.billing_units_deprovision", provisioned=provisioned))
+        print(msg("cli.rss.billing_units_summary", current=current, requested=units,
+                  before=f"{current * unit_cents / 100:.2f}",
+                  after=f"{units * unit_cents / 100:.2f}",
+                  due=f"{amount_due / 100:.2f}", adjustment=f"{adjustment / 100:.2f}"))
+        answer = input(msg("cli.rss.billing_units_confirm")).strip().lower()
+        if answer not in {"y", "yes"}:
+            raise ValueError(msg("cli.rss.billing_units_cancelled"))
+        status, result = admin_action(
+            action="billing.set_units",
+            parameters={"units": units, "current_units": current,
+                        "amount_due_cents": amount_due,
+                        "adjustment_total_cents": adjustment,
+                        "proration_date": proration_date, "confirm": True},
+        )
+        if status != 200 or not isinstance(result, dict):
+            if status == 409:
+                raise ValueError(msg("cli.rss.billing_units_pending"))
+            raise RSSAuthenticationError(msg("cli.rss.billing_units_not_confirmed"))
+    except (OSError, ValueError, RSSAuthenticationError) as exc:
+        return _fatal(message=str(exc), code=1)
+    print(json.dumps(result, sort_keys=True))
     return 0
 
 

@@ -35,7 +35,8 @@ from secrets_kit.protocol.rss_provisioning import (
 CLAIM_PROTOCOL = "rss_customer_admin_claim/v1"
 REQUEST_PROTOCOL = "rss_customer_admin_request/v1"
 RECOVERY_PROTOCOL = "rss_customer_admin_recovery/v1"
-ADMIN_ACTIONS = frozenset({"devices.list", "devices.revoke", "device.ret", "billing.portal"})
+ADMIN_ACTIONS = frozenset({"devices.list", "devices.revoke", "device.ret", "billing.portal",
+                           "billing.preview", "billing.set_units"})
 
 
 def _encode(value: bytes) -> str:

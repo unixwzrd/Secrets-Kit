@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import tempfile
 import unittest
@@ -9,6 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+from secrets_kit.cli.commands.rss import cmd_rss_billing_units
 from secrets_kit.crypto.signatures import generate_ed25519_keypair
 from secrets_kit.protocol.rss_admin import (
     admin_action,
@@ -102,6 +105,45 @@ class RSSAdminTest(unittest.TestCase):
             post.assert_not_called()
             admin_action(action="device.ret", parameters={}, expected_operator_url="https://qa.example.test")
             post.assert_called_once()
+
+    def test_paid_capacity_change_requires_visible_confirmation(self) -> None:
+        quote = {"current_units": 2, "requested_units": 3, "provisioned_units": 2,
+                 "minimum_units": 2, "unit_amount_cents": 500, "currency": "usd",
+                 "interval": "month", "amount_due_cents": 500,
+                 "adjustment_total_cents": 500, "proration_date": 123456}
+        response = {"status": "pending_reconciliation", "requested_units": 3,
+                    "current_paid_units": 2, "request_id": "request-test"}
+        with (mock.patch("secrets_kit.cli.commands.rss.sys.stdin.isatty", return_value=True),
+              mock.patch("secrets_kit.cli.commands.rss.admin_action",
+                         side_effect=[(200, quote), (200, response)]) as action,
+              mock.patch("builtins.input", return_value="y"),
+              contextlib.redirect_stdout(io.StringIO()) as output):
+            self.assertEqual(cmd_rss_billing_units(args=SimpleNamespace(units=3)), 0)
+        self.assertIn("USD 10.00/month to USD 15.00/month", output.getvalue())
+        self.assertIn("USD 5.00 due now", output.getvalue())
+        self.assertEqual(action.call_args_list[1].kwargs, {
+            "action": "billing.set_units",
+            "parameters": {"units": 3, "current_units": 2, "amount_due_cents": 500,
+                           "adjustment_total_cents": 500, "proration_date": 123456,
+                           "confirm": True},
+        })
+        with (mock.patch("secrets_kit.cli.commands.rss.sys.stdin.isatty", return_value=True),
+              mock.patch("secrets_kit.cli.commands.rss.admin_action", return_value=(200, quote)) as action,
+              mock.patch("builtins.input", return_value="n"),
+              contextlib.redirect_stdout(io.StringIO())):
+            self.assertEqual(cmd_rss_billing_units(args=SimpleNamespace(units=3)), 1)
+            action.assert_called_once_with(action="billing.preview", parameters={"units": 3})
+
+    def test_pending_relay_revocation_never_requests_a_billing_change(self) -> None:
+        with (mock.patch("secrets_kit.cli.commands.rss.sys.stdin.isatty", return_value=True),
+              mock.patch("secrets_kit.cli.commands.rss.admin_action",
+                         return_value=(409, {"status": "revocation_pending"})) as action,
+              mock.patch("builtins.input") as confirm,
+              contextlib.redirect_stderr(io.StringIO()) as error):
+            self.assertEqual(cmd_rss_billing_units(args=SimpleNamespace(units=2)), 1)
+        self.assertIn("both RSS relays", error.getvalue())
+        action.assert_called_once_with(action="billing.preview", parameters={"units": 2})
+        confirm.assert_not_called()
 
 
 if __name__ == "__main__":

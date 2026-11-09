@@ -10,6 +10,7 @@ import argparse
 
 from secrets_kit.cli.commands.rss import (
     cmd_rss_billing_portal,
+    cmd_rss_billing_units,
     cmd_rss_checkout,
     cmd_rss_configure,
     cmd_rss_devices_list,
@@ -42,7 +43,6 @@ def register_rss_commands(
         default=None,
         help=msg("cli.rss.operator_url_help"),
     )
-    checkout.add_argument("--test-invitation", action="store_true", help=argparse.SUPPRESS)
     checkout.set_defaults(func=cmd_rss_checkout)
     enroll = rss_sub.add_parser("enroll", help=msg("cli.rss.enroll_help"))
     enroll.add_argument("--bundle-stdin", action="store_true", help=argparse.SUPPRESS)
@@ -72,6 +72,9 @@ def register_rss_commands(
     billing_sub.add_parser("portal", help="Get the Stripe billing portal URL").set_defaults(
         func=cmd_rss_billing_portal
     )
+    units = billing_sub.add_parser("units", help=msg("cli.rss.billing_units_help"))
+    units.add_argument("units", type=int, help=msg("cli.rss.billing_units_argument"))
+    units.set_defaults(func=cmd_rss_billing_units)
     configure = rss_sub.add_parser("configure", help=msg("cli.rss.configure_help"))
     configure.add_argument(
         "--enrollment-token-file",
