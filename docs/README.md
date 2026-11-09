@@ -3,7 +3,7 @@
 # Secrets Kit documentation
 
 **Created:** 2026-03-10
-**Updated:** 2026-11-07
+**Updated:** 2026-11-09
 
 Use this page as the public documentation map. The root [README](../README.md) stays short; day-to-day detail lives here.
 
@@ -38,4 +38,4 @@ Use this page as the public documentation map. The root [README](../README.md) s
 
 ## Development Checks
 
-GitHub Actions runs `scripts/run_local_validation.sh` on macOS. For local work, install dev dependencies once (`pip install -e ".[dev]"` in your active Python environment — see [README Contributing](../README.md#contributing)), then use `make` / `make help` for validation targets. Start with `make validate-fast`; use `make validate-full` or `make make-all` when you also want integration and launchd layers. `make lint` requires **ruff** and **basedpyright** from the `dev` optional dependency group in `pyproject.toml`. `make test-keychain` covers legacy Keychain compatibility and migration, `make test-sqlite` covers the operational SQLite backend, and `make test-integration` runs both suites. Some tests require interactive Keychain access or PyNaCl; others use SQLite-only harnesses.
+GitHub Actions runs `make lint`, `make test-fast`, and `make test-sqlite-unit` on Linux and macOS. For local work, install dev dependencies once (`pip install -e ".[dev]"` in your active Python environment — see [README Contributing](../README.md#contributing)), then use `make help` to see the available targets. Start with `make validate-fast`; use `make validate-full` when you also want integration and launchd layers. `scripts/run_local_validation.sh` is an optional broader local check, not the CI entry point. `make lint` requires **ruff** and **basedpyright** from the `dev` optional dependency group in `pyproject.toml`. `make test-keychain` covers legacy Keychain compatibility and migration, `make test-sqlite` covers the operational SQLite backend, and `make test-integration` runs both. Some tests require interactive Keychain access or PyNaCl; others use SQLite-only harnesses.

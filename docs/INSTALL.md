@@ -255,7 +255,7 @@ Uses editable install from the local checkout. Pin a git ref with `./install.sh 
 | Target | Action |
 | --- | --- |
 | `make install` | Run `./install.sh` |
-| `make install-dev` | Run `./install.sh --dev` |
+| `make install-dev` | Run `./install.sh --dev --yes` (editable checkout; noninteractive init confirmation) |
 | `make install-upgrade` | Run `./install.sh --upgrade` |
 | `make install-check` | `seckit doctor --install-check` |
 

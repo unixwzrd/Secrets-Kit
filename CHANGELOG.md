@@ -6,6 +6,7 @@ Customer-facing changes. This file is derived from the authoritative public chan
 
 ## 2.0.4 — stable maintenance release
 
+- Align Makefile help and developer documentation with the validation commands used by CI. Remove a nonexistent target reference and document the exact editable-install command; client runtime behavior is unchanged.
 - Generate `requirements.txt` from `pyproject.toml` and verify the result in branch CI and release builds. This corrects the repository dependency list without changing the client runtime or qualified dependency pins.
 - Stripe Checkout collects the customer name and email for billing and support. The customer billing portal shows the paid-through date and explains that period-end cancellation stops renewal while paid RSS access continues through expiration. Unused prorated amounts remain Stripe account credits for future invoices, not automatic card refunds.
 - Existing subscriptions and devices remain enrolled; billing, peer authorization, and relay synchronization behavior are unchanged except for the customer-facing cancellation guidance.

@@ -148,18 +148,14 @@ Issues and PRs welcome (CLI UX, backends, docs, import/export edge cases). Local
 
 ```bash
 pip install -e ".[dev]"
-pre-commit install
-make lint
-make test-fast
-make test-sqlite-unit
 make help
 make validate-fast
-bash ./scripts/run_local_validation.sh
+make test-sqlite-unit
 ```
 
-Use `make validate-full` or `make make-all` for the full local validation layer, including integration and launchd test targets.
+`make validate-fast` includes lint and fast unit tests. Run `pre-commit install` if you want local Git hooks. Use `make validate-full` for the full local validation layer, including integration and launchd test targets. `scripts/run_local_validation.sh` is an optional local check that also validates shell syntax and compiles Python files; it is not the GitHub Actions entry point.
 
-**Updated:** 2026-09-25
+**Updated:** 2026-11-09
 
 ---
 
