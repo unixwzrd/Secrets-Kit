@@ -51,7 +51,7 @@ seckit install user@host
 
 This installs and authorizes the peer, then sends one short-lived enrollment token over SSH so the target creates its own RSS private key and connection ID. No identity export or private key transfer is needed. `seckit install @host` uses the current username.
 
-If paid capacity is full, the command shows the purchased and provisioned counts. On the billing owner's machine, run `seckit rss billing units N` with the new total capacity. Review Stripe's prorated amount due now and the new monthly total, then confirm. Additional capacity becomes available only after payment is verified and reconciled. Rerun the install command after the new slot appears in `seckit rss devices list`; a billing preview or browser return alone does not grant a slot.
+If paid capacity is full, the command shows the purchased and provisioned counts. On the billing owner's machine, run `seckit rss billing units N` to preview Stripe's prorated adjustment and new recurring total, then explicitly confirm the change. Increased capacity becomes available only after payment verification and reconciliation. Rerun the install command once the new paid capacity appears; the billing portal does not change subscription quantity.
 
 To manage payment methods or schedule cancellation at the end of the paid period, open the portal. The client shows the current paid-through date before you visit Stripe; review the date and consequences again before confirming cancellation there. To inspect and permanently revoke a selected device:
 
@@ -61,7 +61,7 @@ seckit rss devices list
 seckit rss devices revoke CONNECTION_ID
 ```
 
-Revocation frees a device slot but does not lower the subscription quantity. The result remains `pending_enforcement` until both relays acknowledge the signed revocation. A replacement machine receives a new connection ID; the old credential cannot be restored. After revoking enough devices, run `seckit rss billing units N` to reduce purchased capacity. Stripe may place a prorated credit on the billing account for future invoices; it is not an automatic card refund. The two-unit minimum remains in force.
+Revocation frees a device slot but does not lower the subscription quantity. The result remains `pending_enforcement` until both relays acknowledge the signed revocation. A replacement machine receives a new connection ID; the old credential cannot be restored. To reduce purchased units, first revoke enough devices, then run `seckit rss billing units N` as the billing owner. Reductions may create a prorated Stripe account credit for future invoices rather than an immediate card refund. The two-unit minimum remains in force.
 
 ## Deterministic fallback and errors
 
