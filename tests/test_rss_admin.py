@@ -11,7 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from secrets_kit.cli.commands.rss import cmd_rss_billing_units
+from secrets_kit.cli.commands.rss import cmd_rss_billing_portal, cmd_rss_billing_units
 from secrets_kit.crypto.signatures import generate_ed25519_keypair
 from secrets_kit.protocol.rss_admin import (
     admin_action,
@@ -144,6 +144,23 @@ class RSSAdminTest(unittest.TestCase):
         self.assertIn("both RSS relays", error.getvalue())
         action.assert_called_once_with(action="billing.preview", parameters={"units": 2})
         confirm.assert_not_called()
+
+    def test_portal_shows_exact_paid_through_date_without_changing_json_url(self) -> None:
+        result = {"portal_url": "https://billing.stripe.com/p/test",
+                  "paid_through_at": 1800000000, "cancellation_scheduled": False}
+        with (mock.patch("secrets_kit.cli.commands.rss.admin_action", return_value=(200, result)),
+              contextlib.redirect_stderr(io.StringIO()) as error,
+              contextlib.redirect_stdout(io.StringIO()) as output):
+            self.assertEqual(cmd_rss_billing_portal(args=SimpleNamespace()), 0)
+        self.assertIn("2027-01-15 08:00 UTC", error.getvalue())
+        self.assertIn("not an automatic card refund", error.getvalue())
+        self.assertEqual(json.loads(output.getvalue()), {"portal_url": result["portal_url"]})
+        result["cancellation_scheduled"] = True
+        with (mock.patch("secrets_kit.cli.commands.rss.admin_action", return_value=(200, result)),
+              contextlib.redirect_stderr(io.StringIO()) as scheduled,
+              contextlib.redirect_stdout(io.StringIO())):
+            self.assertEqual(cmd_rss_billing_portal(args=SimpleNamespace()), 0)
+        self.assertIn("Renewal is already cancelled", scheduled.getvalue())
 
 
 if __name__ == "__main__":

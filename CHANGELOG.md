@@ -4,6 +4,11 @@ Customer-facing changes. This file is derived from the authoritative public chan
 
 ## Unreleased
 
+## 2.0.3b4 — public beta
+
+- Show the paid-through date before Stripe-hosted cancellation. Cancelling stops renewal while paid Remote Sync access continues through that period when the entitlement remains in good standing. Account credit is distinct from a card refund.
+- Collect the customer’s full name in Stripe Checkout for billing and support while preserving existing accounts without a recorded name.
+
 ## 2.0.3b3 — public beta
 
 - Choose paid Remote Sync capacity at Checkout and manage later changes with account-owner confirmation and Stripe billing previews. Verified payment determines the available device slots.
