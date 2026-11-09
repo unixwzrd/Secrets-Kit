@@ -25,6 +25,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Verify generated requirements
+        run: |
+          python scripts/sync-requirements.py
+          git diff --exit-code -- requirements.txt
       - name: Release channel preflight
         run: bash ./scripts/release_preflight.sh
       - name: Install for tests
