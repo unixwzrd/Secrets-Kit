@@ -17,7 +17,7 @@ Start Checkout from the installed product. No invitation code is needed for ordi
 seckit rss checkout
 ```
 
-Open the returned `checkout_url` and complete Stripe Checkout. Secrets Kit stores the opaque Checkout recovery identifiers in a protected local receipt; customers do not construct or copy account IDs, Checkout IDs, entitlement IDs, RET values, enrollment URLs, relay identities, or relay multiaddresses.
+Open the returned `checkout_url` and complete Stripe Checkout. Stripe collects your full name and email for billing and support; Secrets Kit does not collect card numbers. Secrets Kit stores the opaque Checkout recovery identifiers in a protected local receipt; customers do not construct or copy account IDs, Checkout IDs, entitlement IDs, RET values, enrollment URLs, relay identities, or relay multiaddresses.
 
 After the payment-success page appears, run:
 
@@ -53,7 +53,7 @@ This installs and authorizes the peer, then sends one short-lived enrollment tok
 
 If paid capacity is full, the command shows the purchased and provisioned counts. On the billing owner's machine, run `seckit rss billing units N` to preview Stripe's prorated adjustment and new recurring total, then explicitly confirm the change. Increased capacity becomes available only after payment verification and reconciliation. Rerun the install command once the new paid capacity appears; the billing portal does not change subscription quantity.
 
-To manage payment methods or cancel at the end of the paid period, open the portal. To inspect and permanently revoke a selected device:
+To manage payment methods or schedule cancellation at the end of the paid period, open the portal. The client shows the current paid-through date before you visit Stripe; review the date and consequences again before confirming cancellation there. To inspect and permanently revoke a selected device:
 
 ```bash
 seckit rss billing portal
@@ -61,7 +61,7 @@ seckit rss devices list
 seckit rss devices revoke CONNECTION_ID
 ```
 
-Revocation frees a device slot but does not lower the subscription quantity. The result remains `pending_enforcement` until both relays acknowledge the signed revocation. A replacement machine receives a new connection ID; the old credential cannot be restored. To reduce purchased units, first revoke enough devices, then run `seckit rss billing units N` as the billing owner. Reductions may create a prorated account credit rather than an immediate cash refund. The two-unit minimum remains in force.
+Revocation frees a device slot but does not lower the subscription quantity. The result remains `pending_enforcement` until both relays acknowledge the signed revocation. A replacement machine receives a new connection ID; the old credential cannot be restored. To reduce purchased units, first revoke enough devices, then run `seckit rss billing units N` as the billing owner. Reductions may create a prorated Stripe account credit for future invoices rather than an immediate card refund. The two-unit minimum remains in force.
 
 ## Deterministic fallback and errors
 
@@ -72,6 +72,6 @@ Secrets Kit fails closed for broadly readable or foreign-owned credential files,
 
 ## Revocation and recovery
 
-Payment failure, cancellation, or revocation suspends new access and terminates active forwarding. Preserve the local customer identity during an ordinary reinstall. If the billing-owner machine is lost, install on a replacement and run `seckit rss owner recover --account-id ACCOUNT_ID`; supply one saved recovery code when prompted. This rotates the owner key and issues a new offline code set. It does not revive a revoked RSS device or bypass paid capacity.
+Scheduling cancellation stops renewal but keeps paid RSS access through the displayed current-period end, provided the entitlement remains in good standing. At expiration, hosted access ends; local data and the free client remain. An unused Stripe account credit stays on the billing account for future invoices after cancellation; a card refund requires a separate approved request under the published policy. Payment failure or device revocation can independently restrict access. Preserve the local customer identity during an ordinary reinstall. If the billing-owner machine is lost, install on a replacement and run `seckit rss owner recover --account-id ACCOUNT_ID`; supply one saved recovery code when prompted. This rotates the owner key and issues a new offline code set. It does not revive a revoked RSS device or bypass paid capacity.
 
 The lower-level `seckit rss configure` and identity-transfer commands remain for explicit recovery/compatibility only. They are not the normal customer workflow.

@@ -11,6 +11,7 @@ import getpass
 import json
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -312,6 +313,19 @@ def cmd_rss_billing_portal(*, args: argparse.Namespace) -> int:
         url = result.get("portal_url")
         if status != 200 or not isinstance(url, str) or not url.startswith("https://billing.stripe.com/"):
             raise RSSAuthenticationError(msg("cli.rss.billing_portal_unavailable"))
+        period_end = result.get("paid_through_at")
+        try:
+            date = (datetime.fromtimestamp(period_end, tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
+                    if type(period_end) is int and period_end > 0 else None)
+        except (ValueError, OverflowError, OSError):
+            date = None
+        if date is not None:
+            key = ("cli.rss.billing_portal_cancel_scheduled"
+                   if result.get("cancellation_scheduled") is True
+                   else "cli.rss.billing_portal_paid_through")
+            print(msg(key, date=date), file=sys.stderr)
+        else:
+            print(msg("cli.rss.billing_portal_check_date"), file=sys.stderr)
     except (OSError, ValueError, RSSAuthenticationError) as exc:
         return _fatal(message=str(exc), code=1)
     print(json.dumps({"portal_url": url}, sort_keys=True))

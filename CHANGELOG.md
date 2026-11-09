@@ -4,6 +4,15 @@ Customer-facing changes. This file is derived from the authoritative public chan
 
 ## Unreleased
 
+## 2.0.4 — stable maintenance release
+
+- Stripe Checkout collects the customer name and email for billing and support. The customer billing portal shows the paid-through date and explains that period-end cancellation stops renewal while paid RSS access continues through expiration. Unused prorated amounts remain Stripe account credits for future invoices, not automatic card refunds.
+- Existing subscriptions and devices remain enrolled; billing, peer authorization, and relay synchronization behavior are unchanged except for the customer-facing cancellation guidance.
+
+## 2.0.3b4 — public beta
+
+- Show the paid-through date and account-credit consequences before opening Stripe billing management. Keep the existing paid device enrollment and capacity controls.
+
 ## 2.0.3 — stable release
 
 - Customers can choose paid Remote Sync capacity at Checkout, confirm Stripe billing adjustments as the account owner, and use additional slots only after verified payment. Device revocation and replacement preserve the paid subscription while East and West enforce the new authorization.
