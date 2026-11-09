@@ -260,13 +260,8 @@ def enroll_installed_rss_peer(*, host: str, shared_launcher: Path | None = None)
     try:
         status, bundle = admin_action(action="device.ret", parameters={})
         if status == 409 and bundle.get("reason") == "device_capacity_exhausted":
-            portal_status, portal = admin_action(action="billing.portal", parameters={})
-            link = portal.get("portal_url") if portal_status == 200 else None
             capacity = bundle.get("capacity")
-            raise ValueError(
-                f"RSS device capacity is full ({capacity}); increase paid units at {link or 'the billing portal'} "
-                "and rerun the same seckit install command"
-            )
+            raise ValueError(msg("cli.rss.install_peer_capacity_exhausted", capacity=capacity))
         if status != 200 or bundle.get("protocol") != "rss_provisioning_bundle/v1":
             raise ValueError("RSS device enrollment authorization was not confirmed")
     except RSSAuthenticationError as exc:

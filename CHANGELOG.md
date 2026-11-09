@@ -4,6 +4,16 @@ Customer-facing changes. This file is derived from the authoritative public chan
 
 ## Unreleased
 
+## 2.0.3 — stable release
+
+- Customers can choose paid Remote Sync capacity at Checkout, confirm Stripe billing adjustments as the account owner, and use additional slots only after verified payment. Device revocation and replacement preserve the paid subscription while East and West enforce the new authorization.
+- Stable and beta clients share the same production subscription, entitlement and enrolled devices. Ordinary paid Checkout needs no beta invitation.
+
+## 2.0.3b3 — public beta
+
+- Choose paid Remote Sync capacity at Checkout and manage later changes with account-owner confirmation and Stripe billing previews. Verified payment determines the available device slots.
+- Enroll within paid capacity, revoke a device, and replace it using the released slot after both relays acknowledge revocation. Beta and stable clients share the same subscription and enrolled devices.
+
 ## 2.0.2 — stable release
 
 - Secrets Kit 2.0.2 brings the qualified encrypted SQLite client, authenticated peer synchronization, and optional paid Remote Sync to the stable channel. Stable and opt-in beta clients share one production subscription, device enrollment, and relay service. Paid Checkout requires no beta invitation; hosted access still requires verified payment and device authorization.

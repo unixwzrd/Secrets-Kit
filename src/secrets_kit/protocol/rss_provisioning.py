@@ -117,9 +117,8 @@ def prepare_rss_device_identity(
 
 def start_rss_checkout(
     *, connection_units: int, operator_url: str = DEFAULT_RSS_OPERATOR_URL,
-    invite_code: str | None = None,
 ) -> tuple[str, Path]:
-    """Start Checkout and retain opaque recovery IDs; send any invite only to Ops."""
+    """Start Checkout and retain only opaque recovery IDs locally."""
     if connection_units < 2:
         raise RSSAuthenticationError("RSS requires at least two connection units")
     base = _https_base(value=operator_url)
@@ -131,10 +130,6 @@ def start_rss_checkout(
     else:
         raise FileExistsError(f"RSS Checkout receipt already exists: {path}")
     request: dict[str, object] = {"connection_units": connection_units}
-    if invite_code is not None:
-        if not invite_code.startswith("ski_") or len(invite_code) > 128:
-            raise RSSAuthenticationError("Beta Checkout invitation is invalid")
-        request["invite_code"] = invite_code
     result = _post_json(url=f"{base}/v1/checkout", value=request)
     required = {"account_id", "checkout_session_id", "checkout_url"}
     if set(result) != required:

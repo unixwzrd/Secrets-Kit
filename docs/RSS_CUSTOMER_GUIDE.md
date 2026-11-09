@@ -3,7 +3,7 @@
 <!-- Derived from separation-governance/Secrets-Kit-Docs/RSS_CUSTOMER_GUIDE.md. -->
 
 **Created**: 2026-08-03
-**Updated**: 2026-11-07
+**Updated**: 2026-11-09
 
 Remote Secrets Sync (RSS) lets two authorized Secrets Kit peers exchange encrypted synchronization envelopes when direct communication is unavailable.
 RSS never receives secret plaintext, customer private keys, or datastore contents.
@@ -51,7 +51,7 @@ seckit install user@host
 
 This installs and authorizes the peer, then sends one short-lived enrollment token over SSH so the target creates its own RSS private key and connection ID. No identity export or private key transfer is needed. `seckit install @host` uses the current username.
 
-If paid capacity is full, the command shows the purchased and provisioned counts and a Stripe-hosted billing-portal link. For the initial GA offer, contact support privately to request more subscription units; self-service quantity changes are disabled in the portal. Additional units are prorated and invoiced. Rerun the install command after Ops verifies payment and applies the new capacity; a browser return alone does not grant a slot.
+If paid capacity is full, the command shows the purchased and provisioned counts. On the billing owner's machine, run `seckit rss billing units N` to preview Stripe's prorated adjustment and new recurring total, then explicitly confirm the change. Increased capacity becomes available only after payment verification and reconciliation. Rerun the install command once the new paid capacity appears; the billing portal does not change subscription quantity.
 
 To manage payment methods or cancel at the end of the paid period, open the portal. To inspect and permanently revoke a selected device:
 
@@ -61,7 +61,7 @@ seckit rss devices list
 seckit rss devices revoke CONNECTION_ID
 ```
 
-Revocation frees a device slot but does not lower the subscription quantity. The result remains `pending_enforcement` until both relays acknowledge the signed revocation. A replacement machine receives a new connection ID; the old credential cannot be restored. To reduce purchased units, contact support privately; reductions may create a prorated account credit but do not issue an automatic cash refund. The two-unit minimum remains in force.
+Revocation frees a device slot but does not lower the subscription quantity. The result remains `pending_enforcement` until both relays acknowledge the signed revocation. A replacement machine receives a new connection ID; the old credential cannot be restored. To reduce purchased units, first revoke enough devices, then run `seckit rss billing units N` as the billing owner. Reductions may create a prorated account credit rather than an immediate cash refund. The two-unit minimum remains in force.
 
 ## Deterministic fallback and errors
 

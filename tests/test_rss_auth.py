@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import io
 import json
 import os
 import tempfile
@@ -962,7 +964,6 @@ class RSSAuthenticationProtocolTest(unittest.TestCase):
         with (
             mock.patch("secrets_kit.cli.commands.rss.sys.stdin.isatty", return_value=False),
             mock.patch("builtins.input") as prompt,
-            mock.patch("secrets_kit.cli.commands.rss.getpass.getpass") as invitation,
             mock.patch(
                 "secrets_kit.cli.commands.rss.start_rss_checkout",
                 return_value=("https://checkout.stripe.com/c/pay/test", Path("/tmp/receipt")),
@@ -972,16 +973,13 @@ class RSSAuthenticationProtocolTest(unittest.TestCase):
         checkout.assert_called_once_with(
             connection_units=2,
             operator_url="https://ops.example.test",
-            invite_code=None,
         )
         prompt.assert_not_called()
-        invitation.assert_not_called()
 
-    def test_paid_checkout_does_not_prompt_for_test_invitation(self) -> None:
-        args = SimpleNamespace(connection_units=2, operator_url="https://ops.example.test", test_invitation=False)
+    def test_paid_checkout_uses_selected_quantity_without_invitation(self) -> None:
+        args = SimpleNamespace(connection_units=4, operator_url="https://ops.example.test")
         with (
             mock.patch("secrets_kit.cli.commands.rss.sys.stdin.isatty", return_value=True),
-            mock.patch("secrets_kit.cli.commands.rss.getpass.getpass") as invitation,
             mock.patch(
                 "secrets_kit.cli.commands.rss.start_rss_checkout",
                 return_value=("https://checkout.stripe.com/c/pay/test", Path("/tmp/receipt")),
@@ -989,26 +987,13 @@ class RSSAuthenticationProtocolTest(unittest.TestCase):
         ):
             self.assertEqual(cmd_rss_checkout(args=args), 0)
         checkout.assert_called_once_with(
-            connection_units=2, operator_url="https://ops.example.test", invite_code=None,
+            connection_units=4, operator_url="https://ops.example.test",
         )
-        invitation.assert_not_called()
 
-    def test_test_checkout_invitation_requires_explicit_interactive_option(self) -> None:
+    def test_checkout_parser_rejects_retired_invitation_option(self) -> None:
         parser = build_parser()
-        args = parser.parse_args(["rss", "checkout", "--connection-units", "2", "--test-invitation"])
-        with (
-            mock.patch("secrets_kit.cli.commands.rss.sys.stdin.isatty", return_value=True),
-            mock.patch("secrets_kit.cli.commands.rss.getpass.getpass", return_value="ski_test") as invitation,
-            mock.patch(
-                "secrets_kit.cli.commands.rss.start_rss_checkout",
-                return_value=("https://checkout.stripe.com/c/pay/test", Path("/tmp/receipt")),
-            ) as checkout,
-        ):
-            self.assertEqual(cmd_rss_checkout(args=args), 0)
-        invitation.assert_called_once_with("TEST Checkout invitation code: ")
-        checkout.assert_called_once_with(
-            connection_units=2, operator_url=mock.ANY, invite_code="ski_test",
-        )
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            parser.parse_args(["rss", "checkout", "--connection-units", "2", "--test-invitation"])
 
     def test_enrollment_establishes_managed_daemon_service(self) -> None:
         with (

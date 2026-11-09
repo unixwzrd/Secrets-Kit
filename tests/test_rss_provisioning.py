@@ -579,25 +579,24 @@ class RSSProvisioningTest(unittest.TestCase):
             ):
                 start_rss_checkout(connection_units=2)
 
-    def test_checkout_sends_invite_only_to_operator_not_receipt(self) -> None:
-        code = "ski_synthetic_test_invitation"
+    def test_checkout_sends_only_customer_selected_quantity(self) -> None:
         response = Response(
             {
-                "account_id": "ska_invited",
-                "checkout_session_id": "cs_test_invited",
-                "checkout_url": "https://checkout.stripe.com/c/pay/cs_test_invited",
+                "account_id": "ska_test",
+                "checkout_session_id": "cs_test_selected",
+                "checkout_url": "https://checkout.stripe.com/c/pay/cs_test_selected",
             }
         )
         with mock.patch(
             "secrets_kit.protocol.rss_provisioning.urllib.request.urlopen",
             return_value=response,
         ) as request:
-            _, receipt = start_rss_checkout(connection_units=2, invite_code=code)
+            _, receipt = start_rss_checkout(connection_units=4)
         self.assertEqual(
             json.loads(request.call_args.args[0].data),
-            {"connection_units": 2, "invite_code": code},
+            {"connection_units": 4},
         )
-        self.assertNotIn(code, receipt.read_text(encoding="utf-8"))
+        self.assertIn("cs_test_selected", receipt.read_text(encoding="utf-8"))
 
     def test_checkout_rejects_non_origin_operator_url_before_network(self) -> None:
         with mock.patch(

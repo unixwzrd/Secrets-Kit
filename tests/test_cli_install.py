@@ -136,18 +136,16 @@ class CliInstallTest(unittest.TestCase):
             return_value=SimpleNamespace(entitlement_id="ent_test", enrollment_token=None),
         ), mock.patch(
             "secrets_kit.cli.commands.install_peer.admin_action",
-            side_effect=[
-                (409, {"reason": "device_capacity_exhausted", "capacity": {
-                    "purchased_units": 2, "provisioned_units": 2, "available_units": 0,
-                }}),
-                (200, {"portal_url": "https://billing.stripe.com/test"}),
-            ],
-        ), mock.patch(
+            return_value=(409, {"reason": "device_capacity_exhausted", "capacity": {
+                "purchased_units": 2, "provisioned_units": 2, "available_units": 0,
+            }}),
+        ) as action, mock.patch(
             "secrets_kit.cli.commands.install_peer.subprocess.run", side_effect=responses
         ) as run:
-            with self.assertRaisesRegex(ValueError, "increase paid units"):
+            with self.assertRaisesRegex(ValueError, "seckit rss billing units N"):
                 enroll_installed_rss_peer(host="alice@peer.example")
         self.assertEqual(run.call_count, 1)
+        action.assert_called_once_with(action="device.ret", parameters={})
 
     def test_shared_generation_ref_overrides_stale_user_receipt(self) -> None:
         with mock.patch(
@@ -1139,6 +1137,29 @@ UPGRADE=1
                 return_value=subprocess.CompletedProcess([], 0, json.dumps(valid | changed), ""),
             ):
                 self.assertFalse(_matching_remote_receipt(host="alice@peer.example", args=args))
+
+    def test_matching_commit_bound_remote_receipt_skips_private_release_download(self) -> None:
+        from secrets_kit import __version__
+        from secrets_kit.cli.commands.install_cmd import _matching_remote_receipt
+
+        commit = "9" * 40
+        args = argparse.Namespace(ref=None, install_url=None)
+        valid = {
+            "version": __version__, "github_repo": "example/installed",
+            "ref": commit, "verified": True,
+        }
+        with mock.patch("secrets_kit.cli.commands.install_cmd._safe_install_state",
+                        return_value={"ref": commit}), mock.patch(
+            "secrets_kit.cli.commands.install_cmd.subprocess.run",
+            return_value=subprocess.CompletedProcess([], 0, json.dumps(valid), ""),
+        ) as run:
+            self.assertTrue(_matching_remote_receipt(host="alice@peer.example", args=args))
+            run.assert_called_once()
+            for changed in ({"ref": "8" * 40}, {"version": "2.0.1"},
+                            {"verified": False}, {"github_repo": "other/repo"}):
+                with mock.patch("secrets_kit.cli.commands.install_cmd.subprocess.run",
+                                return_value=subprocess.CompletedProcess([], 0, json.dumps(valid | changed), "")):
+                    self.assertFalse(_matching_remote_receipt(host="alice@peer.example", args=args))
 
     def test_receipt_probe_is_read_only_and_local(self) -> None:
         args = build_parser().parse_args(["install", "--receipt-json"])

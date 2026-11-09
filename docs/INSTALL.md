@@ -34,13 +34,13 @@ The installer pins `fastecdsa==3.0.1` and `cryptography==50.0.1`. It uses compat
 
 For non-editable Intel macOS installs, zeroconf uses its upstream-supported pure-Python path (`SKIP_CYTHON=1`). The UV package-install subprocess searches only the managed runtime's bin directory, preventing optional build probes from invoking Apple's Git/Xcode wrappers. The rest of installation and verification retains its normal environment. This does not introduce a locally maintained native dependency build or downgrade zeroconf below libp2p's requirement.
 
-Supported 2.0.2 GA customer platforms are macOS 14 or newer on ARM64 or x86_64 and glibc-based Linux x86_64 or ARM64 (aarch64). Debian ARM64 and Rocky ARM64 virtual machines passed managed 2.0.2b1 preserving upgrades, installed-file verification, healthy daemon and RSS authentication checks, and four-peer synchronization. The final 2.0.2 release includes the same checksum-pinned ARM64 native dependency. A fresh install using the final public 2.0.2 tag on Linux ARM64 was not separately recorded; the listed kernel and glibc figures are not certified product minimums.
+Supported 2.0.3 customer platforms are macOS 14 or newer on ARM64 or x86_64 and glibc-based Linux x86_64 or ARM64 (aarch64). Debian ARM64 and Rocky ARM64 virtual machines passed managed 2.0.2b1 preserving upgrades, installed-file verification, healthy daemon and RSS authentication checks, and four-peer synchronization. The final 2.0.2 release includes the same checksum-pinned ARM64 native dependency. A fresh install using the final public 2.0.2 tag on Linux ARM64 was not separately recorded; the listed kernel and glibc figures are not certified product minimums.
 
 End users do not need to install Python, uv, virtual environments, or Git. The installer provisions **Python 3.12** via UV and installs the explicitly selected tag, or the latest release in the active channel when no tag is supplied. Git is only needed for development checkouts or non-release install paths.
 
 ## Install
 
-For stable 2.0.2 installation, use the exact immutable installer URL in the root [README](../README.md#user-installation). For an opt-in public beta or another pinned release, set `INSTALLER_URL` to that release's public `install.sh` asset URL, then run:
+For stable 2.0.3 installation, use the exact immutable installer URL in the root [README](../README.md#user-installation). For an opt-in public beta or another pinned release, set `INSTALLER_URL` to that release's public `install.sh` asset URL, then run:
 
 ```bash
 bash -o pipefail -c 'curl -fsSL "$INSTALLER_URL" | bash'
@@ -216,7 +216,7 @@ The mode is persisted inside the SQLite database and is not switchable at runtim
 
 ## Independent installation without SSH
 
-For production 2.0.2, use the [SSH peer installation and enrollment](#remote-install) procedure. The optional persistent peer-invitation mailbox is not enabled in production; contact support if SSH is unavailable. Peer invitations below are a separate, conditional peer-authorization workflow, not the retired beta Checkout invitation system. Ordinary paid Checkout and enrollment require no beta invitation.
+For production 2.0.3, use the [SSH peer installation and enrollment](#remote-install) procedure. The optional persistent peer-invitation mailbox is not enabled in production; contact support if SSH is unavailable. Peer invitations below are a separate, conditional peer-authorization workflow, not the retired beta Checkout invitation system. Ordinary paid Checkout and enrollment require no beta invitation.
 
 Where a peer-invitation mailbox is configured, run the same pinned public installer independently under the intended user on each machine. No inbound SSH or SSH keys are needed. Both machines need outbound HTTPS for that mailbox; the RSS path also needs access to the configured relays. A fresh unpaired installation can correctly report `WAITING FOR PEERS` until authorization and a usable route are established.
 
@@ -234,7 +234,7 @@ seckit daemon service status
 seckit status
 ```
 
-Require authorized sharing, a healthy managed service and usable routes; allow up to two minutes for discovery without rewriting secrets or starting another invitation. The billing owner checks `seckit rss devices list` for a distinct target connection under the existing purchased capacity. If capacity is full, contact support to adjust the existing subscription; self-service Portal quantity changes are disabled. Wait for verified payment, entitlement capacity and provisioning before completing another device enrollment. Peer authorization and RSS billing authority remain separate. Report an expired or failed session without exchanging peer files, private keys or enrollment tokens. For a LAN-only invitation, omit `--rss`; no paid RSS subscription is needed, but the HTTPS mailbox and a reachable direct transport path are still required.
+Require authorized sharing, a healthy managed service and usable routes; allow up to two minutes for discovery without rewriting secrets or starting another invitation. The billing owner checks `seckit rss devices list` for a distinct target connection under the existing purchased capacity. If capacity is full, use `seckit rss billing units N` as the billing owner to preview and authorize the Stripe adjustment, then confirm verified paid capacity before completing enrollment. Peer authorization and RSS billing authority remain separate. Report an expired or failed session without exchanging peer files, private keys or enrollment tokens. For a LAN-only invitation, omit `--rss`; no paid RSS subscription is needed, but the HTTPS mailbox and a reachable direct transport path are still required.
 
 To upgrade or preserve-reinstall an independently installed peer, run that release's pinned installer under its existing user. Do not repeat the invitation or RSS enrollment. SSH authorization transports public identity information; neither installation path shares private identity keys or the SQLite storage key.
 

@@ -311,9 +311,13 @@ def _matching_remote_receipt(*, host: str, args: argparse.Namespace) -> bool:
         reference = getattr(args, "ref", None) or _selected_release_state().get("ref") or _current_ref()
     except ValueError:
         return False
-    if not isinstance(reference, str) or not re.fullmatch(
-        r"v[0-9]+\.[0-9]+\.[0-9]+(?:(?:a|b|rc)[0-9]+)?", reference
-    ):
+    if not isinstance(reference, str):
+        return False
+    if re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+(?:(?:a|b|rc)[0-9]+)?", reference):
+        version = reference.removeprefix("v")
+    elif re.fullmatch(r"[a-f0-9]{40}", reference):
+        version = __version__
+    else:
         return False
     completed = subprocess.run(
         ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "--", host,
@@ -327,7 +331,7 @@ def _matching_remote_receipt(*, host: str, args: argparse.Namespace) -> bool:
     except json.JSONDecodeError:
         return False
     return isinstance(receipt, dict) and (
-        receipt.get("version") == reference.removeprefix("v")
+        receipt.get("version") == version
         and receipt.get("github_repo") == repository
         and receipt.get("ref") == reference
         and receipt.get("verified") is True
