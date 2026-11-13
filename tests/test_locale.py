@@ -155,5 +155,8 @@ class LocaleTest(unittest.TestCase):
                 self.assertTrue(parser.parse_args(["status", "--json"]).status_json)
                 self.assertIn(msg("cli.parser.description"), parser.format_help())
                 self.assertTrue(parser.format_help().startswith(msg("cli.help.usage")))
+                install_help = choices["install"].format_help()
+                self.assertTrue(install_help.startswith(f"{msg('cli.help.usage')}seckit install "))
+                self.assertEqual(choices["install"].prog, "seckit install")
                 self.assertIn(msg("cli.help.help"), parser.format_help())
                 self.assertIn(msg("cli.help.options"), parser.format_help())

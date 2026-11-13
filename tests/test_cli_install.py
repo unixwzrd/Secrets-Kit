@@ -7,6 +7,7 @@ import base64
 import io
 import json
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -1484,12 +1485,40 @@ UPGRADE=1
         argv = _remote_ssh_command(host="bob@rocky", args=args)
         self.assertEqual(argv[argv.index("--") + 1], "bob@rocky")
 
+    def test_remote_ssh_command_quotes_untrusted_remote_arguments(self) -> None:
+        malicious_ref = "v2.0.4; touch /tmp/seckit-marker"
+        malicious_repo = "https://example.invalid/repo.git$(touch /tmp/seckit-marker)"
+        args = argparse.Namespace(ref=malicious_ref, repo_url=malicious_repo)
+        argv = _remote_ssh_command(host="bob@rocky", args=args)
+        remote_words = shlex.split(argv[-1])
+        self.assertEqual(remote_words[:3], ["bash", "-s", "--"])
+        self.assertEqual(remote_words[-4:], ["--ref", malicious_ref, "--repo-url", malicious_repo])
+        self.assertEqual(argv[argv.index("--") + 1], "bob@rocky")
+
     def test_peer_ssh_command_ends_options_before_target(self) -> None:
         completed = subprocess.CompletedProcess([], 0, "{}", "")
         with mock.patch("secrets_kit.cli.commands.install_peer.subprocess.run", return_value=completed) as run:
             _peer_command(host="bob@rocky", parts=["export-identity", "--json"])
         argv = run.call_args.args[0]
         self.assertEqual(argv[argv.index("--") + 1], "bob@rocky")
+
+    def test_peer_ssh_command_quotes_remote_identity(self) -> None:
+        identity = "node; touch /tmp/seckit-marker"
+        completed = subprocess.CompletedProcess([], 0, "{}", "")
+        with mock.patch("secrets_kit.cli.commands.install_peer.subprocess.run", return_value=completed) as run:
+            _peer_command(host="bob@rocky", parts=["show", "--json", identity])
+        self.assertEqual(
+            shlex.split(run.call_args.args[0][-1])[-3:], ["show", "--json", identity]
+        )
+
+    def test_route_wait_quotes_remote_peer_id(self) -> None:
+        peer_id = "node$(touch /tmp/seckit-marker)"
+        completed = subprocess.CompletedProcess([], 0, "", "")
+        with mock.patch("secrets_kit.cli.commands.install_peer.subprocess.run", return_value=completed) as run:
+            _wait_route_command(host="bob@rocky", peer_id=peer_id)
+        self.assertEqual(
+            shlex.split(run.call_args.args[0][-1])[-3:], ["internal", "wait-route", peer_id]
+        )
 
     def test_normalize_ssh_target_rejects_bare_host(self) -> None:
         from secrets_kit.cli.commands.install_cmd import InstallTargetError
