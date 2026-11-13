@@ -955,10 +955,6 @@ def _deterministic_name(*parts: str) -> str:
     return "\0".join(parts)
 
 
-def _digest_hex(*parts: str) -> str:
-    return _digest_bytes(*parts).hex()
-
-
 def _digest_bytes(*parts: str) -> bytes:
     joined = "\0".join(parts).encode("utf-8")
     return hashlib.sha256(joined).digest()
