@@ -75,7 +75,13 @@ If `curl` is unavailable, use `wget` instead:
 bash -o pipefail -c 'wget -qO- https://github.com/unixwzrd/Secrets-Kit/releases/download/v2.0.4/install.sh | bash'
 ```
 
-The installer supplies and verifies its release identity and managed runtime; no separate Python, uv, Git, archive extraction, or manual package download is required. Open a new Terminal after installation so its PATH setup takes effect. Do not run `seckit init` over an existing store. See [installation troubleshooting](docs/INSTALL.md) as needed. Private DEV/QA builds require approved repository access and their own exact release artifacts; this stable release command does not install those builds.
+For the opt-in public beta (`v2.0.5b3`), an existing customer can run `seckit upgrade --ref v2.0.5b3` after the beta release assets are published. For a fresh beta installation, use its [pinned installer](https://github.com/unixwzrd/Secrets-Kit/releases/download/v2.0.5b3/install.sh):
+
+```bash
+bash -o pipefail -c 'curl -fsSL https://github.com/unixwzrd/Secrets-Kit/releases/download/v2.0.5b3/install.sh | bash'
+```
+
+The installer supplies and verifies its release identity and managed runtime; no separate Python, uv, Git, archive extraction, or manual package download is required. Open a new Terminal after installation so its PATH setup takes effect. Do not run `seckit init` over an existing store. See [installation troubleshooting](docs/INSTALL.md) as needed. Private DEV/QA builds require approved repository access and their own exact release artifacts; these public commands do not install those builds.
 
 Remote installation is performed from an installed `seckit` command:
 
