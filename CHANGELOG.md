@@ -4,10 +4,10 @@ Customer-facing changes. This file is derived from the authoritative public chan
 
 ## Unreleased
 
-## 2.0.5b3 — public beta candidate
+## 2.0.5b3 — public beta
 
 - Pending endpoint updates now reach each authorized peer, and enrollment history is delivered in transaction order even after a later update has been retried. This fixes a case where a peer could remain unable to synchronize after joining.
-- This branch is awaiting public CodeQL and installer checks before a beta release is tagged. The stable v2.0.4 installer remains available.
+- Existing paying customers can opt into this beta without a second subscription or enrollment. The stable v2.0.4 installer remains available.
 
 ## 2.0.4 — stable maintenance release
 
