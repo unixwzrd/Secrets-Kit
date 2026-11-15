@@ -75,7 +75,7 @@ If `curl` is unavailable, use `wget` instead:
 bash -o pipefail -c 'wget -qO- https://github.com/unixwzrd/Secrets-Kit/releases/download/v2.0.4/install.sh | bash'
 ```
 
-For the opt-in public beta (`v2.0.5b3`), an existing customer can run `seckit upgrade --ref v2.0.5b3` after the beta release assets are published. For a fresh beta installation, use its [pinned installer](https://github.com/unixwzrd/Secrets-Kit/releases/download/v2.0.5b3/install.sh):
+For the current public beta (`v2.0.5b3`), an existing customer can run `seckit upgrade --ref v2.0.5b3` after the beta release assets are published. For a fresh beta installation, use its [pinned installer](https://github.com/unixwzrd/Secrets-Kit/releases/download/v2.0.5b3/install.sh):
 
 ```bash
 bash -o pipefail -c 'curl -fsSL https://github.com/unixwzrd/Secrets-Kit/releases/download/v2.0.5b3/install.sh | bash'
