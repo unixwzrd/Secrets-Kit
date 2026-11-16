@@ -45,6 +45,5 @@ The product wheel remains universal while native dependencies come from the veri
 
 ## Related Documents
 
-- [PROTOCOL_TRANSPORT_ARCHITECTURE.md](PROTOCOL_TRANSPORT_ARCHITECTURE.md)
 - [SECURITY_MODEL.md](SECURITY_MODEL.md)
 - [INSTALL.md](INSTALL.md)
