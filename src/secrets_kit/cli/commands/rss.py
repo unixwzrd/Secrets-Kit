@@ -301,6 +301,10 @@ def cmd_rss_devices_revoke(*, args: argparse.Namespace) -> int:
             raise RSSAuthenticationError(msg("cli.rss.devices_revoke_unconfirmed"))
     except (OSError, ValueError, RSSAuthenticationError) as exc:
         return _fatal(message=str(exc), code=1)
+    if result.get("status") == "pending_enforcement":
+        print(msg("cli.rss.devices_revoke_pending"), file=sys.stderr)
+    elif result.get("status") == "enforced":
+        print(msg("cli.rss.devices_revoke_enforced"), file=sys.stderr)
     print(json.dumps(result, sort_keys=True))
     return 0
 

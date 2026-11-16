@@ -4,6 +4,11 @@ Customer-facing changes. This file is derived from the authoritative public chan
 
 ## Unreleased
 
+## 2.0.5b4 — public beta
+
+- Clarify when a revoked Remote Sync device is still awaiting relay enforcement and when its paid slot is available for a replacement. Machine-readable command output is unchanged.
+- Clarify Linux ARM64 installation guidance and the supported dependency artifacts.
+
 ## 2.0.5b3 — public beta
 
 - Pending endpoint updates now reach each authorized peer, and enrollment history is delivered in transaction order even after a later update has been retried. This fixes a case where a peer could remain unable to synchronize after joining.
