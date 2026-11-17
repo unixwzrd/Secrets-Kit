@@ -4,6 +4,12 @@ Customer-facing changes. This file is derived from the authoritative public chan
 
 ## Unreleased
 
+## 2.0.5b8 — public beta
+
+- Export selected stored credential values to a protected dotenv file for applications that load `.env` files. The command refuses values it cannot preserve in that format; verify the receiving application's loader before switching it over. The existing placeholder dotenv export remains available.
+- Local uninstall now asks for confirmation by default. `--yes` skips the prompt for approved automation while keeping receipt, ownership, path, and active-service checks. Uninstall preserves the credential store and keys by default and does not cancel Remote Sync billing or revoke devices.
+- Add human and agent instructions for recovering credentials, checking the replacement application, and uninstalling one host.
+
 ## 2.0.5b7 — public beta
 
 - Isolate the installed CLI, MCP server, and Hermes helpers from inherited Python, Conda, native-loader, and OpenSSL settings. Select the Hermes launcher runtime from the installed user location, ignoring a caller-supplied runtime path. Update the Hermes installer controller and verifier for current release artifacts and daemon health.

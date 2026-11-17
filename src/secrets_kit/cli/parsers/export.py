@@ -31,14 +31,17 @@ def register_export_command(
     """
     p_export = subparsers.add_parser("export", parents=[common], help=msg("cli.export.help"))
     p_export.add_argument(
-        "--format", default="shell", choices=["shell", "dotenv", "encrypted-json", "age"]
+        "--format",
+        default="shell",
+        choices=["shell", "dotenv", "dotenv-values", "encrypted-json", "age"],
     )
     p_export.add_argument("--out")
     p_export.add_argument("--recipient", help=msg("cli.export.recipient_help"))
     p_export.add_argument("--password")
     p_export.add_argument("--password-stdin", action="store_true")
     p_export.add_argument(
-        "--max-backup-bytes", type=int,
+        "--max-backup-bytes",
+        type=int,
         help="explicit output byte limit for an encrypted backup larger than 128 MiB",
     )
     p_export.add_argument("--names")

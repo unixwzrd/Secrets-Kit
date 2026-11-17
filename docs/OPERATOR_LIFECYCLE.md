@@ -1,11 +1,11 @@
-> Source of truth: Secrets Kit documentation master. This public copy is a reviewed derivative.
-
 # Operator lifecycle — export, resilience, uninstall
 
 **Created:** 2026-05-05  
-**Updated:** 2026-11-04
+**Updated:** 2026-11-17
 
 This document is **policy and procedure**, not a feature spec. It complements [SECURITY_MODEL.md](SECURITY_MODEL.md).
+
+For a human or agent exit, follow [export credentials and uninstall](../integrations/agents/install-secrets-kit/references/migration-and-recovery.md#export-credentials-and-uninstall). Export the selected service/account scope before removal, verify values with the intended replacement loader, reverse only the selected application integration, and then preview/confirm the data-preserving uninstaller. Plain `dotenv` export is a placeholder template; `dotenv-values --out` writes protected plaintext values for compatible loaders, while shell export remains a separate recovery format. Do not remove Secrets Kit or its state if replacement-source verification fails.
 
 - [Operator lifecycle — export, resilience, uninstall](#operator-lifecycle--export-resilience-uninstall)
   - [Resilience model](#resilience-model)
@@ -46,10 +46,10 @@ For a standard same-user installation:
 
 ```bash
 seckit uninstall --dry-run
-seckit uninstall --yes
+seckit uninstall
 ```
 
-Run as the installing user, never root. Dry-run inventories removal targets and managed shell-profile edits without stopping services. The confirmed command stops same-user daemon supervision and the detached daemon before removing verified dedicated runtime generations and the `seckit`/`seckit-mcp` launchers. It removes only the exact standard installer PATH block from Bash/Zsh profiles, preserving unrelated content and file permissions. Edited, duplicate, malformed, linked or foreign-owned profiles cause rejection instead of silent rewriting; inspect the reported issue before retrying. Configuration, databases, identities, Keychain items, exported files, installer state/logs, UV, managed Python, and unrelated environments remain intact. Reinstall from the verified artifact to reuse preserved state. Removal does not cancel a subscription or revoke an enrollment.
+Run as the installing user, never root. Dry-run inventories removal targets and managed shell-profile edits without stopping services. Interactive uninstall asks a default-no confirmation for this machine; `--yes` skips that prompt for approved automation but never bypasses ownership, receipt, or safety checks. Purge still requires `--yes` and explicit selections. The confirmed command stops same-user daemon supervision and the detached daemon before removing verified dedicated runtime generations and the `seckit`/`seckit-mcp` launchers. It removes only the exact standard installer PATH block from Bash/Zsh profiles, preserving unrelated content and file permissions. Edited, duplicate, malformed, linked or foreign-owned profiles cause rejection instead of silent rewriting; inspect the reported issue before retrying. Configuration, databases, identities, Keychain items, exported files, installer state/logs, UV, managed Python, and unrelated environments remain intact. Reinstall from the verified artifact to reuse preserved state. Removal does not cancel a subscription or revoke an enrollment.
 
 The updated installer records an owner-only content/type/mode/link inventory for each newly created standard runtime. Modified or added files, missing receipts, unknown/shared layouts, unsafe parents, namespace overrides, and failed shutdown cause refusal rather than guessed deletion. Runtime launchers disable bytecode writes so ordinary commands do not mutate the sealed package tree. The inventory is an ownership record, not a cryptographic trust signature against the same OS user. Do not concurrently upgrade, modify, or run other clients against a runtime being removed.
 
@@ -133,7 +133,7 @@ Local daemon and IPC changes should remain reversible with normal source control
 
 If uninstall fails after removing the launcher, rerun the supported installer using the same trusted artifact and installing user, then run `seckit uninstall --dry-run` and review the plan before retrying `seckit uninstall --yes`. Do not delete or reseal a partial runtime by hand. A retained removal receipt permits missing original files but rejects added or changed files. Keep preserved configuration and datastore state in their original paths.
 
-Before uninstall, explicitly export the required scope while the SQLite backend is accessible. `seckit export --all --format shell --out PATH` creates plaintext shell assignments; `seckit export --all --format age --recipient RECIPIENT --out PATH` creates portable encryption. Include the existing service/account selection options for the intended scope. An installed external `age` executable is required; Secrets Kit does not install it or fall back to plaintext. Recover the encrypted shell file independently with `age --decrypt --identity IDENTITY_FILE BACKUP.age`; protect redirected plaintext output and review its contents before sourcing it. This is shell syntax, not a universal dotenv interchange format.
+Before uninstall, explicitly export the required scope while the SQLite backend is accessible. `seckit export --names NAME_A,NAME_B --format dotenv-values --out PATH` writes a protected value-bearing `.env` for a compatible loader and rejects partial name selections or unrepresentable values. `seckit export --all --format shell --out PATH` creates plaintext shell assignments; `seckit export --all --format age --recipient RECIPIENT --out PATH` creates portable encryption. Include the service/account selection options for the intended scope. An installed external `age` executable is required; Secrets Kit does not install it or fall back to plaintext. Recover the encrypted shell file independently with `age --decrypt --identity IDENTITY_FILE BACKUP.age`; protect redirected plaintext output and review its contents before sourcing it. Shell syntax is not universal dotenv syntax.
 
 File output uses a new mode-`0600` file and refuses existing destinations, including symlinks. The parent directory must be owner-controlled, not group/world writable, and have no symlink components. Use a different destination rather than overwriting a backup. Shell export without `--out` retains its explicit stdout behavior. The existing `dotenv` format still exports placeholders, not secret values. The encrypted-json file path now uses the same protected writer.
 

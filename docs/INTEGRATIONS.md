@@ -26,6 +26,8 @@ Secrets Kit is not tied to one framework, agent, or stack. The preferred process
 
 If a tool can read environment variables from the shell that launches it, it can work with Secrets Kit.
 
+For agent-managed setup, use the [installation skill](../integrations/agents/install-secrets-kit/SKILL.md), then the [usage skill](../integrations/agents/use-secrets-kit/SKILL.md). The [migration and recovery reference](../integrations/agents/install-secrets-kit/references/migration-and-recovery.md) covers selected credential export, verified `.env` cutover, and data-preserving uninstall. The default MCP policy is read-only; an owner-controlled version 2 policy may grant exact-name writes in its fixed service/account scope.
+
 ---
 
 ## Generic Local Stack

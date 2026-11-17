@@ -32,7 +32,7 @@ Command list aligned with the current `seckit --help` output. For mental models 
 | `list` | List stored metadata entries, redacted by default. |
 | `explain` | Show resolved metadata for a stored entry without printing secret plaintext. |
 | `run` | Resolve secrets in the parent process and exec a child command. |
-| `export` | Export selected secrets for runtime use (`shell`, placeholder `dotenv`, `encrypted-json`, or portable `age`). Shell and encrypted output support protected new-file `--out`; age requires an installed executable and `--recipient`. |
+| `export` | Export selected credentials as `shell`, placeholder `dotenv`, protected value-bearing `dotenv-values`, `encrypted-json`, or portable `age`. `dotenv-values` requires `--out` to a new protected file and refuses values that its format cannot preserve. Shell and encrypted output support protected new-file `--out`; age requires an installed executable and `--recipient`. |
 | `import` | Subcommands: `env`, `file`, `encrypted-json`. |
 | `delete` | Delete one stored secret and its metadata. |
 | `service` | Subcommand: `copy` between service scopes in SQLite. |
@@ -54,6 +54,7 @@ Command list aligned with the current `seckit --help` output. For mental models 
 | `status` | Ask the local daemon for the current node health summary. The daemon aggregates transport, runtime, routing, peer, transaction, envelope, and synchronization state; the CLI does not inspect SQLite. Use `--json` for automation. |
 | `doctor` | Backend posture, catalog checks, backend metadata validation. `--install-check` is a fast post-install gate. |
 | `daemon` | Manage local `seckitd`: `start`, `stop`, `restart`, `status`, `ping`, and `service install\|uninstall\|status`. `daemon run` is the foreground service-manager entry point. |
+| `uninstall` | Remove this host's receipt-verified client runtime while preserving data and RSS billing. Review `--dry-run` first; interactive removal asks `[y/N]`. `--yes` skips only the prompt for approved automation and is required for purge; safety checks remain active. See [OPERATOR_LIFECYCLE.md](OPERATOR_LIFECYCLE.md#uninstall). |
 | `envelope` | Read-only inspection of persisted outbound envelopes: `list`, `show <envelope_id>`. |
 | `peer` | SQLite peer admission: `request`, `import-request`, `accept`, `import-acceptance`, `reject`, `revoke`, `export-identity`, `list`, `show`. `peer reject` applies only to pending requests; `peer revoke NODE_ID` locally ends an active admission, denies queued work, and does not retract already delivered secrets. `peer accept NODE_ID --service SERVICE --account ACCOUNT` authorizes only that named scope. Both names are required and cannot be combined with ID or wildcard options. With no scope, acceptance grants authorization mode `none`; repeated `--service-group-id` supplies an explicit allow-list; `--all-service-groups` is an explicit wildcard and cannot be combined with scoped options. |
 | `transaction` | Read-only inspection of persisted transactions: `list`, `show <transaction_id>`. |
