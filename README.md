@@ -5,6 +5,7 @@
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue)](#user-installation) [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux-informational)](#user-installation) [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 - [Secrets Kit](#secrets-kit)
+  - [For AI agents](#for-ai-agents)
   - [Beyond AI agents](#beyond-ai-agents)
   - [Safety warning](#safety-warning)
   - [Scope and limits (read first)](#scope-and-limits-read-first)
@@ -23,7 +24,20 @@
 
 Secrets Kit is a local-first credential storage and management system for macOS and Linux. It uses encrypted SQLite storage, authenticated encrypted peer synchronization, optional RSS forwarding, selected environment injection through `seckit run`, and policy-scoped stdio MCP access. MCP policies are read-only by default; an explicit v2 policy can grant narrowly scoped credential writes. Existing macOS Keychain records can be imported through an explicit, read-only migration.
 
-Agents can start with the [installation skill](integrations/agents/install-secrets-kit/SKILL.md) for installation, preserving upgrades, protected credential export, and data-preserving uninstall, then use the [usage skill](integrations/agents/use-secrets-kit/SKILL.md) for routine scoped access. The [migration and recovery reference](integrations/agents/install-secrets-kit/references/migration-and-recovery.md) explains how to verify an application's replacement `.env` source before removal. These instructions do not install software or grant credential access by themselves.
+## For AI agents
+
+**Agents: start here.** Read the [installation skill](integrations/agents/install-secrets-kit/SKILL.md) for installation, preserving upgrades, export, and uninstall. For Hermes, also follow its [application-specific cutover instructions](integrations/hermes/install-secrets-kit-for-hermes/SKILL.md#export-credentials-and-uninstall). Use the [usage skill](integrations/agents/use-secrets-kit/SKILL.md) for routine scoped access.
+
+**Asked to uninstall?** Follow [export credentials and uninstall](integrations/agents/install-secrets-kit/references/migration-and-recovery.md#export-credentials-and-uninstall) first: recover only the approved credentials, verify the replacement application's actual loader and fresh start, then review the one-host removal plan. The final commands are:
+
+```bash
+seckit uninstall --dry-run --archive /absolute/private/seckit-state.tar.gz
+seckit uninstall --yes --archive /absolute/private/seckit-state.tar.gz
+```
+
+Use `--yes` only after the owner approves unattended removal; it skips the prompt but not receipt, path, ownership, or active-service checks. Default uninstall preserves the datastore and keys and does not cancel RSS billing or revoke devices. The archive includes recovery keys, so keep it owner-only. Do not purge or remove other hosts as part of this procedure.
+
+Read these from the approved immutable repository revision before executing an installer. The agent path verifies an independently supplied installer checksum and keeps source credentials until cutover passes; it is not the interactive streaming shortcut below. Copy complete skill folders into the host's documented skill directory if persistent discovery is wanted. Skills do not install software, register MCP, or grant access by themselves. Version 1 MCP policies remain read-only; owner-controlled version 2 policies can grant exact-name writes.
 
 ## Beyond AI agents
 
