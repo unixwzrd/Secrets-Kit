@@ -40,7 +40,7 @@ End users do not need to install Python, uv, virtual environments, or Git. The i
 
 ## Install
 
-For stable 2.0.4 or opt-in public beta 2.0.5b4 installation, use the corresponding exact immutable installer URL in the root [README](../README.md#user-installation). For another pinned release, set `INSTALLER_URL` to that release's public `install.sh` asset URL, then run:
+For stable 2.0.4 or opt-in public beta 2.0.5b7 installation, use the corresponding exact immutable installer URL in the root [README](../README.md#user-installation). For another pinned release, set `INSTALLER_URL` to that release's public `install.sh` asset URL, then run:
 
 ```bash
 bash -o pipefail -c 'curl -fsSL "$INSTALLER_URL" | bash'

@@ -10,6 +10,16 @@ import sys
 from pathlib import Path
 
 _NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_RESERVED_ENV_PREFIXES = ("PYTHON", "CONDA_", "DYLD_", "LD_", "OPENSSL_")
+
+
+def _valid_env_name(name: str) -> bool:
+    """Reject names that could modify Python or native runtime loading."""
+    return (
+        bool(_NAME.fullmatch(name))
+        and name != "VIRTUAL_ENV"
+        and not name.startswith(_RESERVED_ENV_PREFIXES)
+    )
 
 
 def _names(path: Path) -> list[str]:
@@ -20,7 +30,7 @@ def _names(path: Path) -> list[str]:
     names = [name for name in names if name and not name.startswith("#")]
     if not names or len(names) > 128 or len(set(names)) != len(names):
         raise ValueError("names file must contain 1-128 unique names")
-    if any(not _NAME.fullmatch(name) for name in names):
+    if any(not _valid_env_name(name) for name in names):
         raise ValueError("names file contains an invalid environment name")
     return names
 
@@ -60,6 +70,7 @@ def main() -> int:
         "--names", ",".join(names),
         "--",
         sys.executable,
+        "-I",
         str(Path(__file__).resolve()),
         "--seckit", str(seckit),
         "--names-file", str(args.names_file),
@@ -68,7 +79,17 @@ def main() -> int:
         "--backend", args.backend,
         "--emit",
     ]
-    os.execv(str(seckit), child)
+    # Do not let a caller's dotenv values masquerade as values loaded from
+    # Secrets Kit. `seckit run` must inject every selected name itself.
+    child_env = dict(os.environ)
+    for key in tuple(child_env):
+        if key.startswith(("PYTHON", "CONDA_", "DYLD_", "LD_")) or key in {
+            "VIRTUAL_ENV", "OPENSSL_CONF", "OPENSSL_MODULES",
+        }:
+            child_env.pop(key, None)
+    for name in names:
+        child_env.pop(name, None)
+    os.execve(str(seckit), child, child_env)
     return 70
 
 

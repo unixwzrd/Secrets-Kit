@@ -1221,6 +1221,12 @@ if [[ -z "${RUNTIME_DIR}" || ! -x "${RUNTIME_DIR}/bin/${COMMAND}" ]]; then
   echo "seckit launcher: invalid runtime command (${RUNTIME_DIR}/bin/${COMMAND})" >&2
   exit 1
 fi
+# The launcher may inherit Hermes/Conda's Python and native-loader settings.
+# Keep the managed runtime independent of that caller's environment.
+for variable in ${!PYTHON@} ${!CONDA_@} ${!DYLD_@} ${!LD_@}; do
+  unset "${variable}"
+done
+unset VIRTUAL_ENV OPENSSL_CONF OPENSSL_MODULES
 export PYTHONDONTWRITEBYTECODE=1
 exec "${RUNTIME_DIR}/bin/${COMMAND}" "$@"
 EOF_LAUNCH
@@ -1587,6 +1593,10 @@ esac
 [[ -L "\${RUNTIME_LINK}" ]] || { echo 'seckit launcher: shared runtime is not active' >&2; exit 1; }
 RUNTIME_DIR="\$(cd -P "\${RUNTIME_LINK}" && pwd)"
 [[ -x "\${RUNTIME_DIR}/bin/\${COMMAND}" ]] || { echo 'seckit launcher: invalid runtime' >&2; exit 1; }
+for variable in \${!PYTHON@} \${!CONDA_@} \${!DYLD_@} \${!LD_@}; do
+  unset "\${variable}"
+done
+unset VIRTUAL_ENV OPENSSL_CONF OPENSSL_MODULES
 export PYTHONDONTWRITEBYTECODE=1
 exec "\${RUNTIME_DIR}/bin/\${COMMAND}" "\$@"
 EOF_LAUNCH
