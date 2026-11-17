@@ -4,7 +4,7 @@ Read [SKILL.md](SKILL.md) and [security boundaries](references/security-boundari
 
 Use the exact qualified client tag supplied for this installation; the skill metadata's `0.1.0` identifies the integration package, not the client version. Obtain this directory from a verified immutable integration revision supplied by the operator; documentation fixes after a tag are not retroactively present in that tag.
 
-The GitHub release asset bundle and this integration directory are different inputs. The current GitHub asset manifest uses `source-commit.txt`, not the legacy controller's `release-id`. Follow the skill's supported artifact-install path, then `configure`/`verify`; do not alter a release manifest to make the legacy `preflight`/`install` adapter accept it.
+The GitHub release asset bundle and this integration directory are separate inputs. The controller's `preflight` and `install` actions accept the current release layout (`source-commit.txt`, `installer-pins.sha256`, `release-origin.json`, client/source artifacts and manifest), verify the full manifest against an independently supplied SHA-256, and check the selected tag and source provenance. They do not require the retired `release-id` file. Follow [SKILL.md](SKILL.md) for the exact command and safe configure/verify workflow.
 
 ## Agent handoff prompt
 

@@ -13,7 +13,7 @@ metadata:
 
 # Install Secrets Kit for Hermes
 
-Install a pinned Secrets Kit release under the Unix account that runs Hermes. Import only explicitly approved dotenv names and register read-only stdio MCP. Do not modify Hermes core, delete `.env`, expose a network MCP listener, publish artifacts or enable live billing.
+Install a pinned Secrets Kit release under the Unix account that runs Hermes. Import only explicitly approved dotenv names. Hermes exchanges MCP messages with its local `seckit-mcp` subprocess over stdio; `seckit-mcp` reaches the same-user Secrets Kit daemon through an owner-only Unix domain socket. The default MCP policy is read-only. Do not modify Hermes core, delete `.env`, expose a network MCP listener, publish artifacts or enable live billing.
 
 ## Required inputs
 
@@ -22,59 +22,64 @@ Install a pinned Secrets Kit release under the Unix account that runs Hermes. Im
 - The integration directory from a separately verified immutable source revision or integration bundle. A skill file alone is not the scripts and references it links to.
 - The absolute Hermes executable path and existing `HERMES_HOME`.
 - The owner-controlled dotenv file (mode `0600` or stricter) and explicit environment-name allowlist.
+- Do not include reserved `PYTHON*`, `CONDA_*`, `DYLD_*`, `LD_*`, `OPENSSL_*`, or `VIRTUAL_ENV` names in the allowlist; these can alter runtime loading rather than represent application credentials.
 - Separate owner approval for any model-visible MCP retrieval names; these must be a subset of the environment allowlist.
 
 Read [security boundaries](references/security-boundaries.md) before acting. Never execute unverified scripts, use an unpinned branch, print credential files, or trust a checksum merely because it is included in the same download.
 
 ## Install from the GitHub artifacts
 
-The current GitHub release layout contains `install.sh`, `source-commit.txt`, `manifest.sha256`, a client wheel, a pinned libp2p companion wheel and a source archive. It does not contain the legacy controller's `release-id` layout.
+The current GitHub release layout contains `install.sh`, `source-commit.txt`, `manifest.sha256`, `installer-pins.sha256`, `release-origin.json`, the versioned client wheel and source archive, and the pinned dependency artifacts. It does not contain the old controller's `release-id` file.
 
-Do not run the controller's legacy `preflight` or `install` actions against these assets, fabricate `release-id`, or rewrite the release manifest to satisfy them. Use the supported artifact installer below, then the controller's `configure` and `verify` actions. Legacy bundle-adapter modernization is separate from this documented path.
+Supply the exact tag and a manifest SHA-256 obtained through an independent trusted channel. The controller checks every manifest entry, dependency pin, source commit, repository, version, release tag, and channel before invoking the installer. It removes inherited Python, Conda and native-loader overrides from installer subprocesses. Do not fabricate provenance files or edit a published manifest.
 
-1. Verify the manifest hash against the independently supplied value, then every manifest entry. Use `sha256sum` on Linux when `shasum` is absent.
-2. Show a sanitized installation/configuration plan and obtain approval before changing state.
-3. Set `SECKIT_GITHUB_REPO` to the supplied owner/repository and `SECKIT_RELEASE_CHANNEL=prerelease`. Private downloads require authenticated access; collaborator access is not anonymous.
-4. Run from the verified asset directory as the Hermes user, without sudo:
+1. Show a sanitized installation plan and obtain approval before changing state.
+2. Run the controller as the Hermes user, without `sudo`; use Python 3.10 or newer for preflight/install:
 
 ```bash
-shasum -a 256 manifest.sha256
-shasum -a 256 -c manifest.sha256
 : "${SECKIT_APPROVED_TAG:?set the exact independently approved release tag}"
-wheel="seckit-${SECKIT_APPROVED_TAG#v}-py3-none-any.whl"
-test -f "$wheel"
-SECKIT_WHEEL_URL="file://$PWD/$wheel" bash ./install.sh --ref "$SECKIT_APPROVED_TAG" --yes --no-init --no-shell-profile
+: "${SECKIT_MANIFEST_SHA256:?set the independently verified manifest SHA-256}"
+python3.12 -I /absolute/path/to/integration/scripts/hermes_secrets_kit.py preflight \
+  --bundle /absolute/path/to/verified-release-assets \
+  --release-ref "$SECKIT_APPROVED_TAG" \
+  --manifest-sha256 "$SECKIT_MANIFEST_SHA256" \
+  --hermes-command /absolute/path/to/hermes
+python3.12 -I /absolute/path/to/integration/scripts/hermes_secrets_kit.py install \
+  --bundle /absolute/path/to/verified-release-assets \
+  --release-ref "$SECKIT_APPROVED_TAG" \
+  --manifest-sha256 "$SECKIT_MANIFEST_SHA256" \
+  --hermes-command /absolute/path/to/hermes
 "$HOME/.local/bin/seckit" --version
 "$HOME/.local/bin/seckit" doctor --install-check
 ```
 
-Keep the companion wheel beside the installer. The installer provisions UV and Python; do not require system Python or GitHub CLI. For a genuinely empty account, initialize the encrypted store once:
+Use the installer supplied by the verified release bundle; it provisions UV and the managed runtime. The controller preserves an existing datastore and initializes encrypted SQLite only when no default database exists. Do not use this flow to reset or reinitialize an existing datastore. Private GitHub downloads require authenticated access; release artifacts already present locally need no GitHub CLI.
+
+For an account where no datastore exists, the controller initializes the encrypted store once. Confirm the account and data path before installation; do not initialize a second store to work around a failed verification.
 
 ```bash
-"$HOME/.local/bin/seckit" init
+"$HOME/.local/bin/seckit" daemon service status
 ```
-
-Do not reinitialize an existing datastore or use `--yes` to suppress an existing-state warning.
 
 ## Configure and verify
 
 Use the installed runtime's Python and the absolute verified integration path. The commands below contain placeholders for user-supplied paths; resolve them before execution.
 
 ```bash
-"$HOME/.local/share/seckit/runtime/current/bin/python" -B /absolute/path/to/integration/scripts/hermes_secrets_kit.py configure \
+"$HOME/.local/share/seckit/runtime/current/bin/python" -I -B /absolute/path/to/integration/scripts/hermes_secrets_kit.py configure \
   --hermes-command /absolute/path/to/hermes \
   --dotenv /absolute/path/to/.env \
   --account hermes --service hermes-agent \
   --names OPENROUTER_API_KEY,ELEVENLABS_API_KEY
 
-"$HOME/.local/share/seckit/runtime/current/bin/python" -B /absolute/path/to/integration/scripts/hermes_secrets_kit.py verify \
+"$HOME/.local/share/seckit/runtime/current/bin/python" -I -B /absolute/path/to/integration/scripts/hermes_secrets_kit.py verify \
   --hermes-command /absolute/path/to/hermes
 "$HOME/.local/bin/seckit" daemon service status
 ```
 
-Configuration backs up Hermes configuration, performs a redacted import of only the allowlisted names, installs the same-user managed daemon, configures the existing `secrets.command` source and creates an owner-only fixed-scope MCP policy. Retrieval is denied by default. Add `--mcp-retrieval-names NAME_ONE` only with explicit owner authorization for that model-visible value.
+Configuration backs up Hermes configuration and integration files, performs a redacted import of only the allowlisted names, installs the same-user managed daemon, configures the existing `secrets.command` source and creates an owner-only fixed-scope MCP policy. Retrieval is denied by default. Add `--mcp-retrieval-names NAME_ONE` only with explicit owner authorization for that model-visible value. The helper and MCP launchers use the installed runtime Python in isolated mode; the helper also clears selected names before `seckit run`, so it cannot succeed by echoing inherited dotenv variables. The MCP registration is stored in Hermes `config.yaml` under `mcp_servers` and is restored by the rollback manifest.
 
-Restart Hermes and repeat verification. Preserve unrelated MCP servers. Leave `.env` unchanged: `override_existing: false` means existing environment values may take precedence until the owner explicitly approves cutover. Never capture the helper's value-bearing output in an agent transcript or diagnostic report.
+Restart Hermes and repeat verification. Preserve unrelated MCP servers. Leave `.env` unchanged: `override_existing: false` preserves existing environment values, so the verifier removes the selected names from the helper subprocess environment to confirm that helper obtains them from Secrets Kit. Its `helper_dotenv_fallback: not_used` result applies only to that helper subprocess; it does not claim that Hermes or other environment sources have no fallback. Never capture the helper's value-bearing output in an agent transcript or diagnostic report.
 
 ## Upgrade an existing installation
 
