@@ -28,6 +28,7 @@ from secrets_kit.crypto.cli.export_json import DEFAULT_MAX_ENCRYPTED_BACKUP_BYTE
 from secrets_kit.crypto.errors import CryptoUnavailable
 from secrets_kit.exporters import (
     export_dotenv_placeholders,
+    export_dotenv_values,
     export_shell_lines,
     write_protected_export,
 )
@@ -77,6 +78,24 @@ def cmd_export(*, args: argparse.Namespace) -> int:
         if args.format == "dotenv":
             keys = [meta.name for meta in selected]
             print(export_dotenv_placeholders(keys=keys))
+            return 0
+
+        if args.format == "dotenv-values":
+            if not args.out:
+                return _fatal(message=msg("errors.export.dotenv_values_requires_out"), code=1)
+            requested_names = getattr(args, "names", None)
+            if requested_names:
+                expected = set(requested_names.split(","))
+                if expected != {meta.name for meta in selected}:
+                    return _fatal(message=msg("errors.export.missing_names"), code=1)
+            try:
+                output = (
+                    export_dotenv_values(env_map=_build_env_map(entries=selected, args=args)) + "\n"
+                )
+            except ValueError:
+                return _fatal(message=msg("errors.export.dotenv_value_unsupported"), code=1)
+            print(msg("cli.export.plaintext_warning"), file=sys.stderr)
+            write_protected_export(destination=Path(args.out), payload=output.encode("utf-8"))
             return 0
 
         if args.format == "encrypted-json":

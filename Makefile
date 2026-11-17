@@ -46,6 +46,7 @@ TEST_FAST := \
 	tests.test_install_bundle \
 	tests.test_release_preflight \
 	tests.test_upgrade \
+	tests.test_export_dotenv_values \
 	tests.test_uninstall
 
 .PHONY: test-uninstall
@@ -70,7 +71,8 @@ test-upgrade:
 
 TEST_IMPORT_EXPORT := \
 	tests.test_import_dotenv \
-	tests.test_export_shell
+	tests.test_export_shell \
+	tests.test_export_dotenv_values
 
 TEST_SQLITE_UNIT := \
 	tests.test_sqlite_transactions \

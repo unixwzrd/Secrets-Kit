@@ -7,6 +7,7 @@ Export helpers for shell runtime usage.
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import stat
 from pathlib import Path
@@ -72,4 +73,53 @@ def export_dotenv_placeholders(*, keys: list[str]) -> str:
     lines = []
     for key in sorted(keys):
         lines.append(f"{key}=${{{key}}}")
+    return "\n".join(lines)
+
+
+def export_dotenv_values(*, env_map: Dict[str, str]) -> str:
+    """Render value-bearing dotenv assignments for compatible loaders.
+
+    Reject interpolation and unsupported control characters instead of writing a
+    file that could load a different credential value. The caller must publish
+    this plaintext through the protected new-file writer.
+    """
+    escapes = {
+        "\\": "\\\\",
+        '"': '\\"',
+        "\a": "\\a",
+        "\b": "\\b",
+        "\f": "\\f",
+        "\n": "\\n",
+        "\r": "\\r",
+        "\t": "\\t",
+        "\v": "\\v",
+    }
+    lines = []
+    for key in sorted(env_map):
+        if re.fullmatch(r"[A-Z0-9_]+", key) is None:
+            raise ValueError("dotenv_value_unsupported")
+        value = env_map[key]
+        try:
+            value.encode("utf-8")
+        except UnicodeError as exc:
+            raise ValueError("dotenv_value_unsupported") from exc
+        if "${" in value or any(
+            (ord(char) < 32 and char not in escapes) or ord(char) == 127 for char in value
+        ):
+            raise ValueError("dotenv_value_unsupported")
+        # python-dotenv's quoted-value parser mistakes the closing quote for an
+        # escaped quote when the value ends in a backslash. Use an unquoted
+        # assignment only when that spelling preserves the value exactly.
+        if value.endswith("\\"):
+            if (
+                value[0] in "\"'"
+                or value[0].isspace()
+                or any(ord(char) < 32 for char in value)
+                or re.search(r"\s+#", value)
+            ):
+                raise ValueError("dotenv_value_unsupported")
+            lines.append(f"{key}={value}")
+            continue
+        encoded = "".join(escapes.get(char, char) for char in value)
+        lines.append(f'{key}="{encoded}"')
     return "\n".join(lines)

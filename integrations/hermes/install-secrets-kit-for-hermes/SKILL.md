@@ -13,7 +13,7 @@ metadata:
 
 # Install Secrets Kit for Hermes
 
-Install a pinned Secrets Kit release under the Unix account that runs Hermes. Import only explicitly approved dotenv names. Hermes exchanges MCP messages with its local `seckit-mcp` subprocess over stdio; `seckit-mcp` reaches the same-user Secrets Kit daemon through an owner-only Unix domain socket. The default MCP policy is read-only. Do not modify Hermes core, delete `.env`, expose a network MCP listener, publish artifacts or enable live billing.
+Install a pinned Secrets Kit release under the Unix account that runs Hermes. Import only explicitly approved dotenv names. Hermes exchanges MCP messages with its local `seckit-mcp` subprocess over stdio; `seckit-mcp` reaches the same-user Secrets Kit daemon through an owner-only Unix domain socket. The controller's default MCP policy is read-only; a separately authorized version 2 policy can grant exact-name writes. Do not modify Hermes core, delete `.env`, expose a network MCP listener, publish artifacts or enable live billing.
 
 ## Required inputs
 
@@ -108,4 +108,10 @@ The checker never installs automatically and stores no credentials. Private chec
 
 Stop on failed checksum, ownership, version, layout, daemon or MCP checks. Preserve the reported configuration backup manifest. The controller's `rollback --manifest PATH` restores backed-up Hermes configuration/integration files; it is not a Secrets Kit version rollback and does not undo imported secrets. Do not uninstall or delete customer state merely to repair an integration.
 
-Require value-free verification of healthy supervision, exactly three read-only MCP tools, scoped metadata, denied unapproved retrieval, and unchanged owner-controlled `.env`. Treat `WAITING FOR PEERS` separately from daemon health. RSS enrollment and customer-controlled peer admission are separate from local Hermes integration.
+Require value-free verification of healthy supervision, the three default MCP tools, scoped metadata, denied unapproved retrieval, and unchanged owner-controlled `.env`. An owner-enabled version 2 policy may add exact-name write tools; verify their grants separately. Treat `WAITING FOR PEERS` separately from daemon health. RSS enrollment and customer-controlled peer admission are separate from local Hermes integration.
+
+## Export credentials and uninstall
+
+When leaving Secrets Kit, follow the [generic installation skill](../../agents/install-secrets-kit/SKILL.md) and its [export and uninstall procedure](../../agents/install-secrets-kit/references/migration-and-recovery.md#export-credentials-and-uninstall) under the Hermes Unix account. Select the exact credential names and service/account scope, create a protected value-bearing `.env` with `--format dotenv-values --out PATH`, and verify it with Hermes' actual loader before cutover. Plain `export --format dotenv` contains placeholders; protected shell export is a separate recovery format.
+
+Remove only Hermes' selected `secrets.command` source and Secrets Kit MCP registration after backing up configuration; preserve other sources and servers. Restart the selected Hermes processes and prove a fresh start works without Secrets Kit or stale dotenv fallback. Review `seckit uninstall --dry-run --archive PATH`, then use the reference's data-preserving removal command only after the replacement source passes. Uninstall does not cancel RSS billing or revoke provider credentials, and the state archive is sensitive.

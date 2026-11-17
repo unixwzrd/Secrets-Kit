@@ -1,10 +1,12 @@
-> Source of truth: Secrets Kit documentation master. This public copy is a reviewed derivative.
-
 # Install Secrets-Kit
 
-**Updated**: 2026-11-07
+**Updated**: 2026-10-11
 
 Canonical operator install for macOS and Linux.
+
+For an agent-managed installation, follow the [installation skill](../integrations/agents/install-secrets-kit/SKILL.md). Its [credential migration and recovery reference](../integrations/agents/install-secrets-kit/references/migration-and-recovery.md) covers selected export, application `.env` cutover checks, and data-preserving uninstall. `seckit export --format dotenv` emits variable references, not stored credential values; `--format dotenv-values --out PATH` writes protected values. Verify the target application's actual loader before removing Secrets Kit. The [usage skill](../integrations/agents/use-secrets-kit/SKILL.md) covers routine scoped MCP access.
+
+**Human exit:** under the installing Unix account, select the service/account and exact credential names to recover. Create an owner-only export directory outside repositories and application loading paths, then run `seckit export --backend sqlite --service SERVICE --account ACCOUNT --names NAME_A,NAME_B --format dotenv-values --out /absolute/private/recovered.env`. The new file contains plaintext values and is mode `0600`; the command refuses an existing destination, unsafe directory, or value it cannot preserve. Repeat by scope where needed. Merge selected credentials with retained application configuration: the database cannot reconstruct original comments, ordering, or non-secret settings. Test the replacement file with the application's actual loader and a fresh application start before removing Secrets Kit. Review `seckit uninstall --dry-run --archive /absolute/private/seckit-state.tar.gz`; when the application works independently, run `seckit uninstall --archive /absolute/private/seckit-state.tar.gz` and answer its default-no local confirmation. For approved unattended removal, `--yes` bypasses only the prompt, never ownership, receipt, or safety checks; purge also requires `--yes` and explicit selections. Keep the sensitive archive and preserved datastore/keys; default uninstall does not cancel RSS, revoke provider credentials, or purge data. For complete rollback and failure handling, use [export credentials and uninstall](../integrations/agents/install-secrets-kit/references/migration-and-recovery.md#export-credentials-and-uninstall).
 
 If creation, package installation or pre-activation transport validation fails, the installer preserves its newly created candidate in an owner-only `failed-install.*` recovery directory alongside the runtime directory. The previous installation is unchanged, and the failed candidate is excluded from the executable-generation inventory used by uninstall. Keep the reported recovery directory for diagnosis; it is not automatically deleted. This handling does not adopt or repair older unreceipted/modified runtimes, and it does not move a candidate once activation has begun. Uninstall continues to reject unknown or changed runtime contents.
 
@@ -14,6 +16,7 @@ The normal installer provisions UV and a managed Python runtime; preinstalled Py
   - [Prerequisites](#prerequisites)
   - [Install](#install)
   - [Upgrade](#upgrade)
+  - [Shared-host installation (qualification candidate)](#shared-host-installation-qualification-candidate)
   - [Runtime layout](#runtime-layout)
   - [Verify](#verify)
   - [Validation helpers](#validation-helpers)
@@ -34,19 +37,19 @@ The installer pins `fastecdsa==3.0.1` and `cryptography==50.0.1`. It uses compat
 
 For non-editable Intel macOS installs, zeroconf uses its upstream-supported pure-Python path (`SKIP_CYTHON=1`). The UV package-install subprocess searches only the managed runtime's bin directory, preventing optional build probes from invoking Apple's Git/Xcode wrappers. The rest of installation and verification retains its normal environment. This does not introduce a locally maintained native dependency build or downgrade zeroconf below libp2p's requirement.
 
-Supported 2.0.4 customer platforms are macOS 14 or newer on ARM64 or x86_64 and glibc-based Linux x86_64 or ARM64 (aarch64). Debian ARM64 and Rocky ARM64 virtual machines passed managed 2.0.2b1 preserving upgrades, installed-file verification, healthy daemon and RSS authentication checks, and four-peer synchronization. The final 2.0.2 release includes the same checksum-pinned ARM64 native dependency. A fresh install using the final public 2.0.2 tag on Linux ARM64 was not separately recorded; the listed kernel and glibc figures are not certified product minimums.
+Secrets-Kit supports macOS and Linux. Linux ARM64 installation uses the pinned repaired `manylinux2014_aarch64` dependency wheel and does not compile native dependencies. Debian ARM64 and Rocky ARM64 preserving upgrades were qualified with the installed 2.0.2b1 candidate; a fresh install from the final 2.0.2 tag was not separately recorded. The installer fails closed if the pinned wheel is unavailable.
 
 End users do not need to install Python, uv, virtual environments, or Git. The installer provisions **Python 3.12** via UV and installs the explicitly selected tag, or the latest release in the active channel when no tag is supplied. Git is only needed for development checkouts or non-release install paths.
 
 ## Install
 
-For stable 2.0.4 or opt-in public beta 2.0.5b7 installation, use the corresponding exact immutable installer URL in the root [README](../README.md#user-installation). For another pinned release, set `INSTALLER_URL` to that release's public `install.sh` asset URL, then run:
+For public beta installation, use the exact immutable release installer URL supplied with the beta instructions. Set `INSTALLER_URL` to that public release asset URL, then run:
 
 ```bash
 bash -o pipefail -c 'curl -fsSL "$INSTALLER_URL" | bash'
 ```
 
-Export `INSTALLER_URL` before using the command above so the child Bash receives it. The stable README supplies a literal command that needs no variable setup. Public releases need no GitHub CLI or GitHub account. If curl is absent, use `bash -o pipefail -c 'wget -qO- "$INSTALLER_URL" | bash'`. Alternatively, download the same `install.sh` from the supplied public release URL and run `bash ./install.sh` from its folder. These are alternatives, not additional steps after a successful install. Run the per-user installer as the intended Unix user, not with sudo.
+Export `INSTALLER_URL` before using the command above so the child Bash receives it. The beta guide supplies literal commands that need no variable setup. The tester does not need GitHub CLI or a GitHub account. If curl is absent, use `bash -o pipefail -c 'wget -qO- "$INSTALLER_URL" | bash'`. Alternatively, download the same `install.sh` from the supplied public release URL and run `bash ./install.sh` from its folder. These are alternatives, not additional steps after a successful install. Run the per-user installer as the intended Unix user, not with sudo.
 
 For supported Bash and Zsh shells, the generated single-file installer adds a marked Secrets Kit PATH block to the selected shell profile, including when downloaded and piped into Bash. Open a new terminal after installation, then run:
 
@@ -74,7 +77,7 @@ bash -o pipefail -c 'wget -qO- "$INSTALLER_URL" | bash'
 
 These are alternative commands, not additional installation steps. `INSTALLER_URL` must be the supplied public release asset URL, not a GitHub repository page or source archive.
 
-If verification fails, installation stops. Download a fresh script from the maintainer and retry; if it fails again, send a sanitized error, not credentials or full logs. The customer guide covers managed daemon startup and RSS enrollment.
+If verification fails, installation stops. Download a fresh script from the maintainer and retry; if it fails again, send a sanitized error, not credentials or full logs. The beta guide covers managed daemon startup and subsequent tests.
 
 ### Optional installer checksum
 
@@ -141,6 +144,18 @@ bash ./install.sh --upgrade --ref "${RELEASE_TAG}" --yes --no-init --no-shell-pr
 ```
 
 The CLI also exposes `seckit install --upgrade` and `seckit install user@hostname --upgrade --ref "${RELEASE_TAG}"`. A release-wheel installation without a local installer fetches it from the configured installation URL. The current remote command retrieves and verifies the release installer on the initiating machine, then streams it over SSH; the target does not need repository access.
+
+## Shared-host installation (qualification candidate)
+
+Before first activation, invoke `host configure` and `host activate` through the staged executable at `PREFIX/runtime/runtime-NAME/bin/seckit`; the stable `PREFIX/bin/seckit` launcher is not active yet.
+
+This administrator path is under DEV qualification and is **not** a released beta procedure. It shares only verified executable code. Each Unix account retains its own initialized store, storage key, peer/node identity, managed daemon, and one-time RSS device enrollment. Host configuration grants neither billing nor peer admission.
+
+Use a different root-owned prefix for each environment, such as `/opt/seckit/dev`, `/opt/seckit/qa`, and `/opt/seckit/production`. System mode requires a preinstalled, trusted, root-owned `uv` at `PREFIX/bin/uv` (or in a root-owned core system directory); it never runs a user-writable `/usr/local` tool or downloads a bootstrap script as root. The verified release installer stages a generation at its final path with `bash install.sh --system --prefix PREFIX --environment ENVIRONMENT --ref TAG`; it does not initialize users or activate code. From the staged CLI, run `seckit host configure --prefix PREFIX --environment ENVIRONMENT --organization NAME --client NAME` once. `Personal` is a valid organization display name. Another host in the same business scope may pass the generated `--organization-id` and `--client-id`, while retaining its own installation UUID. The root-owned `config/host.json` contains only IDs and labels, never credentials. Activate the first generation with the staged CLI's `seckit host activate --prefix PREFIX --generation runtime-NAME`; no users are registered yet, so this only enables the launcher.
+
+After checking and preserving their existing installation, each user explicitly runs `PREFIX/bin/seckit host join --prefix PREFIX --environment ENVIRONMENT` under their own Unix account after initialization. Joining adds local scope metadata and a stable principal; it does not rewrite historical transactions or signatures, authorize peers, or reenroll RSS. The user installs their managed service via `PREFIX/bin/seckit daemon service install`. The administrator verifies that service uses that exact launcher and runs `PREFIX/bin/seckit host register --prefix PREFIX --user USER`. Later, after staging an exact new generation, the administrator runs `PREFIX/bin/seckit host activate --prefix PREFIX --generation runtime-NAME`. Activation switches code once, restarts registered user services sequentially, checks health and version, and restores the previous code pointer on failure without restoring user stores. A failed user restart still requires operator investigation.
+
+Existing per-user installations remain unchanged until explicitly opted in. Installed macOS/Linux, historical-data preservation, and rolling-upgrade qualification must pass before this path is offered to beta testers.
 
 ## Runtime layout
 
@@ -216,9 +231,7 @@ The mode is persisted inside the SQLite database and is not switchable at runtim
 
 ## Independent installation without SSH
 
-For production 2.0.4, use the [SSH peer installation and enrollment](#remote-install) procedure. The optional persistent peer-invitation mailbox is not enabled in production; contact support if SSH is unavailable. Peer invitations below are a separate, conditional peer-authorization workflow, not the retired beta Checkout invitation system. Ordinary paid Checkout and enrollment require no beta invitation.
-
-Where a peer-invitation mailbox is configured, run the same pinned public installer independently under the intended user on each machine. No inbound SSH or SSH keys are needed. Both machines need outbound HTTPS for that mailbox; the RSS path also needs access to the configured relays. A fresh unpaired installation can correctly report `WAITING FOR PEERS` until authorization and a usable route are established.
+When the machines cannot reach each other over SSH, run the same pinned public installer independently under the intended user on each machine. No inbound SSH or SSH keys are needed. Both machines need outbound HTTPS for the invitation mailbox; the RSS path also needs access to the configured relays. A fresh unpaired installation can correctly report `WAITING FOR PEERS` until authorization and a usable route are established.
 
 For RSS sharing, the source machine must first complete its single Checkout, RSS enrollment and billing-owner claim as described in [RSS_CUSTOMER_GUIDE.md](RSS_CUSTOMER_GUIDE.md). The target requires its own device credential under the same subscription, not another Checkout. On the source, create a short-lived invitation for the intended service/account:
 
@@ -234,7 +247,7 @@ seckit daemon service status
 seckit status
 ```
 
-Require authorized sharing, a healthy managed service and usable routes; allow up to two minutes for discovery without rewriting secrets or starting another invitation. The billing owner checks `seckit rss devices list` for a distinct target connection under the existing purchased capacity. If capacity is full, use `seckit rss billing units N` as the billing owner to preview and authorize the Stripe adjustment, then confirm verified paid capacity before completing enrollment. Peer authorization and RSS billing authority remain separate. Report an expired or failed session without exchanging peer files, private keys or enrollment tokens. For a LAN-only invitation, omit `--rss`; no paid RSS subscription is needed, but the HTTPS mailbox and a reachable direct transport path are still required.
+Require authorized sharing, a healthy managed service and usable routes; allow up to two minutes for discovery without rewriting secrets or starting another invitation. The billing owner checks `seckit rss devices list` for a distinct target connection under the existing purchased capacity. If capacity is full, the billing owner runs `seckit rss billing units N`, confirms the Stripe adjustment, and waits for verified paid capacity before completing enrollment. Peer authorization and RSS billing authority remain separate. Report an expired or failed session without exchanging peer files, private keys or enrollment tokens. For a LAN-only invitation, omit `--rss`; no paid RSS subscription is needed, but the HTTPS mailbox and a reachable direct transport path are still required.
 
 To upgrade or preserve-reinstall an independently installed peer, run that release's pinned installer under its existing user. Do not repeat the invitation or RSS enrollment. SSH authorization transports public identity information; neither installation path shares private identity keys or the SQLite storage key.
 
@@ -269,7 +282,7 @@ Uses editable install from the local checkout. Pin a git ref with `./install.sh 
 
 ### Why does synchronization stop after logout on Linux?
 
-On Linux with systemd user services, unattended synchronization requires the user's service manager to remain running after logout. Check `seckit daemon service status`; `linger: false` means this account has not enabled that behavior.
+On Linux with systemd user services, unattended synchronization requires the user's service manager to remain running after logout. Check `seckit daemon service status`; `linger: false` means this account has not enabled that behavior. After a successful Linux same-user service install, the installer prints a nonfatal warning in that case. Installation still completes; linger is not a prerequisite, and macOS is unchanged.
 
 Ask an administrator to run the following as root, replacing `USERNAME` with the account running Secrets Kit:
 
