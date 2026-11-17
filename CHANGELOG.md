@@ -4,10 +4,11 @@ Customer-facing changes. This file is derived from the authoritative public chan
 
 ## Unreleased
 
-## 2.0.5b4 — public beta
+## 2.0.5b7 — public beta
 
-- Clarify when a revoked Remote Sync device is still awaiting relay enforcement and when its paid slot is available for a replacement. Machine-readable command output is unchanged.
-- Clarify Linux ARM64 installation guidance and the supported dependency artifacts.
+- Isolate the installed CLI, MCP server, and Hermes helpers from inherited Python, Conda, native-loader, and OpenSSL settings. Select the Hermes launcher runtime from the installed user location, ignoring a caller-supplied runtime path. Update the Hermes installer controller and verifier for current release artifacts and daemon health.
+- Add opt-in MCP write grants for exact credential names in one fixed service/account scope. The default policy remains read-only. Creation, revision-checked updates, and revision-checked deletion use the existing SQLite transaction path; write arguments may be visible to the agent host.
+- Document how to pin the Hermes MCP policy to its service group and keep secret retrieval disabled unless a value is deliberately approved for model-visible output.
 
 ## 2.0.5b3 — public beta
 
