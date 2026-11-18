@@ -168,6 +168,46 @@ class ConfigureContractTests(unittest.TestCase):
                 self.assertFalse(controller._valid_env_name(reserved))
         self.assertTrue(controller._valid_env_name("API_TOKEN"))
 
+    def test_configure_pins_mcp_launcher_and_import_to_the_same_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            home = Path(raw)
+            config = home / ".hermes/config.yaml"
+            dotenv = home / ".hermes/.env"
+            seckit = home / ".local/bin/seckit"
+            hermes = home / "hermes"
+            for path, content in (
+                (config, "mcp_servers: {}\n"),
+                (dotenv, "API_TOKEN=synthetic-value\n"),
+                (seckit, "#!/bin/sh\nexit 0\n"),
+                (hermes, "#!/bin/sh\nexit 0\n"),
+            ):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content, encoding="utf-8")
+                path.chmod(0o700 if path in (seckit, hermes) else 0o600)
+            calls: list[list[str]] = []
+
+            def run(argv: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+                calls.append(argv)
+                return subprocess.CompletedProcess(
+                    argv, 1 if argv[1:4] == ["mcp", "test", "secrets_kit"] else 0, "", ""
+                )
+
+            args = controller.parser().parse_args([
+                "configure", "--hermes-command", str(hermes), "--dotenv", str(dotenv),
+                "--account", "agent", "--service", "hermes-agent", "--names", "API_TOKEN",
+            ])
+            with patch("pathlib.Path.home", return_value=home), patch.object(
+                controller, "_run", side_effect=run
+            ), patch.object(controller, "_runtime_python", return_value=Path("/runtime/python")), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(controller.configure(args), 0)
+            policy_path = home / ".config/seckit/mcp-policy.json"
+            policy = json.loads(policy_path.read_text(encoding="utf-8"))
+            self.assertEqual((policy["account"], policy["service"]), ("agent", "hermes-agent"))
+            self.assertEqual(policy["metadata_names"], ["API_TOKEN"])
+            wrapper = (home / ".local/libexec/seckit-hermes-mcp").read_text(encoding="utf-8")
+            self.assertIn(shlex.join(["--policy", str(policy_path)]), wrapper)
+            self.assertTrue(any(argv[1:3] == ["import", "env"] and argv[argv.index("--service") + 1] == policy["service"] and argv[argv.index("--account") + 1] == policy["account"] for argv in calls if "--service" in argv and "--account" in argv))
+
 
 class EnvironmentAndReleaseTests(unittest.TestCase):
     """Lock down clean launch environments and current release provenance."""
@@ -308,15 +348,27 @@ class EnvironmentAndReleaseTests(unittest.TestCase):
             wrapper = home / ".local/libexec/seckit-hermes-mcp"
             hermes = home / "hermes"
             names_file = home / ".config/seckit/hermes.env-names"
+            policy_path = home / ".config/seckit/mcp-policy.json"
             for path in (seckit, helper, wrapper, hermes):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
                 path.chmod(0o700)
             names_file.parent.mkdir(parents=True)
             names_file.write_text("API_TOKEN\n", encoding="utf-8")
+            policy = {
+                "version": 1, "backend": "sqlite", "service": "hermes-agent",
+                "account": "agent", "metadata_names": ["API_TOKEN"], "retrieval_names": [],
+            }
+            policy_path.write_text(json.dumps(policy), encoding="utf-8")
+            policy_path.chmod(0o600)
+            wrapper.write_text(
+                f'#!/bin/sh\nexec /runtime/python -I -m secrets_kit.mcp_server --policy {shlex.quote(str(policy_path))} "$@"\n',
+                encoding="utf-8",
+            )
             hermes_command = str(hermes.resolve())
             helper_command = shlex.join([
-                str(helper), "--names-file", str(names_file), "--account", "test",
+                str(helper), "--seckit", str(seckit), "--names-file", str(names_file),
+                "--account", "agent", "--service", "hermes-agent", "--backend", "sqlite",
             ])
 
             def run(argv: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
@@ -336,6 +388,26 @@ class EnvironmentAndReleaseTests(unittest.TestCase):
             self.assertEqual(result["helper_dotenv_fallback"], "not_used")
             self.assertNotIn("dotenv_fallback", result)
             self.assertNotIn("synthetic-value", output.getvalue())
+            for field, changed in (
+                ("service", "database"),
+                ("account", "admin"),
+                ("metadata_names", ["DATABASE_PASSWORD"]),
+            ):
+                with self.subTest(field=field):
+                    original = policy[field]
+                    policy[field] = changed
+                    policy_path.write_text(json.dumps(policy), encoding="utf-8")
+                    with patch("pathlib.Path.home", return_value=home), patch.object(
+                        controller, "_run", side_effect=run
+                    ), patch.object(controller, "_read_only_mcp_tools", return_value=True), contextlib.redirect_stdout(io.StringIO()):
+                        self.assertEqual(controller.verify(type("Args", (), {"hermes_command": hermes})()), 1)
+                    policy[field] = original
+            policy_path.write_text(json.dumps(policy), encoding="utf-8")
+            wrapper.write_text(wrapper.read_text(encoding="utf-8").replace(str(policy_path), "/tmp/other-policy"), encoding="utf-8")
+            with patch("pathlib.Path.home", return_value=home), patch.object(
+                controller, "_run", side_effect=run
+            ), patch.object(controller, "_read_only_mcp_tools", return_value=True), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(controller.verify(type("Args", (), {"hermes_command": hermes})()), 1)
 
 
 if __name__ == "__main__":

@@ -22,6 +22,7 @@ Install a pinned Secrets Kit release under the Unix account that runs Hermes. Im
 - The integration directory from a separately verified immutable source revision or integration bundle. A skill file alone is not the scripts and references it links to.
 - The absolute Hermes executable path and existing `HERMES_HOME`.
 - The owner-controlled dotenv file (mode `0600` or stricter) and explicit environment-name allowlist.
+- An owner-approved `--account` and `--service` dedicated to this Hermes integration. The installer imports only the approved names into that pair and pins MCP to the same pair; do not select a database, administrator, or other service used by the same Unix account.
 - Do not include reserved `PYTHON*`, `CONDA_*`, `DYLD_*`, `LD_*`, `OPENSSL_*`, or `VIRTUAL_ENV` names in the allowlist; these can alter runtime loading rather than represent application credentials.
 - Separate owner approval for any model-visible MCP retrieval names; these must be a subset of the environment allowlist.
 
@@ -78,6 +79,8 @@ Use the installed runtime's Python and the absolute verified integration path. T
 ```
 
 Configuration backs up Hermes configuration and integration files, performs a redacted import of only the allowlisted names, installs the same-user managed daemon, configures the existing `secrets.command` source and creates an owner-only fixed-scope MCP policy. Retrieval is denied by default. Add `--mcp-retrieval-names NAME_ONE` only with explicit owner authorization for that model-visible value. The helper and MCP launchers use the installed runtime Python in isolated mode; the helper also clears selected names before `seckit run`, so it cannot succeed by echoing inherited dotenv variables. The MCP registration is stored in Hermes `config.yaml` under `mcp_servers` and is restored by the rollback manifest.
+
+The datastore derives a distinct service-group ID from the approved account/service pair. The group name and policy path are not secrets: the boundary is the server's fixed scope and exact-name grants. The MCP launcher pins the generated policy path, and `verify` rejects policy/helper scope or allowlist drift. Review the resulting policy before enabling MCP. This policy limits MCP tool calls; it does not prevent an agent running as the same Unix user from reading that user's other files or invoking the ordinary `seckit` CLI. Retained `.env` values remain directly readable to that same user. Run `make test-mcp` in the Secrets Kit source checkout to check multi-service MCP isolation without starting Hermes.
 
 Restart Hermes and repeat verification. Preserve unrelated MCP servers. Leave `.env` unchanged: `override_existing: false` preserves existing environment values, so the verifier removes the selected names from the helper subprocess environment to confirm that helper obtains them from Secrets Kit. Its `helper_dotenv_fallback: not_used` result applies only to that helper subprocess; it does not claim that Hermes or other environment sources have no fallback. Never capture the helper's value-bearing output in an agent transcript or diagnostic report.
 

@@ -342,6 +342,11 @@ def _call_tool(params: object, *, policy: McpPolicy | None) -> dict[str, Any]:
             revision_names = policy.update_names | policy.delete_names
             scoped = []
             for entry in entries:
+                if (
+                    entry.get("service") != policy.service
+                    or entry.get("account") != policy.account
+                ):
+                    raise McpPolicyDenied
                 entry_name = entry.get("name")
                 if entry_name not in policy.metadata_names:
                     continue

@@ -86,6 +86,30 @@ class McpServerTest(unittest.TestCase):
             backend="sqlite", service="hermes", account="beta", revision_names=[]
         )
 
+    def test_listing_rejects_other_service_and_account_even_with_matching_name(self) -> None:
+        """A broader daemon response cannot expose another local service group."""
+        entries = [
+            {"name": "API_TOKEN", "service": "hermes", "account": "beta"},
+            {"name": "API_TOKEN", "service": "database", "account": "beta"},
+            {"name": "API_TOKEN", "service": "hermes", "account": "admin"},
+        ]
+        with mock.patch(
+            "secrets_kit.mcp_server.request_secret_metadata", return_value=entries
+        ) as listing:
+            response = handle_message(
+                _request(
+                    request_id=38,
+                    method="tools/call",
+                    params={"name": "seckit_list_secrets", "arguments": {}},
+                ),
+                policy=POLICY,
+            )
+        self.assertTrue(response["result"]["isError"])
+        self.assertNotIn("entries", json.dumps(response))
+        listing.assert_called_once_with(
+            backend="sqlite", service="hermes", account="beta", revision_names=[]
+        )
+
     def test_v2_tools_are_opt_in_and_exactly_granted(self) -> None:
         tools = handle_message(
             _request(request_id=30, method="tools/list"), policy=WRITE_POLICY
@@ -205,6 +229,39 @@ class McpServerTest(unittest.TestCase):
         self.assertTrue(scope_override["result"]["isError"])
         self.assertTrue(v1["result"]["isError"])
         create.assert_not_called()
+
+    def test_tool_callers_cannot_select_another_service_group(self) -> None:
+        """An MCP caller cannot redirect reads or writes to a database scope."""
+        calls = (
+            ("seckit_list_secrets", {"service": "database"}),
+            ("seckit_get_secret", {"name": "API_TOKEN", "service_group_id": "other"}),
+            (
+                "seckit_update_secret",
+                {"name": "API_TOKEN", "value": SECRET, "revision": REVISION, "account": "admin"},
+            ),
+            (
+                "seckit_delete_secret",
+                {"name": "API_TOKEN", "revision": REVISION, "service": "database"},
+            ),
+        )
+        with mock.patch("secrets_kit.mcp_server.request_secret_metadata") as listing, mock.patch(
+            "secrets_kit.mcp_server.request_secret_value"
+        ) as get, mock.patch("secrets_kit.mcp_server.request_secret_update") as update, mock.patch(
+            "secrets_kit.mcp_server.request_secret_delete"
+        ) as delete:
+            for request_id, (name, arguments) in enumerate(calls, 40):
+                with self.subTest(tool=name):
+                    response = handle_message(
+                        _request(
+                            request_id=request_id,
+                            method="tools/call",
+                            params={"name": name, "arguments": arguments},
+                        ),
+                        policy=WRITE_POLICY,
+                    )
+                    self.assertTrue(response["result"]["isError"])
+        for call in (listing, get, update, delete):
+            call.assert_not_called()
 
     def test_v2_delete_uses_revision_and_never_returns_secret(self) -> None:
         with mock.patch("secrets_kit.mcp_server.request_secret_delete") as delete:
