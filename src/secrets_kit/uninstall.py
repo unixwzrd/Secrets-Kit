@@ -495,8 +495,17 @@ def cmd_uninstall(*, args: argparse.Namespace) -> int:
     from secrets_kit.locale import msg
 
     if not args.dry_run and not args.yes:
-        print(msg("cli.uninstall.confirm"), file=sys.stderr)
-        return 64
+        if args.purge or not sys.stdin.isatty():
+            print(msg("cli.uninstall.confirm_required"), file=sys.stderr)
+            return 64
+        try:
+            answer = input(f"{msg('cli.uninstall.confirm')} {msg('prompts.confirm_suffix')}: ")
+        except (EOFError, KeyboardInterrupt):
+            print(msg("cli.common.aborted"), file=sys.stderr)
+            return 64
+        if answer.strip().lower() not in {"y", "yes"}:
+            print(msg("cli.common.aborted"), file=sys.stderr)
+            return 64
     try:
         archive = getattr(args, "archive", None)
         if archive and not args.dry_run:

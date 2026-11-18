@@ -46,6 +46,7 @@ TEST_FAST := \
 	tests.test_install_bundle \
 	tests.test_release_preflight \
 	tests.test_upgrade \
+	tests.test_export_dotenv_values \
 	tests.test_uninstall
 
 .PHONY: test-uninstall
@@ -60,7 +61,8 @@ test-locales:
 	PYTHONPATH=src $(PYTHON) -m unittest -b tests.test_locale
 
 test-mcp:
-	PYTHONPATH=src $(PYTHON) -m unittest -b tests.test_mcp_server
+	PYTHONPATH=src $(PYTHON) -m unittest -b tests.test_agent_access tests.test_mcp_server
+	PYTHONPATH=src $(PYTHON) -m unittest discover -b -s integrations/hermes/install-secrets-kit-for-hermes/tests
 
 test-uninstall:
 	PYTHONPATH=$(PYTHONPATH) $(PYTHON) -m unittest $(UNITTEST_FLAGS) tests.test_uninstall tests.test_cli_install tests.test_upgrade tests.test_daemon_service tests.test_boot_service_helper
@@ -70,7 +72,8 @@ test-upgrade:
 
 TEST_IMPORT_EXPORT := \
 	tests.test_import_dotenv \
-	tests.test_export_shell
+	tests.test_export_shell \
+	tests.test_export_dotenv_values
 
 TEST_SQLITE_UNIT := \
 	tests.test_sqlite_transactions \
@@ -94,7 +97,8 @@ help:
 	@printf '%s\n' '  lint                 Run ruff + basedpyright (pip install -e ".[dev]")'
 	@printf '%s\n' '  fmt                  Run ruff autofix on src and tests (alias: FMT)'
 	@printf '%s\n' '  format               Run ruff format on src and tests'
-	@printf '%s\n' '  test-fast            Run fast unit module group'
+	@printf '%s\n' '  test-fast            Run fast unit module group, MCP scope, and Hermes controller checks'
+	@printf '%s\n' '  test-mcp             Run MCP and Hermes controller checks'
 	@printf '%s\n' '  test-upgrade         Run upgrade/check/service and installer unit tests'
 	@printf '%s\n' '  test-import-export   Run import/export unit module group'
 	@printf '%s\n' '  test-sqlite-unit     Run SQLite transactions and replay unit tests'
@@ -151,7 +155,7 @@ fmt-ruff-check:
 	}
 
 .PHONY: test-fast
-test-fast:
+test-fast: test-mcp
 	PYTHONPATH=$(PYTHONPATH) $(PYTHON) -m unittest $(UNITTEST_FLAGS) $(TEST_FAST)
 
 .PHONY: test-import-export
@@ -197,7 +201,7 @@ test:
 	PYTHONPATH=$(PYTHONPATH) $(UNITTEST_DISCOVER)
 
 .PHONY: security
-security:
+security: test-mcp
 	PYTHONPATH=$(PYTHONPATH) $(PYTHON) -m unittest discover $(UNITTEST_FLAGS) -s tests/security
 
 .PHONY: test-integration test-keychain test-sqlite

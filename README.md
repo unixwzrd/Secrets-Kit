@@ -5,6 +5,7 @@
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue)](#user-installation) [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux-informational)](#user-installation) [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 - [Secrets Kit](#secrets-kit)
+  - [For AI agents](#for-ai-agents)
   - [Beyond AI agents](#beyond-ai-agents)
   - [Safety warning](#safety-warning)
   - [Scope and limits (read first)](#scope-and-limits-read-first)
@@ -19,9 +20,24 @@
   - [Contributing](#contributing)
   - [Support / license](#support--license)
 
-**Repository:** `Secrets-Kit` · **CLI:** `seckit` · **Release status:** stable 2.0.4 available; public beta remains opt-in
+**Repository:** `Secrets-Kit` · **CLI:** `seckit` · **Release status:** stable v2.0.5 available
 
-Secrets Kit is a local-first secrets CLI for macOS and Linux. It uses encrypted SQLite storage, authenticated encrypted peer synchronization, optional RSS forwarding, selected environment injection through `seckit run`, and policy-scoped read-only stdio MCP access. Existing macOS Keychain records can be imported through an explicit, read-only migration.
+Secrets Kit is a local-first credential storage and management system for macOS and Linux. It uses encrypted SQLite storage, authenticated encrypted peer synchronization, optional RSS forwarding, selected environment injection through `seckit run`, and policy-scoped stdio MCP access. MCP policies are read-only by default; an explicit v2 policy can grant narrowly scoped credential writes. Existing macOS Keychain records can be imported through an explicit, read-only migration.
+
+## For AI agents
+
+**Agents: start here.** Read the [installation skill](integrations/agents/install-secrets-kit/SKILL.md) for installation, preserving upgrades, export, and uninstall. For Hermes, also follow its [application-specific cutover instructions](integrations/hermes/install-secrets-kit-for-hermes/SKILL.md#export-credentials-and-uninstall). Use the [usage skill](integrations/agents/use-secrets-kit/SKILL.md) for routine scoped access.
+
+**Asked to uninstall?** Follow [export credentials and uninstall](integrations/agents/install-secrets-kit/references/migration-and-recovery.md#export-credentials-and-uninstall) first: recover only the approved credentials, verify the replacement application's actual loader and fresh start, then review the one-host removal plan. The final commands are:
+
+```bash
+seckit uninstall --dry-run --archive /absolute/private/seckit-state.tar.gz
+seckit uninstall --yes --archive /absolute/private/seckit-state.tar.gz
+```
+
+Use `--yes` only after the owner approves unattended removal; it skips the prompt but not receipt, path, ownership, or active-service checks. Default uninstall preserves the datastore and keys and does not cancel RSS billing or revoke devices. The archive includes recovery keys, so keep it owner-only. Do not purge or remove other hosts as part of this procedure.
+
+Read these from the approved immutable repository revision before executing an installer. The agent path verifies an independently supplied installer checksum and keeps source credentials until cutover passes; it is not the interactive streaming shortcut below. Copy complete skill folders into the host's documented skill directory if persistent discovery is wanted. Skills do not install software, register MCP, or grant access by themselves. Version 1 MCP policies remain read-only; owner-controlled version 2 policies can grant exact-name writes.
 
 ## Beyond AI agents
 
@@ -63,16 +79,16 @@ If any row above is unclear, do not use this tool for real secrets yet.
 
 End users do not need to install Python, uv, virtual environments, or Git. The installer provisions the runtime automatically.
 
-For the stable release (`v2.0.4`), run the exact qualified first-machine command below. No GitHub sign-in is needed. Do not use GitHub's **Source code** archives as installers.
+For the stable release (`v2.0.5`), run the exact qualified first-machine command below. No GitHub sign-in is needed. Do not use GitHub's **Source code** archives as installers.
 
 ```bash
-bash -o pipefail -c 'curl -fsSL https://github.com/unixwzrd/Secrets-Kit/releases/download/v2.0.4/install.sh | bash'
+bash -o pipefail -c 'curl -fsSL https://github.com/unixwzrd/Secrets-Kit/releases/download/v2.0.5/install.sh | bash'
 ```
 
 If `curl` is unavailable, use `wget` instead:
 
 ```bash
-bash -o pipefail -c 'wget -qO- https://github.com/unixwzrd/Secrets-Kit/releases/download/v2.0.4/install.sh | bash'
+bash -o pipefail -c 'wget -qO- https://github.com/unixwzrd/Secrets-Kit/releases/download/v2.0.5/install.sh | bash'
 ```
 
 The installer supplies and verifies its release identity and managed runtime; no separate Python, uv, Git, archive extraction, or manual package download is required. Open a new Terminal after installation so its PATH setup takes effect. Do not run `seckit init` over an existing store. See [installation troubleshooting](docs/INSTALL.md) as needed. Private DEV/QA builds require approved repository access and their own exact release artifacts; this stable release command does not install those builds.

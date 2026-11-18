@@ -18,6 +18,10 @@ from pathlib import Path
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_RESERVED_ENV_PREFIXES = ("PYTHON", "CONDA_", "DYLD_", "LD_", "OPENSSL_")
+_EXPECTED_MCP_TOOLS = {
+    "seckit_status", "seckit_list_secrets", "seckit_get_secret",
+}
 
 
 def _run(
@@ -25,17 +29,85 @@ def _run(
     *,
     input_text: str | None = None,
     cwd: Path | None = None,
+    env: dict[str, str] | None = None,
+    without: tuple[str, ...] = (),
 ) -> subprocess.CompletedProcess[str]:
-    """Run one bounded command without a shell or inherited stdin."""
+    """Run one bounded command without a shell or Python/Conda contamination."""
     return subprocess.run(
         argv,
         input=input_text,
         text=True,
         capture_output=True,
         cwd=cwd,
+        env=_runtime_env(env, without=without),
         timeout=120,
         check=False,
     )
+
+
+def _runtime_env(source: dict[str, str] | None = None, *, without: tuple[str, ...] = ()) -> dict[str, str]:
+    """Copy an environment without Python, Conda, or native-loader overrides."""
+    env = dict(os.environ if source is None else source)
+    for key in tuple(env):
+        if key.startswith(("PYTHON", "CONDA_", "DYLD_", "LD_")) or key in {
+            "VIRTUAL_ENV", "OPENSSL_CONF", "OPENSSL_MODULES",
+        }:
+            env.pop(key, None)
+    for key in without:
+        env.pop(key, None)
+    return env
+
+
+def _valid_env_name(name: str) -> bool:
+    """Reject environment names that can alter Python or native runtime loading."""
+    return (
+        bool(_NAME.fullmatch(name))
+        and name != "VIRTUAL_ENV"
+        and not name.startswith(_RESERVED_ENV_PREFIXES)
+    )
+
+
+def _write_private_executable(path: Path, content: str) -> None:
+    """Atomically create an owner-only launcher."""
+    temporary = path.with_name(f".{path.name}.tmp.{os.getpid()}")
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o700)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        os.chmod(path, 0o700)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def _private_directory(path: Path) -> None:
+    """Create or validate an owner-controlled, non-writable-by-others directory."""
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        path.mkdir(mode=0o700)
+        info = path.lstat()
+    if (
+        path.is_symlink()
+        or not stat.S_ISDIR(info.st_mode)
+        or info.st_uid != os.getuid()
+        or info.st_mode & 0o022
+    ):
+        raise ValueError(f"unsafe private directory: {path}")
+
+
+def _runtime_python() -> Path:
+    """Select the installed runtime Python reached by the stable client launcher."""
+    runtime_dir = Path.home() / ".local/share/seckit/runtime"
+    interpreter = runtime_dir / "current" / "bin" / "python"
+    info = interpreter.stat()
+    if not stat.S_ISREG(info.st_mode) or info.st_uid not in (0, os.getuid()) or not os.access(interpreter, os.X_OK):
+        raise ValueError("installed seckit Python runtime is unsafe")
+    return interpreter
 
 
 def _sha256(path: Path) -> str:
@@ -80,25 +152,27 @@ def _write_private_json(path: Path, payload: dict[str, object]) -> None:
 
 
 def _bundle(args: argparse.Namespace) -> tuple[Path, Path]:
-    """Validate the pinned release bundle and return installer and wheel."""
-    bundle = args.bundle.expanduser().resolve(strict=True)
-    if not bundle.is_dir() or bundle.is_symlink():
+    """Validate current release assets and return the installer and client wheel."""
+    requested = args.bundle.expanduser()
+    if requested.is_symlink():
+        raise ValueError("bundle must not be a symlink")
+    bundle = requested.resolve(strict=True)
+    if not bundle.is_dir():
         raise ValueError("bundle must be a real directory")
     installer = bundle / "install.sh"
-    release_id = bundle / "release-id"
     manifest = bundle / "manifest.sha256"
+    source_commit = bundle / "source-commit.txt"
+    release_origin = bundle / "release-origin.json"
+    pins = bundle / "installer-pins.sha256"
+    _regular_owned(manifest)
     wheels = list(bundle.glob("seckit-*-py3-none-any.whl"))
     if len(wheels) != 1:
         raise ValueError("bundle must contain exactly one Secrets Kit wheel")
-    for path in (installer, release_id, manifest, wheels[0]):
-        _regular_owned(path, executable=path == installer)
-    expected = args.wheel_sha256.lower()
-    if not _SHA256.fullmatch(expected) or _sha256(wheels[0]) != expected:
-        raise ValueError("wheel SHA-256 mismatch")
-    if args.release_ref.removeprefix("v") not in wheels[0].name:
-        raise ValueError("release reference does not match wheel name")
-    expected_files = {installer.name, release_id.name, wheels[0].name}
+    expected = args.manifest_sha256.lower()
+    if not _SHA256.fullmatch(expected) or _sha256(manifest) != expected:
+        raise ValueError("independent manifest SHA-256 mismatch")
     observed_files: set[str] = set()
+    observed_hashes: dict[str, str] = {}
     for raw in manifest.read_text(encoding="utf-8").splitlines():
         fields = raw.split(maxsplit=1)
         if len(fields) != 2:
@@ -107,12 +181,49 @@ def _bundle(args: argparse.Namespace) -> tuple[Path, Path]:
         if not _SHA256.fullmatch(digest) or Path(name).name != name:
             raise ValueError("invalid bundle manifest entry")
         target = bundle / name
-        _regular_owned(target, executable=target == installer)
+        _regular_owned(target)
         if _sha256(target) != digest:
             raise ValueError("bundle manifest verification failed")
+        if name in observed_files:
+            raise ValueError("duplicate bundle manifest entry")
         observed_files.add(name)
-    if observed_files != expected_files:
-        raise ValueError("bundle manifest layout mismatch")
+        observed_hashes[name] = digest
+    version = args.release_ref.removeprefix("v")
+    required = {
+        installer.name, source_commit.name, release_origin.name, pins.name,
+        wheels[0].name, f"seckit-{version}.tar.gz",
+    }
+    if not required.issubset(observed_files):
+        raise ValueError("supported release assets are missing from the manifest")
+    pinned_names: set[str] = set()
+    for raw in pins.read_text(encoding="utf-8").splitlines():
+        fields = raw.split(maxsplit=1)
+        if len(fields) != 2 or not _SHA256.fullmatch(fields[0].lower()):
+            raise ValueError("invalid installer dependency pins")
+        digest, name = fields[0].lower(), fields[1].removeprefix("*")
+        if Path(name).name != name or name in pinned_names or observed_hashes.get(name) != digest:
+            raise ValueError("installer dependency pin differs from the release manifest")
+        pinned_names.add(name)
+    required_manifest_files = required | pinned_names | {"install.sh.sha256"}
+    if not required_manifest_files.issubset(observed_files):
+        raise ValueError("release manifest is missing required assets")
+    commit = source_commit.read_text(encoding="utf-8").strip()
+    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+        raise ValueError("invalid release source commit")
+    if wheels[0].name != f"seckit-{version}-py3-none-any.whl":
+        raise ValueError("release reference does not match wheel version")
+    origin = json.loads(release_origin.read_text(encoding="utf-8"))
+    if not isinstance(origin, dict):
+        raise ValueError("invalid release origin")
+    if (
+        origin.get("install_ref") != args.release_ref
+        or origin.get("version") != version
+        or origin.get("source_commit") != commit
+        or origin.get("channel") not in {"release", "prerelease"}
+        or not isinstance(origin.get("repository"), str)
+        or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", origin["repository"])
+    ):
+        raise ValueError("release origin does not match requested release")
     return installer, wheels[0]
 
 
@@ -135,11 +246,15 @@ def install(args: argparse.Namespace) -> int:
     """Install the verified local wheel through the supported installer."""
     installer, wheel = _bundle(args)
     _hermes(args.hermes_command)
-    env = os.environ.copy()
+    env = _runtime_env()
     env["SECKIT_WHEEL_URL"] = wheel.as_uri()
     env["SECKIT_RUNTIME_PYTHON"] = args.runtime_python
+    origin_path = args.bundle.expanduser().resolve(strict=True) / "release-origin.json"
+    origin = json.loads(origin_path.read_text(encoding="utf-8"))
+    env["SECKIT_GITHUB_REPO"] = str(origin["repository"])
+    env["SECKIT_RELEASE_CHANNEL"] = str(origin["channel"])
     command = [
-        str(installer), "--ref", args.release_ref, "--yes", "--no-init",
+        "bash", str(installer), "--ref", args.release_ref, "--yes", "--no-init",
         "--no-shell-profile", "--json",
     ]
     result = subprocess.run(command, text=True, env=env, timeout=900, check=False)
@@ -173,14 +288,14 @@ def configure(args: argparse.Namespace) -> int:
     if dotenv.stat().st_uid != os.getuid() or dotenv.stat().st_mode & 0o077:
         raise ValueError("dotenv mode must be 0600 or stricter")
     names = [name.strip() for name in args.names.split(",") if name.strip()]
-    if not names or len(set(names)) != len(names) or any(not _NAME.fullmatch(n) for n in names):
+    if not names or len(set(names)) != len(names) or any(not _valid_env_name(name) for name in names):
         raise ValueError("--names must be a unique comma-separated environment allowlist")
     retrieval_names = [
         name.strip() for name in args.mcp_retrieval_names.split(",") if name.strip()
     ]
     if (
         len(set(retrieval_names)) != len(retrieval_names)
-        or any(not _NAME.fullmatch(name) for name in retrieval_names)
+        or any(not _valid_env_name(name) for name in retrieval_names)
         or not set(retrieval_names).issubset(names)
     ):
         raise ValueError("--mcp-retrieval-names must be a unique subset of --names")
@@ -197,10 +312,13 @@ def configure(args: argparse.Namespace) -> int:
     os.chmod(config_backup, 0o600)
 
     seckit = (home / ".local/bin/seckit").resolve(strict=True)
-    mcp = (home / ".local/bin/seckit-mcp").resolve(strict=True)
-    helper_dir = home / ".local/libexec"
-    helper_dir.mkdir(parents=True, exist_ok=True)
+    local_dir = home / ".local"
+    _private_directory(local_dir)
+    helper_dir = local_dir / "libexec"
+    _private_directory(helper_dir)
     helper = helper_dir / "seckit-hermes-env"
+    helper_script = helper_dir / "seckit-hermes-env.py"
+    mcp_wrapper = helper_dir / "seckit-hermes-mcp"
     config_dir = home / ".config" / "seckit"
     config_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     if config_dir.is_symlink() or config_dir.stat().st_uid != os.getuid():
@@ -209,12 +327,40 @@ def configure(args: argparse.Namespace) -> int:
     names_file = config_dir / "hermes.env-names"
     mcp_policy = config_dir / "mcp-policy.json"
     source_helper = Path(__file__).with_name("seckit_hermes_env.py")
-    for current in (helper, names_file, mcp_policy):
+    runtime_python = _runtime_python()
+    for current in (helper, helper_script, mcp_wrapper, names_file, mcp_policy):
         if current.exists():
-            _regular_owned(current, executable=current == helper)
+            _regular_owned(current, executable=current in {helper, mcp_wrapper})
             shutil.copy2(current, backup / current.name)
-    shutil.copy2(source_helper, helper)
-    os.chmod(helper, 0o700)
+    manifest = backup / "rollback.json"
+    manifest.write_text(json.dumps({
+        "config": str(config), "config_backup": str(config_backup),
+        "helper": str(helper), "helper_backup": str(backup / helper.name),
+        "helper_script": str(helper_script), "helper_script_backup": str(backup / helper_script.name),
+        "mcp_wrapper": str(mcp_wrapper), "mcp_wrapper_backup": str(backup / mcp_wrapper.name),
+        "names": str(names_file), "names_backup": str(backup / names_file.name),
+        "mcp_policy": str(mcp_policy),
+        "mcp_policy_backup": str(backup / mcp_policy.name),
+    }, indent=2) + "\n", encoding="utf-8")
+    os.chmod(manifest, 0o600)
+    shutil.copy2(source_helper, helper_script)
+    os.chmod(helper_script, 0o600)
+    shell = "#!/bin/sh\n"
+    for variable in (
+        "CONDA_PREFIX", "CONDA_DEFAULT_ENV", "CONDA_EXE", "CONDA_SHLVL",
+        "CONDA_PYTHON_EXE", "VIRTUAL_ENV", "DYLD_LIBRARY_PATH",
+        "DYLD_FALLBACK_LIBRARY_PATH", "LD_LIBRARY_PATH", "LD_PRELOAD",
+        "OPENSSL_CONF", "OPENSSL_MODULES",
+    ):
+        shell += f"unset {variable}\n"
+    _write_private_executable(
+        helper,
+        shell + f"exec {shlex.quote(str(runtime_python))} -I {shlex.quote(str(helper_script))} \"$@\"\n",
+    )
+    _write_private_executable(
+        mcp_wrapper,
+        shell + f"exec {shlex.join([str(runtime_python), '-I', '-m', 'secrets_kit.mcp_server', '--policy', str(mcp_policy)])} \"$@\"\n",
+    )
     names_file.write_text("".join(f"{name}\n" for name in names), encoding="utf-8")
     os.chmod(names_file, 0o600)
     _write_private_json(
@@ -251,7 +397,7 @@ def configure(args: argparse.Namespace) -> int:
     if managed.returncode != 0:
         raise ValueError("failed installing the managed Secrets Kit daemon service")
 
-    helper_command = " ".join([
+    helper_command = shlex.join([
         str(helper), "--seckit", str(seckit), "--names-file", str(names_file),
         "--account", args.account, "--service", args.service, "--backend", args.backend,
     ])
@@ -266,39 +412,138 @@ def configure(args: argparse.Namespace) -> int:
         if result.returncode != 0:
             raise ValueError(f"failed setting {key}")
     mcp_test = _run([str(hermes), "mcp", "test", "secrets_kit"])
-    if mcp_test.returncode != 0:
-        add = _run([str(hermes), "mcp", "add", "secrets_kit", "--command", str(mcp)], input_text="y\n")
-        if add.returncode != 0:
-            raise ValueError("failed adding Secrets Kit MCP")
+    if mcp_test.returncode == 0:
+        remove = _run([str(hermes), "mcp", "remove", "secrets_kit"], input_text="y\n")
+        if remove.returncode != 0:
+            raise ValueError("failed replacing the Secrets Kit MCP launcher")
+    add = _run(
+        [str(hermes), "mcp", "add", "secrets_kit", "--command", shlex.join([str(mcp_wrapper)])],
+        input_text="y\n",
+    )
+    if add.returncode != 0:
+        raise ValueError("failed adding isolated Secrets Kit MCP")
 
-    manifest = backup / "rollback.json"
-    manifest.write_text(json.dumps({
-        "config": str(config), "config_backup": str(config_backup),
-        "helper": str(helper), "helper_backup": str(backup / helper.name),
-        "names": str(names_file), "names_backup": str(backup / names_file.name),
-        "mcp_policy": str(mcp_policy),
-        "mcp_policy_backup": str(backup / mcp_policy.name),
-    }, indent=2) + "\n", encoding="utf-8")
-    os.chmod(manifest, 0o600)
     print(json.dumps({"ok": True, "rollback_manifest": str(manifest), "names": len(names)}))
     return 0
+
+
+def _read_only_mcp_tools(command: Path) -> bool:
+    """Check the installed MCP launcher exposes exactly the read-only tool set."""
+    requests = "\n".join((
+        json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}),
+        json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}),
+        "",
+    ))
+    result = _run([str(command)], input_text=requests)
+    if result.returncode != 0:
+        return False
+    try:
+        responses = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+        tools_response = next(item for item in responses if item.get("id") == 2)
+        tools = tools_response["result"]["tools"]
+    except (json.JSONDecodeError, KeyError, StopIteration, TypeError):
+        return False
+    if not isinstance(tools, list) or {tool.get("name") for tool in tools if isinstance(tool, dict)} != _EXPECTED_MCP_TOOLS:
+        return False
+    return all(
+        isinstance(tool, dict)
+        and tool.get("annotations", {}).get("readOnlyHint") is True
+        and tool.get("annotations", {}).get("destructiveHint") is False
+        and tool.get("annotations", {}).get("idempotentHint") is True
+        for tool in tools
+    )
 
 
 def verify(args: argparse.Namespace) -> int:
     """Verify installed-product, helper, and MCP behavior without values."""
     hermes = _hermes(args.hermes_command)
-    seckit = Path.home() / ".local/bin/seckit"
+    home = Path.home()
+    seckit = home / ".local/bin/seckit"
+    helper_expected = home / ".local/libexec/seckit-hermes-env"
+    mcp_wrapper = home / ".local/libexec/seckit-hermes-mcp"
     doctor = _run([str(seckit), "doctor", "--install-check"])
     mcp = _run([str(hermes), "mcp", "test", "secrets_kit"])
     config_get = _run([str(hermes), "config", "get", "secrets.command.command"])
-    if doctor.returncode != 0 or mcp.returncode != 0 or config_get.returncode != 0:
+    mcp_command_get = _run([str(hermes), "config", "get", "mcp_servers.secrets_kit.command"])
+    if (
+        doctor.returncode != 0 or mcp.returncode != 0 or config_get.returncode != 0
+        or mcp_command_get.returncode != 0
+        or not _read_only_mcp_tools(mcp_wrapper)
+    ):
         return 1
-    helper_command = config_get.stdout.strip()
-    helper = _run(shlex.split(helper_command))
+    try:
+        mcp_command = shlex.split(mcp_command_get.stdout.strip())
+    except ValueError:
+        return 1
+    if mcp_command != [str(mcp_wrapper)]:
+        return 1
+    try:
+        helper_argv = shlex.split(config_get.stdout.strip())
+    except ValueError:
+        return 1
+    if not helper_argv or Path(helper_argv[0]) != helper_expected:
+        return 1
+    try:
+        names_index = helper_argv.index("--names-file") + 1
+        names_file = Path(helper_argv[names_index])
+        names = [line.strip() for line in names_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+    except (ValueError, IndexError, OSError, UnicodeDecodeError):
+        return 1
+    if not names or len(names) > 128 or len(set(names)) != len(names) or any(not _valid_env_name(name) for name in names):
+        return 1
+    policy_path = home / ".config/seckit/mcp-policy.json"
+    try:
+        def helper_option(name: str) -> str:
+            if helper_argv.count(name) != 1:
+                raise ValueError("invalid helper scope")
+            return helper_argv[helper_argv.index(name) + 1]
+
+        info = policy_path.lstat()
+        parent = policy_path.parent.lstat()
+        if (
+            policy_path.is_symlink() or not stat.S_ISREG(info.st_mode)
+            or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) not in (0o400, 0o600)
+            or policy_path.parent.is_symlink() or not stat.S_ISDIR(parent.st_mode)
+            or parent.st_uid != os.getuid() or parent.st_mode & 0o022
+            or info.st_size > 65_536
+        ):
+            return 1
+        policy = json.loads(policy_path.read_text(encoding="utf-8"))
+        wrapper = mcp_wrapper.read_text(encoding="utf-8")
+        pinned_policy = shlex.join(["--policy", str(policy_path)])
+        helper_seckit = helper_option("--seckit")
+        helper_backend = helper_option("--backend")
+        helper_service = helper_option("--service")
+        helper_account = helper_option("--account")
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError, IndexError):
+        return 1
+    if (
+        names_file != home / ".config/seckit/hermes.env-names"
+        or helper_seckit != str(seckit)
+        or not isinstance(policy, dict)
+        or set(policy) != {"version", "backend", "service", "account", "metadata_names", "retrieval_names"}
+        or policy["version"] != 1
+        or policy["backend"] != helper_backend or policy["backend"] != "sqlite"
+        or policy["service"] != helper_service
+        or policy["account"] != helper_account
+        or policy["metadata_names"] != names
+        or not isinstance(policy["retrieval_names"], list)
+        or any(name not in names for name in policy["retrieval_names"])
+        or not wrapper.rstrip().endswith(f'{pinned_policy} "$@"')
+    ):
+        return 1
+    # Clearing the allowlisted names proves the helper can source them from
+    # Secrets Kit instead of silently echoing variables inherited from dotenv.
+    helper = _run(helper_argv, without=tuple(names))
     lines = [line for line in helper.stdout.splitlines() if line]
-    if helper.returncode != 0 or not lines or any(not re.match(r"^[A-Za-z_][A-Za-z0-9_]*=.+$", line) for line in lines):
+    emitted_names = [line.split("=", 1)[0] for line in lines if "=" in line]
+    if (
+        helper.returncode != 0 or len(lines) != len(names)
+        or set(emitted_names) != set(names)
+        or any("=" not in line or not line.split("=", 1)[1] for line in lines)
+    ):
         return 1
-    print(json.dumps({"ok": True, "helper_names": len(lines), "mcp": "connected"}))
+    print(json.dumps({"ok": True, "helper_names": len(lines), "mcp": "connected", "mcp_tools": len(_EXPECTED_MCP_TOOLS), "helper_dotenv_fallback": "not_used"}))
     return 0
 
 
@@ -310,9 +555,13 @@ def rollback(args: argparse.Namespace) -> int:
     shutil.copy2(data["config_backup"], data["config"])
     for target_key, backup_key in (
         ("helper", "helper_backup"),
+        ("helper_script", "helper_script_backup"),
+        ("mcp_wrapper", "mcp_wrapper_backup"),
         ("names", "names_backup"),
         ("mcp_policy", "mcp_policy_backup"),
     ):
+        if target_key not in data or backup_key not in data:
+            continue
         target = Path(data[target_key])
         saved = Path(data[backup_key])
         if saved.exists():
@@ -331,7 +580,7 @@ def parser() -> argparse.ArgumentParser:
         command = sub.add_parser(action)
         command.add_argument("--bundle", type=Path, required=True)
         command.add_argument("--release-ref", required=True)
-        command.add_argument("--wheel-sha256", required=True)
+        command.add_argument("--manifest-sha256", required=True)
         command.add_argument("--hermes-command", type=Path, required=True)
         command.add_argument("--runtime-python", default="3.12")
         command.set_defaults(function=preflight if action == "preflight" else install)

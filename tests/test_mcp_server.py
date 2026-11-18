@@ -26,6 +26,18 @@ POLICY = McpPolicy(
     metadata_names=frozenset({"API_TOKEN"}),
     retrieval_names=frozenset({"API_TOKEN"}),
 )
+WRITE_POLICY = McpPolicy(
+    backend="sqlite",
+    service="hermes",
+    account="beta",
+    metadata_names=frozenset({"API_TOKEN", "CREATE_TOKEN"}),
+    retrieval_names=frozenset(),
+    policy_version=2,
+    create_names=frozenset({"CREATE_TOKEN"}),
+    update_names=frozenset({"API_TOKEN"}),
+    delete_names=frozenset({"API_TOKEN"}),
+)
+REVISION = "rev1:" + "a" * 64
 
 
 def _request(*, request_id: int, method: str, params: object | None = None) -> dict[str, object]:
@@ -70,7 +82,230 @@ class McpServerTest(unittest.TestCase):
             )
         self.assertEqual(response["result"]["structuredContent"], {"entries": entries[:1]})
         self.assertNotIn("value", response["result"]["structuredContent"])
-        list_mock.assert_called_once_with(backend="sqlite", service="hermes", account="beta")
+        list_mock.assert_called_once_with(
+            backend="sqlite", service="hermes", account="beta", revision_names=[]
+        )
+
+    def test_listing_rejects_other_service_and_account_even_with_matching_name(self) -> None:
+        """A broader daemon response cannot expose another local service group."""
+        entries = [
+            {"name": "API_TOKEN", "service": "hermes", "account": "beta"},
+            {"name": "API_TOKEN", "service": "database", "account": "beta"},
+            {"name": "API_TOKEN", "service": "hermes", "account": "admin"},
+        ]
+        with mock.patch(
+            "secrets_kit.mcp_server.request_secret_metadata", return_value=entries
+        ) as listing:
+            response = handle_message(
+                _request(
+                    request_id=38,
+                    method="tools/call",
+                    params={"name": "seckit_list_secrets", "arguments": {}},
+                ),
+                policy=POLICY,
+            )
+        self.assertTrue(response["result"]["isError"])
+        self.assertNotIn("entries", json.dumps(response))
+        listing.assert_called_once_with(
+            backend="sqlite", service="hermes", account="beta", revision_names=[]
+        )
+
+    def test_v2_tools_are_opt_in_and_exactly_granted(self) -> None:
+        tools = handle_message(
+            _request(request_id=30, method="tools/list"), policy=WRITE_POLICY
+        )["result"]["tools"]
+        self.assertEqual(
+            [tool["name"] for tool in tools],
+            [
+                "seckit_status",
+                "seckit_list_secrets",
+                "seckit_get_secret",
+                "seckit_create_secret",
+                "seckit_update_secret",
+                "seckit_delete_secret",
+            ],
+        )
+        self.assertEqual(
+            tools[3]["inputSchema"]["properties"]["name"]["enum"], ["CREATE_TOKEN"]
+        )
+        self.assertEqual(
+            tools[4]["inputSchema"]["properties"]["name"]["enum"], ["API_TOKEN"]
+        )
+        self.assertFalse(tools[3]["annotations"]["readOnlyHint"])
+
+    def test_v2_create_and_update_use_fixed_scope_without_reflecting_value(self) -> None:
+        with mock.patch(
+            "secrets_kit.mcp_server.request_secret_create", return_value=REVISION
+        ) as create, mock.patch(
+            "secrets_kit.mcp_server.request_secret_update", return_value=REVISION
+        ) as update:
+            created = handle_message(
+                _request(
+                    request_id=31,
+                    method="tools/call",
+                    params={
+                        "name": "seckit_create_secret",
+                        "arguments": {"name": "CREATE_TOKEN", "value": SECRET},
+                    },
+                ),
+                policy=WRITE_POLICY,
+            )
+            changed = handle_message(
+                _request(
+                    request_id=32,
+                    method="tools/call",
+                    params={
+                        "name": "seckit_update_secret",
+                        "arguments": {
+                            "name": "API_TOKEN",
+                            "value": SECRET,
+                            "revision": REVISION,
+                        },
+                    },
+                ),
+                policy=WRITE_POLICY,
+            )
+        self.assertNotIn(SECRET, json.dumps(created))
+        self.assertNotIn(SECRET, json.dumps(changed))
+        self.assertEqual(
+            created["result"]["structuredContent"],
+            {"created": True, "revision": REVISION},
+        )
+        self.assertEqual(
+            changed["result"]["structuredContent"],
+            {"updated": True, "revision": REVISION},
+        )
+        create.assert_called_once_with(
+            service="hermes", account="beta", name="CREATE_TOKEN", value=SECRET
+        )
+        update.assert_called_once_with(
+            service="hermes",
+            account="beta",
+            name="API_TOKEN",
+            value=SECRET,
+            revision=REVISION,
+        )
+
+    def test_v2_denies_ungranted_name_scope_override_and_v1_writes(self) -> None:
+        with mock.patch("secrets_kit.mcp_server.request_secret_create") as create:
+            ungranted = handle_message(
+                _request(
+                    request_id=33,
+                    method="tools/call",
+                    params={
+                        "name": "seckit_create_secret",
+                        "arguments": {"name": "API_TOKEN", "value": SECRET},
+                    },
+                ),
+                policy=WRITE_POLICY,
+            )
+            scope_override = handle_message(
+                _request(
+                    request_id=34,
+                    method="tools/call",
+                    params={
+                        "name": "seckit_create_secret",
+                        "arguments": {
+                            "name": "CREATE_TOKEN",
+                            "value": SECRET,
+                            "service": "other",
+                        },
+                    },
+                ),
+                policy=WRITE_POLICY,
+            )
+            v1 = handle_message(
+                _request(
+                    request_id=35,
+                    method="tools/call",
+                    params={
+                        "name": "seckit_create_secret",
+                        "arguments": {"name": "CREATE_TOKEN", "value": SECRET},
+                    },
+                ),
+                policy=POLICY,
+            )
+        self.assertTrue(ungranted["result"]["isError"])
+        self.assertTrue(scope_override["result"]["isError"])
+        self.assertTrue(v1["result"]["isError"])
+        create.assert_not_called()
+
+    def test_tool_callers_cannot_select_another_service_group(self) -> None:
+        """An MCP caller cannot redirect reads or writes to a database scope."""
+        calls = (
+            ("seckit_list_secrets", {"service": "database"}),
+            ("seckit_get_secret", {"name": "API_TOKEN", "service_group_id": "other"}),
+            (
+                "seckit_update_secret",
+                {"name": "API_TOKEN", "value": SECRET, "revision": REVISION, "account": "admin"},
+            ),
+            (
+                "seckit_delete_secret",
+                {"name": "API_TOKEN", "revision": REVISION, "service": "database"},
+            ),
+        )
+        with mock.patch("secrets_kit.mcp_server.request_secret_metadata") as listing, mock.patch(
+            "secrets_kit.mcp_server.request_secret_value"
+        ) as get, mock.patch("secrets_kit.mcp_server.request_secret_update") as update, mock.patch(
+            "secrets_kit.mcp_server.request_secret_delete"
+        ) as delete:
+            for request_id, (name, arguments) in enumerate(calls, 40):
+                with self.subTest(tool=name):
+                    response = handle_message(
+                        _request(
+                            request_id=request_id,
+                            method="tools/call",
+                            params={"name": name, "arguments": arguments},
+                        ),
+                        policy=WRITE_POLICY,
+                    )
+                    self.assertTrue(response["result"]["isError"])
+        for call in (listing, get, update, delete):
+            call.assert_not_called()
+
+    def test_v2_delete_uses_revision_and_never_returns_secret(self) -> None:
+        with mock.patch("secrets_kit.mcp_server.request_secret_delete") as delete:
+            response = handle_message(
+                _request(
+                    request_id=36,
+                    method="tools/call",
+                    params={
+                        "name": "seckit_delete_secret",
+                        "arguments": {"name": "API_TOKEN", "revision": REVISION},
+                    },
+                ),
+                policy=WRITE_POLICY,
+            )
+        delete.assert_called_once_with(
+            service="hermes", account="beta", name="API_TOKEN", revision=REVISION
+        )
+        self.assertEqual(response["result"]["structuredContent"], {"deleted": True})
+
+    def test_v2_metadata_requests_revisions_only_for_update_and_delete_grants(self) -> None:
+        entries = [
+            {"name": "API_TOKEN", "service": "hermes", "account": "beta", "revision": REVISION},
+            {"name": "CREATE_TOKEN", "service": "hermes", "account": "beta", "revision": REVISION},
+        ]
+        with mock.patch(
+            "secrets_kit.mcp_server.request_secret_metadata", return_value=entries
+        ) as listing:
+            response = handle_message(
+                _request(
+                    request_id=37,
+                    method="tools/call",
+                    params={"name": "seckit_list_secrets", "arguments": {}},
+                ),
+                policy=WRITE_POLICY,
+            )
+        listing.assert_called_once_with(
+            backend="sqlite",
+            service="hermes",
+            account="beta",
+            revision_names=["API_TOKEN"],
+        )
+        output = response["result"]["structuredContent"]["entries"]
+        self.assertIn("revision", output[0])
+        self.assertNotIn("revision", output[1])
 
     def test_status_separates_daemon_health_from_peer_discovery(self) -> None:
         status = {
@@ -198,6 +433,30 @@ class McpServerTest(unittest.TestCase):
             os.symlink(target, link)
             with self.assertRaises(McpPolicyError):
                 load_policy(link)
+
+    def test_policy_loader_accepts_v2_exact_write_names_only(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "mcp-policy.json"
+            payload = {
+                "version": 2,
+                "backend": "sqlite",
+                "service": "hermes",
+                "account": "beta",
+                "metadata_names": ["API_TOKEN"],
+                "retrieval_names": [],
+                "create_names": [],
+                "update_names": ["API_TOKEN"],
+                "delete_names": [],
+            }
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            path.chmod(0o600)
+            policy = load_policy(path)
+            self.assertEqual(policy.policy_version, 2)
+            self.assertEqual(policy.update_names, frozenset({"API_TOKEN"}))
+            payload["update_names"] = ["UNLISTED"]
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertRaises(McpPolicyError):
+                load_policy(path)
 
     def test_stdio_server_requires_policy_before_processing(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import json
+import re
 import sqlite3
 from dataclasses import replace
 from typing import Any
@@ -75,6 +77,55 @@ def set_sqlite_secret(
         policy=LOCAL_TRANSACTION_POLICY,
         refuse_existing=False,
     )
+
+
+def create_sqlite_secret(
+    *,
+    service: str,
+    account: str,
+    name: str,
+    value: str,
+    metadata: EntryMetadata,
+) -> str:
+    """Create one secret only when no active value exists; return its revision."""
+    revision = _set_sqlite_secret(
+        service=service,
+        account=account,
+        name=name,
+        value=value,
+        metadata=metadata,
+        policy=LOCAL_TRANSACTION_POLICY,
+        refuse_existing=False,
+        require_absent_active=True,
+    )
+    if revision is None:
+        raise SQLiteBackendError("secret revision unavailable")
+    return revision
+
+
+def update_sqlite_secret(
+    *,
+    service: str,
+    account: str,
+    name: str,
+    value: str,
+    metadata: EntryMetadata,
+    expected_revision: str,
+) -> str:
+    """Replace one active value only when its opaque revision still matches."""
+    revision = _set_sqlite_secret(
+        service=service,
+        account=account,
+        name=name,
+        value=value,
+        metadata=metadata,
+        policy=LOCAL_TRANSACTION_POLICY,
+        refuse_existing=False,
+        expected_revision=expected_revision,
+    )
+    if revision is None:
+        raise SQLiteBackendError("secret revision unavailable")
+    return revision
 
 
 def import_sqlite_secret_local(
@@ -178,7 +229,9 @@ def _set_sqlite_secret(
     metadata: EntryMetadata,
     policy: TransactionSubmissionPolicy,
     refuse_existing: bool,
-) -> None:
+    require_absent_active: bool = False,
+    expected_revision: str | None = None,
+) -> str | None:
     """
     Store one secret through canonical SQLite transaction and projection paths.
 
@@ -201,9 +254,21 @@ def _set_sqlite_secret(
         Inserts one canonical transaction and applies its projection atomically.
     """
     conn = open_sqlite_backend()
+    revision: str | None = None
     try:
         storage_mode = read_sqlite_storage_mode(conn=conn)
         with transaction(conn=conn):
+            active_row = _active_secret_row(
+                conn=conn, service=service, account=account, name=name, missing_ok=True
+            )
+            if require_absent_active and active_row is not None:
+                raise SQLiteBackendError("secret already exists")
+            if expected_revision is not None:
+                _require_current_revision(
+                    conn=conn,
+                    row=active_row,
+                    expected_revision=expected_revision,
+                )
             if refuse_existing:
                 secret_id = _secret_id(service=service, account=account, name=name)
                 existing_projection = conn.execute(
@@ -239,10 +304,18 @@ def _set_sqlite_secret(
                 ),
             )
             submit_transaction(conn=conn, transaction=tx, policy=policy)
+            if require_absent_active or expected_revision is not None:
+                active_after = _active_secret_row(
+                    conn=conn, service=service, account=account, name=name
+                )
+                revision = _secret_revision(conn=conn, row=active_after)
+                if revision is None:
+                    raise SQLiteBackendError("secret revision unavailable")
     except (sqlite3.Error, SQLiteValidationError) as exc:
         raise SQLiteBackendError(str(exc)) from exc
     finally:
         conn.close()
+    return revision
 
 
 def get_sqlite_secret(
@@ -399,6 +472,7 @@ def delete_sqlite_secret(
     account: str,
     name: str,
     metadata: EntryMetadata,
+    expected_revision: str | None = None,
 ) -> None:
     """
     Tombstone one secret through canonical SQLite transaction and projection paths.
@@ -432,6 +506,12 @@ def delete_sqlite_secret(
                 account=account,
                 name=name,
             )
+            if expected_revision is not None:
+                _require_current_revision(
+                    conn=conn,
+                    row=active_row,
+                    expected_revision=expected_revision,
+                )
             tombstone_metadata = _metadata_from_row(conn=conn, row=active_row)
             tx = create_transaction(
                 transaction_id=_new_transaction_id(),
@@ -452,6 +532,51 @@ def delete_sqlite_secret(
             submit_transaction(conn=conn, transaction=tx, policy=LOCAL_TRANSACTION_POLICY)
     except (sqlite3.Error, SQLiteValidationError) as exc:
         raise SQLiteBackendError(str(exc)) from exc
+    finally:
+        conn.close()
+
+
+def get_sqlite_secret_revisions(
+    *, service: str, account: str, names: set[str] | frozenset[str]
+) -> dict[str, str]:
+    """Return revisions for selected active names using one transaction-ledger scan."""
+    conn = open_sqlite_backend()
+    try:
+        rows = [
+            row
+            for name in sorted(names)
+            if (
+                row := _active_secret_row(
+                    conn=conn,
+                    service=service,
+                    account=account,
+                    name=name,
+                    missing_ok=True,
+                )
+            ) is not None
+        ]
+        by_id = _secret_revisions(conn=conn, rows=rows)
+        return {
+            str(row["name"]): by_id[str(row["secret_id"])]
+            for row in rows
+            if str(row["secret_id"]) in by_id
+        }
+    finally:
+        conn.close()
+
+
+def get_sqlite_secret_revision(*, service: str, account: str, name: str) -> str | None:
+    """Return one active secret revision, or none when canonical history is unavailable."""
+    conn = open_sqlite_backend()
+    try:
+        row = _active_secret_row(
+            conn=conn,
+            service=service,
+            account=account,
+            name=name,
+            missing_ok=True,
+        )
+        return _secret_revision(conn=conn, row=row) if row is not None else None
     finally:
         conn.close()
 
@@ -676,6 +801,86 @@ def _active_secret_row(
     if row is None and not missing_ok:
         raise SQLiteBackendError(f"entry not found: {service}::{account}::{name}")
     return row
+
+
+def _secret_revisions(
+    *, conn: sqlite3.Connection, rows: list[sqlite3.Row]
+) -> dict[str, str]:
+    """Hash applied canonical transaction IDs for active rows without reading payload values."""
+    secret_ids = {str(row["secret_id"]) for row in rows}
+    if not secret_ids:
+        return {}
+    placeholders = ",".join("?" for _ in secret_ids)
+    history: dict[str, list[str]] = {secret_id: [] for secret_id in secret_ids}
+    # The payload is parsed only to locate the secret; neither its value nor
+    # content hash participates in the revision or leaves this function.
+    query = f"""SELECT transaction_id, payload FROM transactions
+                WHERE state = 'applied'
+                  AND transaction_type IN ('secret.set', 'secret.delete')
+                  AND json_extract(payload, '$.secret_id') IN ({placeholders})"""
+    for item in conn.execute(query, tuple(sorted(secret_ids))):
+        payload = json.loads(bytes(item["payload"]).decode("utf-8"))
+        secret_id = payload.get("secret_id")
+        if secret_id in history:
+            history[secret_id].append(str(item["transaction_id"]))
+    revisions: dict[str, str] = {}
+    for row in rows:
+        secret_id = str(row["secret_id"])
+        transaction_ids = sorted(history[secret_id])
+        # Old or noncanonical projection rows fail closed for CAS operations.
+        if not transaction_ids:
+            continue
+        # Include only locator and structural projection state. Do not include
+        # encrypted/plaintext payload columns, content_hash, or freeform metadata.
+        projection = {
+            field: row[field]
+            for field in (
+                "owner_id",
+                "service_group_id",
+                "entry_type_id",
+                "entry_kind_id",
+                "schema_id",
+                "schema_version",
+                "name",
+                "service",
+                "account",
+                "state",
+                "created_at",
+                "updated_at",
+            )
+        }
+        encoded = json.dumps(
+            {
+                "secret_id": secret_id,
+                "projection": projection,
+                "transactions": transaction_ids,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        revisions[secret_id] = "rev1:" + hashlib.sha256(encoded).hexdigest()
+    return revisions
+
+
+def _secret_revision(*, conn: sqlite3.Connection, row: sqlite3.Row) -> str | None:
+    """Return revision for one active projection with applied canonical history."""
+    return _secret_revisions(conn=conn, rows=[row]).get(str(row["secret_id"]))
+
+
+def _require_current_revision(
+    *,
+    conn: sqlite3.Connection,
+    row: sqlite3.Row | None,
+    expected_revision: str,
+) -> None:
+    """Reject writes with missing, malformed, stale, or noncanonical revisions."""
+    if not re.fullmatch(r"rev1:[0-9a-f]{64}", expected_revision):
+        raise SQLiteBackendError("secret revision conflict")
+    if row is None:
+        raise SQLiteBackendError("secret revision conflict")
+    actual = _secret_revision(conn=conn, row=row)
+    if actual is None or not hmac.compare_digest(actual, expected_revision):
+        raise SQLiteBackendError("secret revision conflict")
 
 
 def _emit_vocabulary_transactions_for_metadata(
@@ -953,10 +1158,6 @@ def _new_transaction_id() -> str:
 
 def _deterministic_name(*parts: str) -> str:
     return "\0".join(parts)
-
-
-def _digest_hex(*parts: str) -> str:
-    return _digest_bytes(*parts).hex()
 
 
 def _digest_bytes(*parts: str) -> bytes:

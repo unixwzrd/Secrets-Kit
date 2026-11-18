@@ -1,7 +1,7 @@
 """
 secrets_kit.mcp_server
 
-Expose narrow read-only Secrets Kit operations over MCP stdio.
+Expose policy-scoped Secrets Kit operations over MCP stdio.
 
 This process never imports datastore backends. It uses the same-user daemon
 client, emits no logs, and returns authority values only from the explicitly
@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import stat
 import sys
 from dataclasses import dataclass
@@ -23,12 +24,16 @@ from secrets_kit import __version__
 from secrets_kit.daemon.client import (
     DaemonError,
     request_daemon_status,
+    request_secret_create,
+    request_secret_delete,
     request_secret_metadata,
+    request_secret_update,
     request_secret_value,
 )
 from secrets_kit.models import ValidationError, validate_key_name
 
 MCP_PROTOCOL_VERSION = "2025-06-18"
+# Default/generated policies stay on v1; the loader also accepts opt-in v2.
 MCP_POLICY_VERSION = 1
 MAX_POLICY_BYTES = 64 * 1024
 POLICY_KEYS = {
@@ -39,6 +44,7 @@ POLICY_KEYS = {
     "metadata_names",
     "retrieval_names",
 }
+WRITE_POLICY_KEYS = POLICY_KEYS | {"create_names", "update_names", "delete_names"}
 
 
 class McpPolicyError(ValueError):
@@ -58,6 +64,10 @@ class McpPolicy:
     account: str
     metadata_names: frozenset[str]
     retrieval_names: frozenset[str]
+    policy_version: int = 1
+    create_names: frozenset[str] = frozenset()
+    update_names: frozenset[str] = frozenset()
+    delete_names: frozenset[str] = frozenset()
 
 
 def default_policy_path() -> Path:
@@ -78,9 +88,9 @@ def _scope_text(value: object) -> str:
     return stripped
 
 
-def _policy_names(value: object) -> frozenset[str]:
+def _policy_names(value: object, *, allow_empty: bool = False) -> frozenset[str]:
     """Validate one bounded unique policy name list."""
-    if not isinstance(value, list) or not value or len(value) > 128:
+    if not isinstance(value, list) or (not value and not allow_empty) or len(value) > 128:
         raise McpPolicyError("invalid MCP policy")
     try:
         names = [validate_key_name(name=item) for item in value if isinstance(item, str)]
@@ -115,10 +125,14 @@ def load_policy(path: Path | None = None) -> McpPolicy:
         payload = json.loads(selected.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise McpPolicyError("invalid MCP policy") from exc
-    if not isinstance(payload, dict) or set(payload) != POLICY_KEYS:
+    if not isinstance(payload, dict):
         raise McpPolicyError("invalid MCP policy")
-    if payload.get("version") != MCP_POLICY_VERSION:
+    version = payload.get("version")
+    if type(version) is not int or version not in {1, 2}:
         raise McpPolicyError("unsupported MCP policy")
+    expected_keys = POLICY_KEYS if version == 1 else WRITE_POLICY_KEYS
+    if set(payload) != expected_keys:
+        raise McpPolicyError("invalid MCP policy")
     backend = payload.get("backend")
     if backend == "keychain":
         raise McpPolicyError("Keychain is retired; migrate credentials and change this MCP policy to sqlite")
@@ -134,19 +148,40 @@ def load_policy(path: Path | None = None) -> McpPolicy:
         retrieval_names = frozenset()
     if not retrieval_names.issubset(metadata_names):
         raise McpPolicyError("invalid MCP policy")
+    create_names = (
+        _policy_names(payload.get("create_names"), allow_empty=True)
+        if version == 2
+        else frozenset()
+    )
+    update_names = (
+        _policy_names(payload.get("update_names"), allow_empty=True)
+        if version == 2
+        else frozenset()
+    )
+    delete_names = (
+        _policy_names(payload.get("delete_names"), allow_empty=True)
+        if version == 2
+        else frozenset()
+    )
+    if not (create_names | update_names | delete_names).issubset(metadata_names):
+        raise McpPolicyError("invalid MCP policy")
     return McpPolicy(
         backend=str(backend),
         service=_scope_text(payload.get("service")),
         account=_scope_text(payload.get("account")),
         metadata_names=metadata_names,
         retrieval_names=retrieval_names,
+        policy_version=version,
+        create_names=create_names,
+        update_names=update_names,
+        delete_names=delete_names,
     )
 
 
-def _tools() -> list[dict[str, Any]]:
-    """Return the fixed read-only tool catalog without secret-bearing text."""
+def _tools(policy: McpPolicy | None = None) -> list[dict[str, Any]]:
+    """Return read-only tools plus only explicitly granted v2 write tools."""
     read_only = {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True}
-    return [
+    tools = [
         {
             "name": "seckit_status",
             "description": "Check local Secrets Kit availability and runtime health.",
@@ -177,6 +212,55 @@ def _tools() -> list[dict[str, Any]]:
             "annotations": read_only,
         },
     ]
+    if policy is None or policy.policy_version != 2:
+        return tools
+    if policy.create_names:
+        tools.append({
+            "name": "seckit_create_secret",
+            "description": "Create one secret in the fixed MCP service and account scope. The supplied value is visible to the MCP host and may be model-visible.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "enum": sorted(policy.create_names)},
+                    "value": {"type": "string", "minLength": 1, "maxLength": 262144},
+                },
+                "required": ["name", "value"],
+                "additionalProperties": False,
+            },
+            "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False},
+        })
+    if policy.update_names:
+        tools.append({
+            "name": "seckit_update_secret",
+            "description": "Replace one revision-matched secret in the fixed MCP service and account scope. The supplied value is visible to the MCP host and may be model-visible.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "enum": sorted(policy.update_names)},
+                    "value": {"type": "string", "minLength": 1, "maxLength": 262144},
+                    "revision": {"type": "string", "pattern": "^rev1:[0-9a-f]{64}$"},
+                },
+                "required": ["name", "value", "revision"],
+                "additionalProperties": False,
+            },
+            "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False},
+        })
+    if policy.delete_names:
+        tools.append({
+            "name": "seckit_delete_secret",
+            "description": "Delete one revision-matched secret from the fixed MCP service and account scope.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "enum": sorted(policy.delete_names)},
+                    "revision": {"type": "string", "pattern": "^rev1:[0-9a-f]{64}$"},
+                },
+                "required": ["name", "revision"],
+                "additionalProperties": False,
+            },
+            "annotations": {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False},
+        })
+    return tools
 
 
 def _tool_result(value: Any, *, is_error: bool = False) -> dict[str, Any]:
@@ -209,8 +293,24 @@ def _required(arguments: dict[str, Any], key: str) -> str:
     return value.strip()
 
 
+def _required_revision(arguments: dict[str, Any]) -> str:
+    """Read a required opaque revision without reflecting it on failure."""
+    value = arguments.get("revision")
+    if not isinstance(value, str) or not re.fullmatch(r"rev1:[0-9a-f]{64}", value):
+        raise ValueError("invalid tool arguments")
+    return value
+
+
+def _required_write_value(arguments: dict[str, Any]) -> str:
+    """Read one bounded write value; it is never echoed in results or errors."""
+    value = arguments.get("value")
+    if not isinstance(value, str) or not value or len(value.encode("utf-8")) > 262_144:
+        raise ValueError("invalid tool arguments")
+    return value
+
+
 def _call_tool(params: object, *, policy: McpPolicy | None) -> dict[str, Any]:
-    """Dispatch one explicit read-only call through the local daemon client."""
+    """Dispatch one policy-scoped MCP call through the local daemon client."""
     try:
         name, arguments = _require_arguments(params)
         if policy is None:
@@ -232,12 +332,27 @@ def _call_tool(params: object, *, policy: McpPolicy | None) -> dict[str, Any]:
         if name == "seckit_list_secrets":
             if arguments:
                 raise ValueError("invalid tool arguments")
+            revision_names = sorted(policy.update_names | policy.delete_names)
             entries = request_secret_metadata(
                 backend=policy.backend,
                 service=policy.service,
                 account=policy.account,
+                revision_names=revision_names,
             )
-            scoped = [entry for entry in entries if entry.get("name") in policy.metadata_names]
+            revision_names = policy.update_names | policy.delete_names
+            scoped = []
+            for entry in entries:
+                if (
+                    entry.get("service") != policy.service
+                    or entry.get("account") != policy.account
+                ):
+                    raise McpPolicyDenied
+                entry_name = entry.get("name")
+                if entry_name not in policy.metadata_names:
+                    continue
+                if entry_name not in revision_names:
+                    entry = {key: value for key, value in entry.items() if key != "revision"}
+                scoped.append(entry)
             return _tool_result({"entries": scoped})
         if name == "seckit_get_secret":
             if set(arguments) != {"name"}:
@@ -256,8 +371,57 @@ def _call_tool(params: object, *, policy: McpPolicy | None) -> dict[str, Any]:
                 name=requested_name,
             )
             return _tool_result({"value": value})
+        if name in {"seckit_create_secret", "seckit_update_secret", "seckit_delete_secret"}:
+            if policy.policy_version != 2:
+                raise McpPolicyDenied
+            if name == "seckit_create_secret":
+                if set(arguments) != {"name", "value"}:
+                    raise ValueError("invalid tool arguments")
+                requested_name = validate_key_name(name=_required(arguments, "name"))
+                if requested_name not in policy.create_names:
+                    raise McpPolicyDenied
+                revision = request_secret_create(
+                    service=policy.service,
+                    account=policy.account,
+                    name=requested_name,
+                    value=_required_write_value(arguments),
+                )
+                return _tool_result({"created": True, "revision": revision})
+            if name == "seckit_update_secret":
+                if set(arguments) != {"name", "value", "revision"}:
+                    raise ValueError("invalid tool arguments")
+                requested_name = validate_key_name(name=_required(arguments, "name"))
+                if requested_name not in policy.update_names:
+                    raise McpPolicyDenied
+                revision = _required_revision(arguments)
+                updated_revision = request_secret_update(
+                    service=policy.service,
+                    account=policy.account,
+                    name=requested_name,
+                    value=_required_write_value(arguments),
+                    revision=revision,
+                )
+                return _tool_result({"updated": True, "revision": updated_revision})
+            if set(arguments) != {"name", "revision"}:
+                raise ValueError("invalid tool arguments")
+            requested_name = validate_key_name(name=_required(arguments, "name"))
+            if requested_name not in policy.delete_names:
+                raise McpPolicyDenied
+            request_secret_delete(
+                service=policy.service,
+                account=policy.account,
+                name=requested_name,
+                revision=_required_revision(arguments),
+            )
+            return _tool_result({"deleted": True})
         return _tool_result({"error": "unknown_tool"}, is_error=True)
-    except (DaemonError, McpPolicyDenied, OSError):
+    except DaemonError as exc:
+        safe_error = {
+            "secret_revision_conflict": "write_conflict",
+            "secret_already_exists": "already_exists",
+        }.get(str(exc), "secrets_kit_unavailable_or_denied")
+        return _tool_result({"error": safe_error}, is_error=True)
+    except (McpPolicyDenied, OSError):
         return _tool_result({"error": "secrets_kit_unavailable_or_denied"}, is_error=True)
     except ValueError:
         return _tool_result({"error": "invalid_tool_arguments"}, is_error=True)
@@ -284,7 +448,7 @@ def handle_message(message: object, *, policy: McpPolicy | None = None) -> dict[
     if method == "ping":
         return {"jsonrpc": "2.0", "id": request_id, "result": {}}
     if method == "tools/list":
-        return {"jsonrpc": "2.0", "id": request_id, "result": {"tools": _tools()}}
+        return {"jsonrpc": "2.0", "id": request_id, "result": {"tools": _tools(policy)}}
     if method == "tools/call":
         return {
             "jsonrpc": "2.0",

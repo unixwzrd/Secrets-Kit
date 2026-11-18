@@ -134,16 +134,24 @@ def _queue_endpoint_prerequisites(
 
     Walk the original local endpoint chain backwards, stopping at an envelope
     already accepted by this destination. Never manufacture a transaction or
-    alter replay/projection state. Bound each pass and fail closed on missing
-    history. Unrelated local-only history is not broadcast to new peers.
+    alter replay/projection state. Check one update per affected peer and bound
+    each history walk; fail closed on missing history. Unrelated local-only
+    history is not broadcast to new peers.
     """
     pending = conn.execute(
-        """SELECT t.transaction_id, e.destination_node_id FROM envelopes e
-           JOIN transactions t ON t.transaction_id = e.transaction_id
-           JOIN node_private n ON n.node_id = t.origin_node_id
-           WHERE e.state IN ('pending', 'retry_pending') AND t.state = 'applied'
-             AND t.transaction_type IN ('peer.endpoint.update', 'peer.endpoint.replace')
-           ORDER BY t.rowid LIMIT 64"""
+        """WITH ranked_updates AS (
+               SELECT t.transaction_id, e.destination_node_id, t.rowid AS transaction_order,
+                      ROW_NUMBER() OVER (
+                          PARTITION BY e.destination_node_id ORDER BY t.rowid
+                      ) AS peer_rank
+               FROM envelopes e
+               JOIN transactions t ON t.transaction_id = e.transaction_id
+               JOIN node_private n ON n.node_id = t.origin_node_id
+               WHERE e.state IN ('pending', 'retry_pending') AND t.state = 'applied'
+                 AND t.transaction_type IN ('peer.endpoint.update', 'peer.endpoint.replace')
+           )
+           SELECT transaction_id, destination_node_id FROM ranked_updates
+           WHERE peer_rank = 1 ORDER BY transaction_order"""
     ).fetchall()
     for item in pending:
         peer = item["destination_node_id"]
@@ -253,11 +261,7 @@ def _deliverable_outbound_envelopes(*, conn: sqlite3.Connection) -> list[sqlite3
                     OR blocked.next_attempt_at > ?
                 )
           )
-        ORDER BY CASE e.state WHEN 'retry_pending' THEN 0 ELSE 1 END,
-                 e.attempt_count DESC,
-                 e.next_attempt_at ASC,
-                 t.rowid ASC,
-                 e.envelope_id ASC
+        ORDER BY t.rowid ASC, e.envelope_id ASC
         """,
         (now, now),
     ).fetchall()

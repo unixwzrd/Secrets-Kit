@@ -50,6 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = SeckitArgumentParser(prog="seckit", description=msg("cli.parser.description"))
     parser.add_argument("-v", "--version", action="version", version=f"%(prog)s {__version__}")
     subparsers = parser.add_subparsers(
+        prog=parser.prog,
         dest="command",
         required=True,
         title=msg("cli.parser.commands_title"),

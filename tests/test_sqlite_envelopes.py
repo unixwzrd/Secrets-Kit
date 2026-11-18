@@ -45,6 +45,7 @@ from secrets_kit.protocol.payload_codec import (
 from secrets_kit.runtime.outbound_delivery import (
     CLAIM_LEASE_SECONDS,
     MAX_DELIVERY_ATTEMPTS,
+    _deliverable_outbound_envelopes,
     _queue_endpoint_prerequisites,
     next_outbound_attempt_at,
     process_pending_outbound_envelopes,
@@ -168,6 +169,78 @@ class SQLiteEnvelopeTest(unittest.TestCase):
             with mock.patch("secrets_kit.runtime.outbound_delivery.is_peer_synchronization_eligible", return_value=False), mock.patch("secrets_kit.runtime.outbound_delivery.persist_outbound_envelopes") as persist:
                 _queue_endpoint_prerequisites(conn=conn, selected_peer_ids=None)
                 persist.assert_not_called()
+
+    def test_endpoint_prerequisites_are_checked_for_each_peer_after_many_updates(self) -> None:
+        from secrets_kit.backends.sqlite.peer_endpoints import create_peer_endpoint_transaction
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            conn = self._connect(tmpdir)
+            self.addCleanup(conn.close)
+            previous = "tcp://127.0.0.1:41000"
+            registered = replace(create_peer_endpoint_transaction(
+                transaction_type="peer.endpoint.register", node_id=self.local_node_id,
+                endpoint=previous,
+            ), state="applied")
+            with transaction(conn=conn):
+                insert_transaction(conn=conn, transaction=registered)
+                for index in range(64):
+                    endpoint = f"tcp://127.0.0.1:{41001 + index}"
+                    update = replace(create_peer_endpoint_transaction(
+                        transaction_type="peer.endpoint.update", node_id=self.local_node_id,
+                        endpoint=endpoint, previous_endpoint=previous,
+                    ), state="applied")
+                    insert_transaction(conn=conn, transaction=update)
+                    persist_outbound_envelopes(conn=conn, transaction=update, peers=[PEER_NODE_ID_1])
+                    previous = endpoint
+                target = replace(create_peer_endpoint_transaction(
+                    transaction_type="peer.endpoint.update", node_id=self.local_node_id,
+                    endpoint="tcp://127.0.0.1:41065", previous_endpoint=previous,
+                ), state="applied")
+                insert_transaction(conn=conn, transaction=target)
+                persist_outbound_envelopes(conn=conn, transaction=target, peers=[PEER_NODE_ID_2])
+
+            _queue_endpoint_prerequisites(conn=conn, selected_peer_ids=None)
+            queued = conn.execute(
+                "SELECT COUNT(*) FROM envelopes WHERE destination_node_id = ?",
+                (PEER_NODE_ID_2,),
+            ).fetchone()[0]
+            self.assertEqual(queued, 66)
+            self.assertIsNotNone(conn.execute(
+                "SELECT 1 FROM envelopes WHERE transaction_id = ? AND destination_node_id = ?",
+                (registered.transaction_id, PEER_NODE_ID_2),
+            ).fetchone())
+
+    def test_endpoint_history_precedes_a_retried_later_update(self) -> None:
+        from secrets_kit.backends.sqlite.peer_endpoints import create_peer_endpoint_transaction
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            conn = self._connect(tmpdir)
+            self.addCleanup(conn.close)
+            registered = replace(create_peer_endpoint_transaction(
+                transaction_type="peer.endpoint.register", node_id=self.local_node_id,
+                endpoint="tcp://127.0.0.1:41000",
+            ), state="applied")
+            update = replace(create_peer_endpoint_transaction(
+                transaction_type="peer.endpoint.update", node_id=self.local_node_id,
+                endpoint="tcp://127.0.0.1:41001", previous_endpoint="tcp://127.0.0.1:41000",
+            ), state="applied")
+            with transaction(conn=conn):
+                for item in (registered, update):
+                    insert_transaction(conn=conn, transaction=item)
+                    persist_outbound_envelopes(conn=conn, transaction=item, peers=[PEER_NODE_ID_1])
+                conn.execute(
+                    """UPDATE envelopes SET state = 'retry_pending', attempt_count = 3,
+                       next_attempt_at = '2020-01-01T00:00:00Z'
+                       WHERE transaction_id = ?""",
+                    (update.transaction_id,),
+                )
+
+            pending = _deliverable_outbound_envelopes(conn=conn)
+            transaction_ids = [conn.execute(
+                "SELECT transaction_id FROM envelopes WHERE envelope_id = ?",
+                (item["envelope_id"],),
+            ).fetchone()[0] for item in pending]
+            self.assertEqual(transaction_ids, [registered.transaction_id, update.transaction_id])
 
     def _connect(self, tmpdir: str) -> sqlite3.Connection:
         old_identity_key_path = os.environ.get(SQLITE_NODE_IDENTITY_KEY_ENV)

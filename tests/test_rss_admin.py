@@ -11,7 +11,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from secrets_kit.cli.commands.rss import cmd_rss_billing_portal, cmd_rss_billing_units
+from secrets_kit.cli.commands.rss import (
+    cmd_rss_billing_portal,
+    cmd_rss_billing_units,
+    cmd_rss_devices_revoke,
+)
 from secrets_kit.crypto.signatures import generate_ed25519_keypair
 from secrets_kit.protocol.rss_admin import (
     admin_action,
@@ -144,6 +148,22 @@ class RSSAdminTest(unittest.TestCase):
         self.assertIn("both RSS relays", error.getvalue())
         action.assert_called_once_with(action="billing.preview", parameters={"units": 2})
         confirm.assert_not_called()
+
+    def test_device_revoke_explains_when_slot_is_reusable(self) -> None:
+        for state, expected in (("pending_enforcement", "Wait for both relays"),
+                                ("enforced", "slot is available")):
+            with self.subTest(state=state):
+                result = {"connection_id": "device-test", "status": state,
+                          "billing_quantity_changed": False}
+                with (mock.patch("secrets_kit.cli.commands.rss.sys.stdin.isatty", return_value=True),
+                      mock.patch("secrets_kit.cli.commands.rss.admin_action", return_value=(200, result)),
+                      mock.patch("builtins.input", return_value="y") as confirmation,
+                      contextlib.redirect_stderr(io.StringIO()) as message,
+                      contextlib.redirect_stdout(io.StringIO()) as output):
+                    self.assertEqual(cmd_rss_devices_revoke(args=SimpleNamespace(connection_id="device-test")), 0)
+                self.assertIn("after both relays acknowledge", confirmation.call_args.args[0])
+                self.assertIn(expected, message.getvalue())
+                self.assertEqual(json.loads(output.getvalue()), result)
 
     def test_portal_shows_exact_paid_through_date_without_changing_json_url(self) -> None:
         result = {"portal_url": "https://billing.stripe.com/p/test",

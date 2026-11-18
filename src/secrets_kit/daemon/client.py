@@ -9,6 +9,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -183,6 +184,7 @@ def request_secret_metadata(
     backend: str,
     service: str | None = None,
     account: str | None = None,
+    revision_names: list[str] | None = None,
     timeout: float = 5.0,
 ) -> list[dict[str, Any]]:
     """List authorized non-secret metadata through the local runtime authority."""
@@ -191,6 +193,8 @@ def request_secret_metadata(
         arguments["service"] = service
     if account is not None:
         arguments["account"] = account
+    if revision_names:
+        arguments["revision_names"] = revision_names
     response = _request_runtime_access(
         operation="list_metadata", arguments=arguments, timeout=timeout
     )
@@ -206,6 +210,7 @@ def request_secret_metadata(
         "kind",
         "tags",
         "updated_at",
+        "revision",
     }
     projected: list[dict[str, Any]] = []
     for item in entries:
@@ -213,6 +218,85 @@ def request_secret_metadata(
             raise DaemonError("runtime returned unsafe metadata")
         projected.append({key: item[key] for key in allowed if key in item})
     return projected
+
+
+def request_secret_create(
+    *, service: str, account: str, name: str, value: str, timeout: float = 5.0
+) -> str:
+    """Create one MCP-authorized secret and return its opaque revision only."""
+    response = _request_runtime_access(
+        operation="create_secret",
+        arguments={
+            "backend": "sqlite",
+            "service": service,
+            "account": account,
+            "name": name,
+            "value": value,
+        },
+        timeout=timeout,
+    )
+    return _require_write_revision(response=response, success_key="created")
+
+
+def request_secret_update(
+    *,
+    service: str,
+    account: str,
+    name: str,
+    value: str,
+    revision: str,
+    timeout: float = 5.0,
+) -> str:
+    """Update one revision-matched secret and return its new opaque revision."""
+    response = _request_runtime_access(
+        operation="update_secret",
+        arguments={
+            "backend": "sqlite",
+            "service": service,
+            "account": account,
+            "name": name,
+            "value": value,
+            "revision": revision,
+        },
+        timeout=timeout,
+    )
+    return _require_write_revision(response=response, success_key="updated")
+
+
+def request_secret_delete(
+    *,
+    service: str,
+    account: str,
+    name: str,
+    revision: str,
+    timeout: float = 5.0,
+) -> None:
+    """Tombstone one revision-matched secret through canonical runtime access."""
+    response = _request_runtime_access(
+        operation="delete_secret",
+        arguments={
+            "backend": "sqlite",
+            "service": service,
+            "account": account,
+            "name": name,
+            "revision": revision,
+        },
+        timeout=timeout,
+    )
+    if response.get("deleted") is not True:
+        raise DaemonError("runtime returned invalid delete result")
+
+
+def _require_write_revision(*, response: dict[str, Any], success_key: str) -> str:
+    """Validate a value-free write acknowledgment and opaque revision token."""
+    revision = response.get("revision")
+    if (
+        response.get(success_key) is not True
+        or not isinstance(revision, str)
+        or not re.fullmatch(r"rev1:[0-9a-f]{64}", revision)
+    ):
+        raise DaemonError("runtime returned invalid write result")
+    return revision
 
 
 def request_secret_value(
@@ -442,6 +526,9 @@ __all__ = [
     "request_local_direct_candidate",
     "request_daemon_tcp",
     "request_secret_metadata",
+    "request_secret_create",
+    "request_secret_update",
+    "request_secret_delete",
     "request_secret_value",
     "request_opaque_route",
     "runtime_dir",

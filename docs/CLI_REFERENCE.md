@@ -1,9 +1,7 @@
-> Source of truth: Secrets Kit documentation master. This public copy is a reviewed derivative.
-
 # CLI reference — `seckit`
 
 **Created**: 2026-05-07  
-**Updated**: 2026-11-07
+**Updated**: 2026-11-03
 
 Command list aligned with the current `seckit --help` output. For mental models and policies, see [CONCEPTS.md](CONCEPTS.md).
 
@@ -16,6 +14,8 @@ Command list aligned with the current `seckit --help` output. For mental models 
   - [Metadata schema registry (`schema`)](#metadata-schema-registry-schema)
   - [Taxonomy registry (`taxonomy`)](#taxonomy-registry-taxonomy)
   - [Internal command](#internal-command)
+  - [Programmatic agent access](#programmatic-agent-access)
+  - [Remote Secrets Sync (`rss`)](#remote-secrets-sync-rss)
   - [File layout (reminder)](#file-layout-reminder)
 
 ## Output conventions
@@ -32,7 +32,7 @@ Command list aligned with the current `seckit --help` output. For mental models 
 | `list` | List stored metadata entries, redacted by default. |
 | `explain` | Show resolved metadata for a stored entry without printing secret plaintext. |
 | `run` | Resolve secrets in the parent process and exec a child command. |
-| `export` | Export selected secrets for runtime use (`shell`, placeholder `dotenv`, `encrypted-json`, or portable `age`). Shell and encrypted output support protected new-file `--out`; age requires an installed executable and `--recipient`. |
+| `export` | Export selected credentials as `shell`, placeholder `dotenv`, protected value-bearing `dotenv-values`, `encrypted-json`, or portable `age`. `dotenv-values` requires `--out` to a new protected file and refuses values that its format cannot preserve. Shell and encrypted output support protected new-file `--out`; age requires an installed executable and `--recipient`. |
 | `import` | Subcommands: `env`, `file`, `encrypted-json`. |
 | `delete` | Delete one stored secret and its metadata. |
 | `service` | Subcommand: `copy` between service scopes in SQLite. |
@@ -51,30 +51,34 @@ Command list aligned with the current `seckit --help` output. For mental models 
 
 | Command | Purpose |
 | --- | --- |
-| `status` | Concise operator health summary across daemon reachability, SQLite datastore posture, transaction lifecycle counts, envelope lifecycle counts, Peer Registry eligibility, and recent synchronization timestamps. Use `--json` for stable automation fields. |
+| `status` | Ask the local daemon for the current node health summary. The daemon aggregates transport, runtime, routing, peer, transaction, envelope, and synchronization state; the CLI does not inspect SQLite. Use `--json` for automation. |
 | `doctor` | Backend posture, catalog checks, backend metadata validation. `--install-check` is a fast post-install gate. |
 | `daemon` | Manage local `seckitd`: `start`, `stop`, `restart`, `status`, `ping`, and `service install\|uninstall\|status`. `daemon run` is the foreground service-manager entry point. |
+| `uninstall` | Remove this host's receipt-verified client runtime while preserving data and RSS billing. Review `--dry-run` first; interactive removal asks `[y/N]`. `--yes` skips only the prompt for approved automation and is required for purge; safety checks remain active. See [OPERATOR_LIFECYCLE.md](OPERATOR_LIFECYCLE.md#uninstall). |
 | `envelope` | Read-only inspection of persisted outbound envelopes: `list`, `show <envelope_id>`. |
 | `peer` | SQLite peer admission: `request`, `import-request`, `accept`, `import-acceptance`, `reject`, `revoke`, `export-identity`, `list`, `show`. `peer reject` applies only to pending requests; `peer revoke NODE_ID` locally ends an active admission, denies queued work, and does not retract already delivered secrets. `peer accept NODE_ID --service SERVICE --account ACCOUNT` authorizes only that named scope. Both names are required and cannot be combined with ID or wildcard options. With no scope, acceptance grants authorization mode `none`; repeated `--service-group-id` supplies an explicit allow-list; `--all-service-groups` is an explicit wildcard and cannot be combined with scoped options. |
 | `transaction` | Read-only inspection of persisted transactions: `list`, `show <transaction_id>`. |
 
-`status`, `info`, and `doctor` intentionally answer different questions: `status` summarizes current operational health and lifecycle counts; `info` reports version/default/backend configuration; `doctor` performs validation and the supported install check.
-
-The daemon is authoritative for `status`. If its response is unavailable, including a timeout or invalid response, the CLI reports `UNKNOWN`, JSON `daemon.running: null`, an error and a nonzero exit status. Failed communication does not establish that the daemon stopped. The CLI does not fall back to reading SQLite.
+`status`, `info`, and `doctor` intentionally answer different questions: `status` asks the daemon for current operational health; `info` reports version/default/backend configuration; `doctor` performs validation and the supported install check. Status is an operational view, not an audit report or database dump.
 
 `daemon service install` creates and starts a same-user managed service. macOS uses `~/Library/LaunchAgents/net.unixwzrd.secrets-kit.daemon.plist`; Linux uses `~/.config/systemd/user/secrets-kit-daemon.service`. Successful RSS enrollment, RSS configuration, and RSS identity import install the service automatically. Linux reports when administrator-enabled user lingering is required but never escalates privileges. MCP remains fail-closed when the daemon is unavailable.
 
-`rss enroll` and `rss configure` retain local configuration and start the managed daemon independently of remote authorization. Their JSON output distinguishes `configured` from `rss_authenticated`; exit zero requires the daemon to have observed an authenticated RSS relay. Pending or unavailable authorization returns nonzero without stopping local operation. A verified capacity rejection reports `device_capacity_exhausted`; ask the operator to increase capacity or explicitly deprovision a device. `seckit status --json` includes `rss.configured` and `rss.authenticated_relays` from the daemon's latest authentication check, not a guarantee of continuous relay availability.
+`rss enroll` and `rss configure` retain local configuration and start the managed daemon independently of remote authorization. Their JSON output distinguishes `configured` from `rss_authenticated`; exit zero requires the daemon to have observed an authenticated RSS relay. Pending or unavailable authorization returns nonzero without stopping local operation. A verified capacity rejection reports `device_capacity_exhausted`; the billing owner can purchase more capacity with `seckit rss billing units N`, or revoke a device and wait for both relays to enforce that revocation before reusing its slot. `seckit status --json` includes `rss.configured` and `rss.authenticated_relays` from the daemon's latest authentication check, not a guarantee of continuous relay availability.
 
-The billing owner uses `seckit rss billing portal` to see the paid-through date and cancellation consequences before opening Stripe for payment methods, invoices, or period-end cancellation. Paid capacity changes use `seckit rss billing units N` with explicit confirmation; an increase is available only after verified payment and reconciliation. See [RSS_CUSTOMER_GUIDE.md](RSS_CUSTOMER_GUIDE.md) for the customer procedure.
+### `status`
+
+Run `seckit status` on the node whose daemon you want to inspect. The command uses the local Unix-domain control socket and formats daemon-provided state.
+It reports identity, version, runtime mode, uptime, local endpoint, daemon lifecycle, bound/advertised addresses, local libp2p PeerID, mDNS discovery state, known peers and authorization, validated route sources, connection and missing-route state, and durable synchronization counters. `--json` emits the structured response. Rejected binding counts never include payload or key material.
+
+The daemon is authoritative for this view. If its response is unavailable, including a timeout or invalid response, the CLI reports `UNKNOWN`, JSON `daemon.running: null`, an error and a nonzero exit status. Failed communication does not establish that the daemon stopped. The CLI does not fall back to reading SQLite. Audit and compliance reports remain separate historical evidence capabilities.
 
 ## Migration / maintenance
 
 ### Non-SSH peer invitations
 
-Production 2.0.4 uses the supported [SSH peer installation and enrollment](INSTALL.md#remote-install) path. The optional persistent peer-invitation mailbox is not enabled in production. A peer invitation is distinct from the retired beta Checkout invitation; ordinary paid Checkout and enrollment require no beta invitation. Where a mailbox is configured, independent peer onboarding uses an encrypted, short-lived invitation without SSH or manual request/acceptance files; see [INSTALL.md](INSTALL.md#independent-installation-without-ssh) for prerequisites and the complete procedure. On an initialized source, run `seckit peer invite --service SERVICE --account ACCOUNT`; add `--rss` only when that user has the separate billing-owner credential and intends to authorize the new device's RSS enrollment. The code is displayed only on an interactive terminal and must be delivered privately. On the initialized target, run `seckit peer join`, enter the code at its hidden prompt and confirm the source identity and scope. On the source, run `seckit peer approve SESSION_ID`, compare the target's fingerprints with that user and confirm. On the target, run `seckit peer join --resume SESSION_ID` to apply the approval; rerun source approval to observe the target's signed completion. Use the non-secret session ID, not the private invitation code, for approval and resume commands. A retained source offer can be retried with `seckit peer invite --resume SESSION_ID`; retrying never creates a new code or extends its original 15-minute deadline.
+Independent peer onboarding uses an encrypted, short-lived invitation without SSH or manual request/acceptance files. This customer workflow is installed-qualified in the public beta; see [INSTALL.md](INSTALL.md#independent-installation-without-ssh) for prerequisites and the complete procedure. On an initialized source, run `seckit peer invite --service SERVICE --account ACCOUNT`; add `--rss` only when that user has the separate billing-owner credential and intends to authorize the new device's RSS enrollment. The code is displayed only on an interactive terminal and must be delivered privately. On the initialized target, run `seckit peer join`, enter the code at its hidden prompt and confirm the displayed source identity and scope. On the source, run `seckit peer approve SESSION_ID`, compare the target's fingerprints with that user and confirm. On the target, run `seckit peer join --resume SESSION_ID` to apply the approval; rerun source approval to observe the target's signed completion. Use the non-secret session ID, not the private invitation code, for approval and resume commands. A retained source offer can be retried with `seckit peer invite --resume SESSION_ID`; retrying never creates a new code or extends its original 15-minute deadline.
 
-The invitation grants only the named service/account scope. With `--rss`, the target keeps its own private RSS key and receives an enrollment token bound to that key and connection ID. A full subscription leaves approval pending; the billing owner uses `seckit rss billing units N` to preview and authorize an increase, then retries approval after payment is verified and paid capacity is available. The mailbox cannot authorize a peer, bill an account or read secrets. Peer admission, local RSS configuration, authenticated relay enrollment and a connected route remain separate results. A successful invitation does not prove network reachability; inspect `seckit status` before synchronization testing.
+The invitation grants only the named service/account scope. With `--rss`, the target keeps its own private RSS key and receives an enrollment token bound to that key and connection ID. A full subscription leaves approval pending; the billing owner uses `seckit rss billing units N` and retries approval after paid capacity is available. The mailbox cannot authorize a peer, bill an account or read secrets. Peer admission, local RSS configuration, authenticated relay enrollment and a connected route remain separate results. A successful invitation does not prove network reachability; inspect `seckit status` before synchronization testing.
 
 | Command | Purpose |
 | --- | --- |
@@ -120,9 +124,47 @@ Taxonomy operations use SQLite. Legacy Keychain is not an operational taxonomy b
 
 ## Programmatic agent access
 
-`seckit-mcp [--policy PATH]` starts the read-only stdio MCP server for same-user local agent clients. It never opens a network listener. Startup requires a valid owner-only fixed-scope policy; the default is `~/.config/seckit/mcp-policy.json`.
+`seckit-mcp [--policy PATH]` starts the stdio MCP server for same-user local agent clients. It never opens a network listener. Startup requires a valid owner-only fixed-scope policy; the default is `~/.config/seckit/mcp-policy.json`.
 
-The policy pins one backend, service, account, metadata-name allowlist, and explicit-retrieval allowlist. Callers cannot override that scope. Metadata is filtered to the policy. `seckit_get_secret` fails closed unless the requested name is present in `retrieval_names`; successful retrieval materializes plaintext to the MCP client. Keep the retrieval allowlist empty unless model-visible retrieval is specifically authorized.
+Version 1 policies remain read-only and pin one backend, service, account, metadata-name allowlist, and explicit-retrieval allowlist. Version 2 is opt-in and SQLite-only; it adds `create_names`, `update_names`, and `delete_names`, each an exact list of names with no wildcard support. Every write grant must also appear in `metadata_names`; update and delete use the current opaque `revision` returned for that name by `seckit_list_secrets`. A create succeeds only when no active secret exists, while update and delete reject a stale or missing revision. The policy fixes service and account, and callers cannot override either scope.
+
+The fixed service/account pair identifies the SQLite service group enforced for this MCP process. See [MCP service-group best practices](INTEGRATIONS.md#mcp-service-group-best-practices) for configuration and same-user boundary guidance.
+
+Version 2 exposes separate create, update, and delete tools only when that operation has at least one granted name. Write results contain status and opaque revision only, never the secret value. However, a value supplied as an MCP write argument is visible to the MCP host and may be visible to its agent or model; do not grant writes for secrets that must remain hidden from that host. The MCP process enforces the policy before forwarding requests; the same-user daemon runtime does not receive that policy, so it is not a boundary against other processes running as the same Unix user, which may have the same local account authority as the CLI. MCP remains local stdio and daemon runtime access remains unavailable over TCP.
+
+An owner-only v2 policy has this shape; each write list can be empty, and each listed write name must also be in `metadata_names`:
+
+```json
+{
+  "version": 2,
+  "backend": "sqlite",
+  "service": "example-service",
+  "account": "local",
+  "metadata_names": ["API_TOKEN"],
+  "retrieval_names": [],
+  "create_names": ["API_TOKEN"],
+  "update_names": ["API_TOKEN"],
+  "delete_names": []
+}
+```
+
+## Remote Secrets Sync (`rss`)
+
+| Command | Purpose |
+|---|---|
+| `rss checkout [--connection-units N]` | Start Checkout with a visible peer-count suggestion in an interactive terminal, or an explicit valid quantity. The minimum is two units. |
+| `rss enroll` | Exchange the verified paid Checkout receipt for a protected RET and configure the provisioned entitlement and ordered RSS endpoints without customer-constructed identifiers. |
+| `rss owner claim` | Claim account-owner authority after paid first-device enrollment and save one-time offline recovery codes. |
+| `rss owner recover --account-id ID [--operator-url HTTPS_URL]` | Rotate the owner key on a replacement machine with one saved recovery code. |
+| `rss billing portal` | Show the current paid-through date and cancellation consequences, then obtain the Stripe-hosted portal link for payment methods, invoices and period-end cancellation. |
+| `rss billing units N` | Preview and explicitly confirm a Stripe quantity change; increases become available only after verified payment and reconciliation. |
+| `rss devices list` | List this paid account's devices and capacity. |
+| `rss devices revoke CONNECTION_ID` | Confirm permanent revocation of one device; paid quantity remains unchanged. |
+| `rss configure --entitlement-id ID --enrollment-url HTTPS_URL --relay-peer MULTIADDR [...]` | Lower-level operator-assisted recovery command; not the normal beta enrollment path. |
+| `rss identity export --output PATH` | Compatibility/recovery transfer; not the ordinary additional-device workflow. |
+| `rss identity import --input PATH` | Compatibility/recovery import; not the ordinary additional-device workflow. |
+
+Use `seckit install user@host` from the enrolled owner machine for a new peer and its distinct RSS device. See [RSS_CUSTOMER_GUIDE.md](RSS_CUSTOMER_GUIDE.md). RET values are file/SSH-stdin inputs and never command-line values.
 
 ## File layout (reminder)
 
@@ -130,4 +172,4 @@ Under **`~/.config/seckit/`**: `defaults.json`, optional `config.json`, `registr
 
 The daemon runtime directory defaults to **`~/.local/share/seckit/runtime`** and contains `seckitd.json`, `seckitd.sock`, and startup lock state. See [DEFAULTS.md](DEFAULTS.md).
 
-The development lab root defaults to **`~/.config/seckit-lab/`**. Each lab node owns independent config, SQLite, runtime, logs, sockets, TCP port, and node identity paths. The lab is orchestration only; the daemon transports opaque envelopes and the runtime owns protocol processing. Default lab admission uses explicit allow-list authorization for service `lab-service` and account `local`.
+The development lab root defaults to **`~/.config/seckit-lab/`**. Each lab node owns independent config, SQLite, runtime, logs, sockets, TCP port, and node identity paths. The lab is orchestration only. Current local synchronization has been revalidated through the remediated opaque daemon transport and runtime-owned protocol path. Default lab admission uses explicit allow-list authorization for service `lab-service` and account `local`.

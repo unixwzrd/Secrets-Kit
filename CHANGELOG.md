@@ -4,6 +4,37 @@ Customer-facing changes. This file is derived from the authoritative public chan
 
 ## Unreleased
 
+## 2.0.5 — stable release
+
+- Deliver pending endpoint history to each authorized peer in transaction order so a newly joined device can synchronize even after other peers accumulate updates.
+- Keep the installed CLI, MCP server, and Hermes helpers isolated from inherited Python and native-library environment settings. Update the Hermes integration for current release artifacts and daemon-health verification.
+- Add opt-in, exact-name MCP credential writes within one owner-approved service and account; the default MCP policy remains read-only. Pin Hermes to its approved policy and keep credential listing inside that scope.
+- Export selected credential values to protected dotenv files when the target loader preserves them, and provide human and agent instructions for a one-host exit. Local uninstall now asks for confirmation by default; `--yes` is available for approved automation, and the credential store and keys remain by default.
+- Clarify when Remote Sync revocation is still awaiting relay enforcement and when the slot is ready for a replacement.
+
+## 2.0.5b9 — public beta
+
+- Keep the MCP server inside the configured service and account when listing credential metadata, including when another service uses the same credential name.
+- Pin the Hermes MCP launcher to its owner-approved policy and verify that its policy, import scope, and credential allowlist agree. The default MCP policy remains read-only.
+- Run the focused MCP and Hermes integration checks in routine client CI without starting Hermes.
+
+## 2.0.5b8 — public beta
+
+- Export selected stored credential values to a protected dotenv file for applications that load `.env` files. The command refuses values it cannot preserve in that format; verify the receiving application's loader before switching it over. The existing placeholder dotenv export remains available.
+- Local uninstall now asks for confirmation by default. `--yes` skips the prompt for approved automation while keeping receipt, ownership, path, and active-service checks. Uninstall preserves the credential store and keys by default and does not cancel Remote Sync billing or revoke devices.
+- Add human and agent instructions for recovering credentials, checking the replacement application, and uninstalling one host.
+
+## 2.0.5b7 — public beta
+
+- Isolate the installed CLI, MCP server, and Hermes helpers from inherited Python, Conda, native-loader, and OpenSSL settings. Select the Hermes launcher runtime from the installed user location, ignoring a caller-supplied runtime path. Update the Hermes installer controller and verifier for current release artifacts and daemon health.
+- Add opt-in MCP write grants for exact credential names in one fixed service/account scope. The default policy remains read-only. Creation, revision-checked updates, and revision-checked deletion use the existing SQLite transaction path; write arguments may be visible to the agent host.
+- Document how to pin the Hermes MCP policy to its service group and keep secret retrieval disabled unless a value is deliberately approved for model-visible output.
+
+## 2.0.5b3 — public beta
+
+- Pending endpoint updates now reach each authorized peer, and enrollment history is delivered in transaction order even after a later update has been retried. This fixes a case where a peer could remain unable to synchronize after joining.
+- Existing paying customers can opt into this beta without a second subscription or enrollment. The stable v2.0.4 installer remains available.
+
 ## 2.0.4 — stable maintenance release
 
 - Align Makefile help and developer documentation with the validation commands used by CI. Remove a nonexistent target reference and document the exact editable-install command; client runtime behavior is unchanged.

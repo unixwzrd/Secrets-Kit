@@ -20,7 +20,7 @@ from pathlib import Path
 from unittest import mock
 
 from secrets_kit.cli.parser import build_parser
-from secrets_kit.uninstall import UninstallError, record_installation, uninstall
+from secrets_kit.uninstall import UninstallError, cmd_uninstall, record_installation, uninstall
 
 
 class UninstallTest(unittest.TestCase):
@@ -591,6 +591,60 @@ class UninstallTest(unittest.TestCase):
         args = build_parser().parse_args(["uninstall", "--dry-run"])
         self.assertTrue(args.dry_run)
         self.assertFalse(args.yes)
+
+    def test_interactive_uninstall_requires_explicit_yes(self) -> None:
+        """A declined or interrupted human prompt cannot remove the runtime."""
+        args = build_parser().parse_args(["uninstall"])
+        with (
+            mock.patch("secrets_kit.uninstall.sys.stdin.isatty", return_value=True),
+            mock.patch("secrets_kit.uninstall.uninstall") as remove,
+            mock.patch("builtins.input", return_value="n"),
+        ):
+            self.assertEqual(cmd_uninstall(args=args), 64)
+            remove.assert_not_called()
+        with (
+            mock.patch("secrets_kit.uninstall.sys.stdin.isatty", return_value=True),
+            mock.patch("secrets_kit.uninstall.uninstall") as remove,
+            mock.patch("builtins.input", side_effect=EOFError),
+        ):
+            self.assertEqual(cmd_uninstall(args=args), 64)
+            remove.assert_not_called()
+        with (
+            mock.patch("secrets_kit.uninstall.sys.stdin.isatty", return_value=True),
+            mock.patch("secrets_kit.uninstall.uninstall", return_value={"status": "removed"}) as remove,
+            mock.patch("builtins.input", return_value="yes"),
+        ):
+            self.assertEqual(cmd_uninstall(args=args), 0)
+            remove.assert_called_once()
+
+    def test_unattended_uninstall_needs_yes_and_purge_needs_yes(self) -> None:
+        """Automation must opt in, and --yes never disables receipt checks."""
+        args = build_parser().parse_args(["uninstall"])
+        with (
+            mock.patch("secrets_kit.uninstall.sys.stdin.isatty", return_value=False),
+            mock.patch("secrets_kit.uninstall.uninstall") as remove,
+            mock.patch("builtins.input") as prompt,
+        ):
+            self.assertEqual(cmd_uninstall(args=args), 64)
+            remove.assert_not_called()
+            prompt.assert_not_called()
+        args = build_parser().parse_args(["uninstall", "--purge"])
+        with (
+            mock.patch("secrets_kit.uninstall.sys.stdin.isatty", return_value=True),
+            mock.patch("secrets_kit.uninstall.uninstall") as remove,
+            mock.patch("builtins.input") as prompt,
+        ):
+            self.assertEqual(cmd_uninstall(args=args), 64)
+            remove.assert_not_called()
+            prompt.assert_not_called()
+        args = build_parser().parse_args(["uninstall", "--yes"])
+        with (
+            mock.patch("secrets_kit.uninstall.sys.stdin.isatty", return_value=False),
+            mock.patch("secrets_kit.uninstall.uninstall", side_effect=UninstallError("missing_receipt")),
+            mock.patch("builtins.input") as prompt,
+        ):
+            self.assertEqual(cmd_uninstall(args=args), 78)
+            prompt.assert_not_called()
 
     def test_bash_and_zsh_profiles_lose_only_the_exact_path_block(self) -> None:
         """Remove the standard three-line block from each installer-managed profile."""
