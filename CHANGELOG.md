@@ -4,6 +4,12 @@ Customer-facing changes. This file is derived from the authoritative public chan
 
 ## Unreleased
 
+## 2.0.5b9 — public beta
+
+- Keep the MCP server inside the configured service and account when listing credential metadata, including when another service uses the same credential name.
+- Pin the Hermes MCP launcher to its owner-approved policy and verify that its policy, import scope, and credential allowlist agree. The default MCP policy remains read-only.
+- Run the focused MCP and Hermes integration checks in routine client CI without starting Hermes.
+
 ## 2.0.5b8 — public beta
 
 - Export selected stored credential values to a protected dotenv file for applications that load `.env` files. The command refuses values it cannot preserve in that format; verify the receiving application's loader before switching it over. The existing placeholder dotenv export remains available.

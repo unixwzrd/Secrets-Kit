@@ -359,7 +359,7 @@ def configure(args: argparse.Namespace) -> int:
     )
     _write_private_executable(
         mcp_wrapper,
-        shell + f"exec {shlex.quote(str(runtime_python))} -I -m secrets_kit.mcp_server \"$@\"\n",
+        shell + f"exec {shlex.join([str(runtime_python), '-I', '-m', 'secrets_kit.mcp_server', '--policy', str(mcp_policy)])} \"$@\"\n",
     )
     names_file.write_text("".join(f"{name}\n" for name in names), encoding="utf-8")
     os.chmod(names_file, 0o600)
@@ -490,6 +490,47 @@ def verify(args: argparse.Namespace) -> int:
     except (ValueError, IndexError, OSError, UnicodeDecodeError):
         return 1
     if not names or len(names) > 128 or len(set(names)) != len(names) or any(not _valid_env_name(name) for name in names):
+        return 1
+    policy_path = home / ".config/seckit/mcp-policy.json"
+    try:
+        def helper_option(name: str) -> str:
+            if helper_argv.count(name) != 1:
+                raise ValueError("invalid helper scope")
+            return helper_argv[helper_argv.index(name) + 1]
+
+        info = policy_path.lstat()
+        parent = policy_path.parent.lstat()
+        if (
+            policy_path.is_symlink() or not stat.S_ISREG(info.st_mode)
+            or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) not in (0o400, 0o600)
+            or policy_path.parent.is_symlink() or not stat.S_ISDIR(parent.st_mode)
+            or parent.st_uid != os.getuid() or parent.st_mode & 0o022
+            or info.st_size > 65_536
+        ):
+            return 1
+        policy = json.loads(policy_path.read_text(encoding="utf-8"))
+        wrapper = mcp_wrapper.read_text(encoding="utf-8")
+        pinned_policy = shlex.join(["--policy", str(policy_path)])
+        helper_seckit = helper_option("--seckit")
+        helper_backend = helper_option("--backend")
+        helper_service = helper_option("--service")
+        helper_account = helper_option("--account")
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError, IndexError):
+        return 1
+    if (
+        names_file != home / ".config/seckit/hermes.env-names"
+        or helper_seckit != str(seckit)
+        or not isinstance(policy, dict)
+        or set(policy) != {"version", "backend", "service", "account", "metadata_names", "retrieval_names"}
+        or policy["version"] != 1
+        or policy["backend"] != helper_backend or policy["backend"] != "sqlite"
+        or policy["service"] != helper_service
+        or policy["account"] != helper_account
+        or policy["metadata_names"] != names
+        or not isinstance(policy["retrieval_names"], list)
+        or any(name not in names for name in policy["retrieval_names"])
+        or not wrapper.rstrip().endswith(f'{pinned_policy} "$@"')
+    ):
         return 1
     # Clearing the allowlisted names proves the helper can source them from
     # Secrets Kit instead of silently echoing variables inherited from dotenv.

@@ -20,7 +20,7 @@
   - [Contributing](#contributing)
   - [Support / license](#support--license)
 
-**Repository:** `Secrets-Kit` · **CLI:** `seckit` · **Release status:** stable v2.0.4 available; public beta v2.0.5b8 available
+**Repository:** `Secrets-Kit` · **CLI:** `seckit` · **Release status:** stable v2.0.4 available; public beta v2.0.5b9 available
 
 Secrets Kit is a local-first credential storage and management system for macOS and Linux. It uses encrypted SQLite storage, authenticated encrypted peer synchronization, optional RSS forwarding, selected environment injection through `seckit run`, and policy-scoped stdio MCP access. MCP policies are read-only by default; an explicit v2 policy can grant narrowly scoped credential writes. Existing macOS Keychain records can be imported through an explicit, read-only migration.
 
@@ -79,16 +79,16 @@ If any row above is unclear, do not use this tool for real secrets yet.
 
 End users do not need to install Python, uv, virtual environments, or Git. The installer provisions the runtime automatically.
 
-For the current public beta (`v2.0.5b8`), run the exact qualified first-machine command below. No GitHub sign-in is needed. Do not use GitHub's **Source code** archives as installers.
+For the current public beta (`v2.0.5b9`), run the exact qualified first-machine command below. No GitHub sign-in is needed. Do not use GitHub's **Source code** archives as installers.
 
 ```bash
-bash -o pipefail -c 'curl -fsSL https://github.com/unixwzrd/Secrets-Kit/releases/download/v2.0.5b8/install.sh | bash'
+bash -o pipefail -c 'curl -fsSL https://github.com/unixwzrd/Secrets-Kit/releases/download/v2.0.5b9/install.sh | bash'
 ```
 
 If `curl` is unavailable, use `wget` instead:
 
 ```bash
-bash -o pipefail -c 'wget -qO- https://github.com/unixwzrd/Secrets-Kit/releases/download/v2.0.5b8/install.sh | bash'
+bash -o pipefail -c 'wget -qO- https://github.com/unixwzrd/Secrets-Kit/releases/download/v2.0.5b9/install.sh | bash'
 ```
 
 The installer supplies and verifies its release identity and managed runtime; no separate Python, uv, Git, archive extraction, or manual package download is required. Open a new Terminal after installation so its PATH setup takes effect. Do not run `seckit init` over an existing store. See [installation troubleshooting](docs/INSTALL.md) as needed. Private DEV/QA builds require approved repository access and their own exact release artifacts; this public beta command does not install those builds.
